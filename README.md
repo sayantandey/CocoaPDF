@@ -17,10 +17,8 @@ CocoaPDF recovers the text, layout, tables, links, notes, forms, and images alre
 <br>
 
 ![MIT License](docs/assets/brand/badges/cocoapdf-badge-license-mit.svg)
-![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-795548?style=flat-square\&logo=python\&logoColor=white)
-![Standard-library runtime](docs/assets/brand/badges/cocoapdf-badge-runtime-stdlib.svg)
+<img src="https://img.shields.io/badge/Python-3.9%2B-795548?style=flat-square&amp;logo=python&amp;logoColor=white" alt="Python 3.9+" height="28">
 ![No OCR](docs/assets/brand/badges/cocoapdf-badge-no-ocr.svg)
-![No AI](docs/assets/brand/badges/cocoapdf-badge-no-ai.svg)
 ![Markdown and HTML](docs/assets/brand/badges/cocoapdf-badge-output-md-html.svg)
 
 </div>
@@ -457,7 +455,7 @@ cocoapdf-macos.tar.gz
 The macOS package contains separate Apple Silicon and Intel executables.
 The Linux x86_64 binary uses an Ubuntu 22.04 build baseline for broader glibc compatibility.
 
-Before execution, verify the package against [SHA256SUMS.txt][download-checksums] and inspect the provenance in [RELEASE.json][download-manifest]. Each archive also carries the CocoaPDF brand asset manifest, project license and notice, platform icon, and per-binary provenance manifest. The Windows executable embeds the CocoaPDF icon and product/version metadata.
+Before execution, verify the package against [SHA256SUMS.txt][download-checksums] and inspect its per-binary provenance in [RELEASE.json][download-manifest]. Downloads are intentionally lean: Windows and Linux contain one executable plus the required MIT license; macOS contains its Apple Silicon and Intel executables plus the license. The Windows executable embeds the CocoaPDF icon and product/version metadata.
 
 ### Install from source
 

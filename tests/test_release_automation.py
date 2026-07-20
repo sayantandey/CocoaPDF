@@ -146,39 +146,36 @@ class BuildAutomationTests(unittest.TestCase):
 			with zipfile.ZipFile(output / "cocoapdf-windows-x86_64.zip") as archive:
 				self.assertEqual(
 					set(archive.namelist()),
-					{
-						"cocoapdf.exe",
-						"cocoapdf.exe.manifest.json",
-						"README.txt",
-						"LICENSE.txt",
-						"NOTICE.txt",
-						"BRAND_ASSET_MANIFEST.json",
-						"CocoaPDF.ico",
-					},
+					{"cocoapdf.exe", "LICENSE.txt"},
 				)
-				self.assertTrue(archive.read("README.txt").startswith(b"CocoaPDF 1.2.3"))
+				self.assertTrue(archive.read("LICENSE.txt").startswith(b"MIT License"))
 			with tarfile.open(output / "cocoapdf-linux-x86_64.tar.gz", "r:gz") as archive:
 				self.assertEqual(
 					set(archive.getnames()),
-					{
-						"cocoapdf",
-						"cocoapdf.manifest.json",
-						"README.txt",
-						"LICENSE.txt",
-						"NOTICE.txt",
-						"BRAND_ASSET_MANIFEST.json",
-						"CocoaPDF.png",
-					},
+					{"cocoapdf", "LICENSE.txt"},
 				)
-				self.assertIn(b"Ubuntu 22.04 build baseline", archive.extractfile("README.txt").read())
+				self.assertEqual(archive.getmember("cocoapdf").mode, 0o755)
 			with tarfile.open(output / "cocoapdf-macos.tar.gz", "r:gz") as archive:
-				self.assertIn("cocoapdf-arm64", archive.getnames())
-				self.assertIn("cocoapdf-x86_64", archive.getnames())
-				self.assertIn("CocoaPDF.png", archive.getnames())
+				self.assertEqual(
+					set(archive.getnames()),
+					{"cocoapdf-arm64", "cocoapdf-x86_64", "LICENSE.txt"},
+				)
+				self.assertEqual(archive.getmember("cocoapdf-arm64").mode, 0o755)
+				self.assertEqual(archive.getmember("cocoapdf-x86_64").mode, 0o755)
 			metadata = json.loads((output / "RELEASE.json").read_text(encoding="utf-8"))
 			self.assertEqual(metadata["product"], "CocoaPDF")
 			self.assertEqual(metadata["branding"]["manifest_version"], branding["version"])
+			self.assertEqual(metadata["branding"]["asset_count"], 47)
 			self.assertTrue(metadata["branding"]["windows_executable_icon_embedded"])
+			self.assertEqual(set(metadata["binaries"]), set(EXPECTED_BINARIES))
+			self.assertEqual(
+				metadata["binaries"]["windows-x86_64"]["sha256"],
+				hashlib.sha256(b"binary-windows-x86_64").hexdigest(),
+			)
+			self.assertEqual(
+				metadata["package_contents"]["cocoapdf-windows-x86_64.zip"],
+				["cocoapdf.exe", "LICENSE.txt"],
+			)
 			checksums = (output / "SHA256SUMS.txt").read_text(encoding="ascii")
 			self.assertIn("cocoapdf-windows-x86_64.zip", checksums)
 
