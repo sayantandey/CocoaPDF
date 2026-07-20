@@ -74,6 +74,11 @@ Thumbs.db
 /corpus/work/
 
 # Internal design notes and local agent state are intentionally never published.
-/docs/
+# The canonical brand kit is public project material and is the sole docs exception.
+/docs/*
+!/docs/assets/
+/docs/assets/*
+!/docs/assets/brand/
+!/docs/assets/brand/**
 /.claude/
 /.agents/

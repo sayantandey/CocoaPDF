@@ -1,0 +1,26 @@
+{
+  "project": "CocoaPDF",
+  "concept": "document page + cocoa bean + PDF strip + Markdown/region lines",
+  "colors": {
+    "cocoa_dark": "#24150F",
+    "cocoa_900": "#2B1B14",
+    "cocoa_700": "#55301F",
+    "cocoa_500": "#8A4F32",
+    "cocoa_300": "#C78452",
+    "parchment": "#FFF5DF",
+    "paper": "#FFFDF7",
+    "paper_shadow": "#D7C4A3",
+    "pdf_red": "#D63A2B",
+    "pdf_red_dark": "#A92A22",
+    "md_blue": "#2E6AE6",
+    "region_cyan": "#56CCF2",
+    "ink": "#17202A",
+    "muted": "#6B6F76",
+    "white": "#FFFFFF",
+    "success": "#38C172"
+  },
+  "runtime_font_embedding": "No fonts embedded. SVGs use system font-family declarations only.",
+  "generated_assets": "Programmatic vector/raster assets; no external image stock, no OCR, no AI model asset embedded.",
+  "recommended_primary_logo": "docs/assets/brand/logo/cocoapdf-logo-horizontal.svg",
+  "recommended_readme_hero": "docs/assets/brand/images/readme/cocoapdf-readme-hero-1600x640.png"
+}

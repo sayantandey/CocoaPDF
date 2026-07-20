@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="CocoaPDF monochrome icon">
+  <rect x="38" y="38" width="948" height="948" rx="204" fill="#111111"/>
+  <path d="M250 122h418l116 116v662H250z" fill="#ffffff"/>
+  <path d="M668 122v116h116z" fill="#dddddd"/>
+  <rect x="250" y="190" width="74" height="562" rx="24" fill="#111111"/>
+  <ellipse cx="516" cy="466" rx="136" ry="146" fill="#111111"/>
+  <path d="M532 338c-46 64-52 134-10 262" fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round"/>
+  <rect x="366" y="684" width="312" height="24" rx="12" fill="#111111"/>
+  <rect x="366" y="752" width="238" height="22" rx="11" fill="#111111" opacity=".75"/>
+  <rect x="366" y="816" width="282" height="22" rx="11" fill="#111111" opacity=".75"/>
+</svg>

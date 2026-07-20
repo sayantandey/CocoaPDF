@@ -27,6 +27,12 @@ classifiers = [
     "Topic :: Text Processing :: Markup :: Markdown",
 ]
 
+[project.urls]
+Homepage = "https://github.com/sayantandey/CocoaPDF"
+Repository = "https://github.com/sayantandey/CocoaPDF"
+Issues = "https://github.com/sayantandey/CocoaPDF/issues"
+Releases = "https://github.com/sayantandey/CocoaPDF/releases"
+
 [project.scripts]
 cocoapdf = "cocoapdf.cli:main"
 

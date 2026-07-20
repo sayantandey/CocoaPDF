@@ -17,6 +17,7 @@ jobs:
   version:
     name: Version policy
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
@@ -27,7 +28,7 @@ jobs:
       existing_tag: ${{ steps.release.outputs.existing_tag }}
     steps:
       - name: Check out source and release tags
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
 
@@ -53,15 +54,20 @@ jobs:
           fi
 
   quality:
-    name: Quality
+    name: Quality / Python ${{ matrix.python-version }}
     needs: version
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.13"]
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Install the stamped project
@@ -90,7 +96,7 @@ jobs:
             expected_format: PE
             executable: dist/cocoapdf-windows-x86_64.exe
           - artifact: linux-x86_64
-            runner: ubuntu-24.04
+            runner: ubuntu-22.04
             python_architecture: x64
             expected_arch: x86_64
             expected_format: ELF
@@ -109,24 +115,24 @@ jobs:
             executable: dist/cocoapdf-macos-arm64
 
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
           architecture: ${{ matrix.python_architecture }}
           cache: pip
 
-      - name: Install, test, and build the native executable
+      - name: Build and smoke-test the native executable
         run: |
           python scripts/stamp_version.py "${{ needs.version.outputs.version }}"
           python -m pip install --disable-pip-version-check -e ".[build]"
-          python -m unittest discover -s tests -v
           python scripts/build_onefile.py --name "cocoapdf-${{ matrix.artifact }}" --expected-bits 64 --expected-arch "${{ matrix.expected_arch }}" --expected-format "${{ matrix.expected_format }}" --version "${{ needs.version.outputs.version }}"
 
       - name: Upload verified native binary
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cocoapdf-${{ matrix.artifact }}
           path: |
@@ -140,15 +146,16 @@ jobs:
     if: github.event_name == 'push'
     needs: [version, binary]
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
 
       - name: Download verified native binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: cocoapdf-*
           path: artifacts
@@ -203,5 +210,11 @@ jobs:
           set -euo pipefail
           mkdir release-verification
           gh release download "${TAG}" --dir release-verification
+          diff -u \
+            <(find release -maxdepth 1 -type f -printf '%f\n' | sort) \
+            <(find release-verification -maxdepth 1 -type f -printf '%f\n' | sort)
+          for path in release/*; do
+            cmp -- "${path}" "release-verification/$(basename "${path}")"
+          done
           cd release-verification
           sha256sum --check SHA256SUMS.txt

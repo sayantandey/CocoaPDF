@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import struct
 import subprocess
 import sys
@@ -27,6 +28,8 @@ MACHO_CPUS = {
 	0x01000007: "x86_64",
 	0x0100000C: "arm64",
 }
+
+VERSION_PATTERN = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 
 
 def inspect_binary(path: Path) -> Tuple[str, str, int]:
@@ -98,9 +101,13 @@ def _manifest(
 	binary_format: str,
 	architecture: str,
 	bits: int,
+	brand_manifest_version: str,
+	brand_manifest_sha256: str,
+	icon_embedded: bool,
 ) -> Dict[str, object]:
 	return {
 		"schema": "cocoapdf.binary-manifest/v1",
+		"product": "CocoaPDF",
 		"artifact": executable.name,
 		"version": version,
 		"sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
@@ -113,7 +120,46 @@ def _manifest(
 		"machine": platform.machine(),
 		"source_commit": os.environ.get("GITHUB_SHA", "local"),
 		"runner_image": os.environ.get("ImageOS", "local"),
+		"brand_manifest_version": brand_manifest_version,
+		"brand_manifest_sha256": brand_manifest_sha256,
+		"icon_embedded": icon_embedded,
 	}
+
+
+def _windows_version_file(version: str) -> str:
+	match = VERSION_PATTERN.fullmatch(version)
+	if match is None:
+		raise ValueError("version must use unpadded MAJOR.MINOR.PATCH integers")
+	major, minor, patch = (int(value) for value in match.groups())
+	quad = "(%d, %d, %d, 0)" % (major, minor, patch)
+	return """VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=%s,
+    prodvers=%s,
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable(u'040904B0', [
+        StringStruct(u'CompanyName', u'Sayantan Dey'),
+        StringStruct(u'FileDescription', u'CocoaPDF PDF to Markdown/HTML engine'),
+        StringStruct(u'FileVersion', u'%s'),
+        StringStruct(u'InternalName', u'cocoapdf'),
+        StringStruct(u'LegalCopyright', u'Copyright (c) 2026 Sayantan Dey'),
+        StringStruct(u'OriginalFilename', u'cocoapdf.exe'),
+        StringStruct(u'ProductName', u'CocoaPDF'),
+        StringStruct(u'ProductVersion', u'%s')
+      ])
+    ]),
+    VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
+  ]
+)
+""" % (quad, quad, version, version)
 
 
 def main() -> int:
@@ -136,6 +182,17 @@ def main() -> int:
 	dist = root / "dist"
 	build = root / "build"
 	dist.mkdir(exist_ok=True)
+	build.mkdir(exist_ok=True)
+	brand_manifest_path = root / "docs" / "assets" / "brand" / "BRAND_ASSET_MANIFEST.json"
+	try:
+		brand_manifest_bytes = brand_manifest_path.read_bytes()
+		canonical_brand_manifest = brand_manifest_bytes.replace(b"\r\n", b"\n")
+		brand_manifest = json.loads(canonical_brand_manifest.decode("utf-8"))
+	except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+		raise SystemExit("cannot read CocoaPDF brand manifest: %s" % exc) from exc
+	if brand_manifest.get("project") != "CocoaPDF" or not isinstance(brand_manifest.get("version"), str):
+		raise SystemExit("invalid CocoaPDF brand manifest identity")
+	brand_manifest_sha256 = hashlib.sha256(canonical_brand_manifest).hexdigest()
 
 	command = [
 		sys.executable,
@@ -158,6 +215,17 @@ def main() -> int:
 		str(build / "spec"),
 		str(root / "run_cocoapdf.py"),
 	]
+	icon_embedded = os.name == "nt"
+	if icon_embedded:
+		icon_path = root / "docs" / "assets" / "brand" / "icons" / "app" / "cocoapdf-app-icon.ico"
+		if not icon_path.is_file():
+			raise SystemExit("missing Windows application icon: %s" % icon_path)
+		version_file = build / "cocoapdf-version-info.txt"
+		try:
+			version_file.write_text(_windows_version_file(args.version), encoding="utf-8")
+		except ValueError as exc:
+			raise SystemExit(str(exc)) from exc
+		command[-1:-1] = ["--icon", str(icon_path), "--version-file", str(version_file)]
 	subprocess.run(command, cwd=root, check=True)
 
 	suffix = ".exe" if os.name == "nt" else ""
@@ -174,7 +242,16 @@ def main() -> int:
 		raise SystemExit("expected %d-bit executable, found %d-bit" % (args.expected_bits, binary_bits))
 
 	_smoke_test(executable, args.version)
-	manifest = _manifest(executable, args.version, binary_format, architecture, binary_bits)
+	manifest = _manifest(
+		executable,
+		args.version,
+		binary_format,
+		architecture,
+		binary_bits,
+		str(brand_manifest["version"]),
+		brand_manifest_sha256,
+		icon_embedded,
+	)
 	manifest_path = executable.with_name(executable.name + ".manifest.json")
 	manifest_path.write_text(
 		json.dumps(manifest, indent=2, sort_keys=True) + "\n",
