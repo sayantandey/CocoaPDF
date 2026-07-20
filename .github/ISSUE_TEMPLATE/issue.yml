@@ -1,0 +1,44 @@
+name: CocoaPDF issue
+description: Report a reproducible defect or propose a focused enhancement.
+title: "[Issue]: "
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Reproducible defect
+        - Enhancement
+        - Compatibility or producer dialect
+        - Performance or resource limit
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and expected result
+      description: State what happened, what should happen, and why the distinction matters semantically.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Reproduction and evidence
+      description: Include the smallest permitted PDF/source, command, output excerpt, producer/version, and relevant report warnings or provenance.
+      placeholder: |
+        CocoaPDF version/commit:
+        OS and architecture:
+        Command:
+        Reproduction:
+        Evidence:
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Submission checks
+      options:
+        - label: I removed secrets and have permission to share every attached document.
+          required: true
+        - label: This is not a security vulnerability; those are reported privately through Security Advisories.
+          required: true

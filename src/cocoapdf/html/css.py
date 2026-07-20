@@ -1,0 +1,25 @@
+DEFAULT_CSS = """
+body { font-family: system-ui, sans-serif; line-height: 1.5; max-width: 72rem; margin: 2rem auto; padding: 0 1rem; }
+table { border-collapse: collapse; margin: 1rem 0; }
+th, td { border: 1px solid #999; padding: 0.25rem 0.5rem; }
+blockquote { border-left: 0.25rem solid #bbb; margin-left: 0; padding-left: 1rem; color: #333; }
+pre { background: #f5f5f5; padding: 0.75rem; overflow-x: auto; }
+mark { background: #fff59d; }
+.cocoapdf-figure { margin-top: 1rem; margin-bottom: 1rem; max-width: 100%; }
+.cocoapdf-figure img { display: block; }
+.cocoapdf-align-left { margin-left: 0; margin-right: auto; text-align: left; }
+.cocoapdf-align-center { margin-left: auto; margin-right: auto; text-align: center; }
+.cocoapdf-align-right { margin-left: auto; margin-right: 0; text-align: right; }
+.cocoapdf-figure figcaption { margin-top: 0.35rem; font-style: italic; color: #444; }
+.cocoapdf-columns { margin: 1rem 0; }
+.cocoapdf-form-appearance { display: grid; gap: 0.55rem; margin: 1rem 0; }
+.cocoapdf-form-appearance label { display: block; }
+
+.cocoapdf-page-break { break-before: page; border: 0; border-top: 1px dashed #bbb; }
+.cocoapdf-toc ol { list-style-position: inside; }
+.cocoapdf-toc ol ol { margin-left: 1.5rem; }
+.cocoapdf-table-note { font-size: 0.9em; font-style: italic; }
+.cocoapdf-cross-reference { text-decoration: none; }
+.cocoapdf-form { display: grid; gap: 0.65rem; margin: 1rem 0; }
+.cocoapdf-equation { overflow-x: auto; margin: 1rem 0; }
+""".strip()

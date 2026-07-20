@@ -1,0 +1,79 @@
+# Bytecode / interpreter caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python build artifacts
+build/
+dist/
+.eggs/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test / coverage / type-check caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# Local editor / IDE state
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+
+# CocoaPDF generated conversion artifacts
+# Keep docs/assets/brand/** tracked; this only ignores the root-level conversion asset directory.
+/assets/
+/report.json
+/overlay-page-*.svg
+/overlay.svg
+/out.md
+/out.html
+/out.json
+/output/
+
+# Runtime logs and scratch files
+*.log
+*.tmp
+*.temp
+.cache/
+
+# Packaging / installer outputs
+*.whl
+*.tar.gz
+
+# Optional local benchmark/corpus outputs; committed fixtures under tests/ are intentionally not ignored.
+/bench-results/
+/score-results/
+/corpus/pdfs/generated/
+/corpus/reports/
+/corpus/work/
+
+# Internal design notes and local agent state are intentionally never published.
+/docs/
+/.claude/
+/.agents/

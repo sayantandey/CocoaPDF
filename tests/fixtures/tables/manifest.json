@@ -1,0 +1,70 @@
+{
+  "schema": "cocoapdf.table-evaluation-corpus",
+  "version": 1,
+  "fixtures": [
+    {
+      "id": "simple-header-body",
+      "expected": {
+        "kind": "table",
+        "children": [
+          {
+            "kind": "table_row",
+            "children": [
+              {"kind": "table_cell", "attrs": {"row": 0, "col": 0, "rowspan": 1, "colspan": 1, "role": "th"}, "children": [{"kind": "text", "text": "Name"}]},
+              {"kind": "table_cell", "attrs": {"row": 0, "col": 1, "rowspan": 1, "colspan": 1, "role": "th"}, "children": [{"kind": "text", "text": "Value"}]}
+            ]
+          },
+          {
+            "kind": "table_row",
+            "children": [
+              {"kind": "table_cell", "attrs": {"row": 1, "col": 0, "rowspan": 1, "colspan": 1, "role": "td"}, "children": [{"kind": "text", "text": "alpha"}]},
+              {"kind": "table_cell", "attrs": {"row": 1, "col": 1, "rowspan": 1, "colspan": 1, "role": "td"}, "children": [{"kind": "text", "text": "10"}]}
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "column-span",
+      "expected": {
+        "kind": "table",
+        "children": [
+          {
+            "kind": "table_row",
+            "children": [
+              {"kind": "table_cell", "attrs": {"row": 0, "col": 0, "rowspan": 1, "colspan": 2, "role": "th"}, "children": [{"kind": "text", "text": "Evidence"}]}
+            ]
+          },
+          {
+            "kind": "table_row",
+            "children": [
+              {"kind": "table_cell", "attrs": {"row": 1, "col": 0, "rowspan": 1, "colspan": 1, "role": "td"}, "children": [{"kind": "text", "text": "geometry"}]},
+              {"kind": "table_cell", "attrs": {"row": 1, "col": 1, "rowspan": 1, "colspan": 1, "role": "td"}, "children": [{"kind": "text", "text": "tags"}]}
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "row-span-and-nested-list",
+      "expected": {
+        "kind": "table",
+        "children": [
+          {
+            "kind": "table_row",
+            "children": [
+              {"kind": "table_cell", "attrs": {"row": 0, "col": 0, "rowspan": 2, "colspan": 1, "role": "td"}, "children": [{"kind": "text", "text": "shared"}]},
+              {"kind": "table_cell", "attrs": {"row": 0, "col": 1, "rowspan": 1, "colspan": 1, "role": "td"}, "children": [{"kind": "list", "children": [{"kind": "item", "children": [{"kind": "text", "text": "first"}]}, {"kind": "item", "children": [{"kind": "text", "text": "second"}]}]}]}
+            ]
+          },
+          {
+            "kind": "table_row",
+            "children": [
+              {"kind": "table_cell", "attrs": {"row": 1, "col": 1, "rowspan": 1, "colspan": 1, "role": "td"}, "children": [{"kind": "text", "text": "continuation"}]}
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

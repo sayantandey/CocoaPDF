@@ -1,0 +1,207 @@
+name: CI and release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  version:
+    name: Version policy
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      kind: ${{ steps.release.outputs.kind }}
+      existing_tag: ${{ steps.release.outputs.existing_tag }}
+    steps:
+      - name: Check out source and release tags
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release class and version
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            python scripts/release_version.py \
+              --event-file "${GITHUB_EVENT_PATH}" \
+              --github-output "${GITHUB_OUTPUT}"
+          else
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+              > "${RUNNER_TEMP}/associated-pulls.json"
+            python scripts/release_version.py \
+              --associated-prs-file "${RUNNER_TEMP}/associated-pulls.json" \
+              --github-output "${GITHUB_OUTPUT}"
+          fi
+
+  quality:
+    name: Quality
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install the stamped project
+        run: |
+          python scripts/stamp_version.py "${{ needs.version.outputs.version }}"
+          python -m pip install --disable-pip-version-check -e .
+
+      - name: Verify source, tests, and version surface
+        run: |
+          python scripts/check_repository_invariants.py
+          python -m unittest discover -s tests -v
+          python -m compileall -q src tests tools scripts
+          python -m cocoapdf --version
+
+  binary:
+    name: Binary / ${{ matrix.artifact }}
+    needs: [version, quality]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact: windows-x86_64
+            runner: windows-2025
+            python_architecture: x64
+            expected_arch: x86_64
+            expected_format: PE
+            executable: dist/cocoapdf-windows-x86_64.exe
+          - artifact: linux-x86_64
+            runner: ubuntu-24.04
+            python_architecture: x64
+            expected_arch: x86_64
+            expected_format: ELF
+            executable: dist/cocoapdf-linux-x86_64
+          - artifact: macos-x86_64
+            runner: macos-15-intel
+            python_architecture: x64
+            expected_arch: x86_64
+            expected_format: Mach-O
+            executable: dist/cocoapdf-macos-x86_64
+          - artifact: macos-arm64
+            runner: macos-15
+            python_architecture: arm64
+            expected_arch: arm64
+            expected_format: Mach-O
+            executable: dist/cocoapdf-macos-arm64
+
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+          architecture: ${{ matrix.python_architecture }}
+          cache: pip
+
+      - name: Install, test, and build the native executable
+        run: |
+          python scripts/stamp_version.py "${{ needs.version.outputs.version }}"
+          python -m pip install --disable-pip-version-check -e ".[build]"
+          python -m unittest discover -s tests -v
+          python scripts/build_onefile.py --name "cocoapdf-${{ matrix.artifact }}" --expected-bits 64 --expected-arch "${{ matrix.expected_arch }}" --expected-format "${{ matrix.expected_format }}" --version "${{ needs.version.outputs.version }}"
+
+      - name: Upload verified native binary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cocoapdf-${{ matrix.artifact }}
+          path: |
+            ${{ matrix.executable }}
+            ${{ matrix.executable }}.manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Release
+    if: github.event_name == 'push'
+    needs: [version, binary]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Download verified native binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: cocoapdf-*
+          path: artifacts
+
+      - name: Validate manifests and create the three OS packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          python scripts/package_release.py \
+            --artifacts artifacts \
+            --output release \
+            --version "${{ needs.version.outputs.version }}"
+
+      - name: Tag the exact released commit
+        if: needs.version.outputs.existing_tag != 'true'
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "${TAG}" --message "CocoaPDF ${VERSION}"
+          git push origin "refs/tags/${TAG}"
+
+      - name: Publish or repair the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" release/* --clobber
+          else
+            gh release create "${TAG}" release/* \
+              --verify-tag \
+              --latest \
+              --generate-notes \
+              --title "CocoaPDF ${VERSION}"
+          fi
+
+      - name: Download and checksum the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-verification
+          gh release download "${TAG}" --dir release-verification
+          cd release-verification
+          sha256sum --check SHA256SUMS.txt

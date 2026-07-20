@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    labels: ["release:patch"]
+    reviewers: ["sayantandey"]
+    commit-message:
+      prefix: "fix(actions)"
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      build-tooling:
+        patterns: ["*"]
+    labels: ["release:patch"]
+    reviewers: ["sayantandey"]
+    commit-message:
+      prefix: "fix(deps)"

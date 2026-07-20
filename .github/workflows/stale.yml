@@ -1,0 +1,29 @@
+name: Close inactive issues
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  stale:
+    name: Six-month inactivity policy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/stale@1e223db275d687790206a7acac4d1a11bd6fe629 # v10
+        with:
+          repo-token: ${{ github.token }}
+          days-before-issue-stale: 150
+          days-before-issue-close: 30
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          stale-issue-label: stale
+          exempt-issue-labels: security
+          stale-issue-message: This issue has had no activity for five months. Add current evidence or context to keep it open.
+          close-issue-message: Closed after approximately six months without activity. Reopen with current evidence if the issue still applies.
+          operations-per-run: 100
