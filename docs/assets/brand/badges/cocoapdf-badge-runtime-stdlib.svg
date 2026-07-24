@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="161" height="28" role="img" aria-label="runtime: stdlib">
-  <rect width="83" height="28" rx="6" fill="#2B1B14"/>
-  <rect x="83" width="78" height="28" rx="6" fill="#2E6AE6"/>
-  <rect x="83" width="8" height="28" fill="#2E6AE6"/>
-  <text x="10" y="19" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fff">runtime</text>
-  <text x="95" y="19" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fff">stdlib</text>
-</svg>

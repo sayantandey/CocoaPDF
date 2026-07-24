@@ -1,8 +1,6 @@
 <div align="center">
-
-<img src="docs/assets/brand/logo/cocoapdf-mark-transparent-256x256.png" alt="CocoaPDF document-and-cocoa-bean mark" width="132">
-
-# CocoaPDF
+<img src="docs/assets/brand/logo/cocoapdf-mark.svg" alt="CocoaPDF document-and-cocoa-bean mark" width="132" align="middle">
+<h1>CocoaPDF</h1>
 
 ### Turn structured PDFs into accurate, editable documents—without OCR or AI.
 
@@ -10,16 +8,31 @@ CocoaPDF recovers the text, layout, tables, links, notes, forms, and images alre
 
 <br>
 
-[![Download for Windows](https://img.shields.io/badge/Windows-Download-7A4E2D?style=for-the-badge\&logo=windows\&logoColor=white)][download-windows]
-[![Download for Linux](https://img.shields.io/badge/Linux-Download-8B5E3C?style=for-the-badge\&logo=linux\&logoColor=white)][download-linux]
-[![Download for macOS](https://img.shields.io/badge/macOS-Download-A06A42?style=for-the-badge\&logo=apple\&logoColor=white)][download-macos]
-
+[![Download for Windows](https://img.shields.io/badge/Windows-Download-8A4F32?style=for-the-badge\&logo=windows\&logoColor=white\&labelColor=0078D4)][download-windows]
+[![Download for Linux](https://img.shields.io/badge/Linux-Download-8A4F32?style=for-the-badge\&logo=linux\&logoColor=000000\&labelColor=EFDECF)][download-linux]
+[![Download for macOS](https://img.shields.io/badge/macOS-Download-8A4F32?style=for-the-badge\&logo=apple\&logoColor=white\&labelColor=111111)][download-macos]
 <br>
 
-![MIT License](docs/assets/brand/badges/cocoapdf-badge-license-mit.svg)
-<img src="https://img.shields.io/badge/Python-3.9%2B-795548?style=flat-square&amp;logo=python&amp;logoColor=white" alt="Python 3.9+" height="28">
-![No OCR](docs/assets/brand/badges/cocoapdf-badge-no-ocr.svg)
-![Markdown and HTML](docs/assets/brand/badges/cocoapdf-badge-output-md-html.svg)
+<img src="https://img.shields.io/badge/Python-3.9%2B-B5654A?style=for-the-badge&amp;logo=python&amp;logoColor=white&amp;labelColor=2A1A15" alt="Python 3.9 or later">
+<img src="https://img.shields.io/badge/OCR-none-E27E84?style=for-the-badge&amp;labelColor=2A1A15" alt="OCR None">
+<img src="https://img.shields.io/badge/License-MIT-45B97C?style=for-the-badge&amp;labelColor=2A1A15" alt="MIT License">
+<img src="https://img.shields.io/badge/Output-MD%20%7C%20HTML%20%7C%20JSON-A06A42?style=for-the-badge&amp;labelColor=2A1A15" alt="Markdown, HTML, and JSON output">
+<br><br>
+
+<p>
+<a href="#how-it-works"><strong>How it works</strong></a>
+&ensp;&ensp;
+<a href="#capabilities"><strong>Capabilities</strong></a>
+&ensp;&ensp;
+<a href="#installation"><strong>Installation</strong></a>
+&ensp;&ensp;
+<a href="#usage"><strong>Usage</strong></a>
+&ensp;&ensp;
+<a href="#python-api"><strong>Python API</strong></a>
+&ensp;&ensp;
+<a href="#diagnostics-and-explainability"><strong>Diagnostics</strong></a>
+</p>
+<br>
 
 </div>
 
@@ -31,47 +44,99 @@ CocoaPDF recovers the text, layout, tables, links, notes, forms, and images alre
 
 ---
 
-CocoaPDF converts digitally born, structured text-layer PDFs into semantic Markdown, loss-aware HTML, and provenance-rich JSON. It parses PDF bytes directly with Python's standard library, reconciles geometry with Tagged-PDF structure, and preserves every accepted node's source pages, regions, glyphs, MCIDs, confidence, evidence, and warnings. It does not use OCR, AI, or runtime PDF frameworks; raster images are preserved as images with their PDF placement, dimensions, alignment, links, captions, and alternative text.
+CocoaPDF converts digitally born, structured text-layer PDFs into semantic Markdown, loss-aware HTML, and provenance-rich JSON. It parses PDF bytes directly with Python's standard library, reconciles geometry with Tagged-PDF structure, and preserves every accepted node's source pages, regions, glyphs, MCIDs, confidence, evidence, and warnings.
+
+It does not use OCR, AI, or runtime PDF frameworks. Raster images remain images, with their PDF placement, dimensions, alignment, links, captions, and alternative text preserved whenever available.
 
 ## At a glance
 
-|                  |                                                                                                    |
-| ---------------- | -------------------------------------------------------------------------------------------------- |
-| **Designed for** | Digitally created PDFs with selectable text                                                        |
-| **Produces**     | Markdown, structured HTML, semantic JSON, reports, and extracted assets                            |
-| **Recovers**     | Headings, paragraphs, lists, tables, figures, links, notes, references, forms, and reading order   |
-| **Preserves**    | Images, dimensions, placement, alignment, captions, links, alternative text, and source provenance |
-| **Runtime**      | Python’s standard library only                                                                     |
-| **Does not use** | OCR, AI, machine learning, or runtime PDF frameworks                                               |
-| **License**      | MIT                                                                                                |
+<table>
+<tr>
+<td width="33%" valign="top">
 
-### Navigation
+<p><sub><strong>01  RECONSTRUCT</strong></sub></p>
 
-[How it works](#how-it-works) ·
-[Capability demo](#capability-demo) ·
-[Capabilities](#capabilities) ·
-[Installation](#installation) ·
-[Usage](#usage) ·
-[Python API](#python-api) ·
-[Diagnostics](#diagnostics-and-explainability) ·
-[Development](#development-and-verification) ·
-[License](#license)
+<p><strong>Recover document structure</strong></p>
 
----
+<p>Headings, paragraphs, lists, tables, figures, captions, notes, references, forms, links, and reading order.</p>
 
-## Capability demo
+</td>
+<td width="33%" valign="top">
 
-[Browse the permanent, reproducible capability demo](examples/README.md) to
-compare three complex source PDFs with CocoaPDF's exact Markdown, HTML,
-semantic JSON, report summaries, assertions, assets, and hashes. Every
-fixture is first-party project material under the bundled MIT license;
-generation uses no downloaded content, OCR, AI, or ML.
+<p><sub><strong>02  PRESERVE</strong></sub></p>
 
-The committed `examples/` tree is distinct from temporary pull-request review
-artifacts. CI regenerates it from the same case definitions and fails if any
-checked-in source or output becomes stale.
+<p><strong>Keep source fidelity</strong></p>
 
----
+<p>Images, dimensions, placement, alignment, alternative text, destinations, page regions, and provenance remain traceable.</p>
+
+</td>
+<td width="33%" valign="top">
+
+<p><sub><strong>03  EXPORT</strong></sub></p>
+
+<p><strong>Produce usable formats</strong></p>
+
+<p>Generate readable Markdown, structured HTML, semantic JSON, reports, and extracted image assets from one document graph.</p>
+
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
+
+<p><sub><strong>04  EXPLAIN</strong></sub></p>
+
+<p><strong>Inspect every decision</strong></p>
+
+<p>Confidence, evidence, warnings, source references, glyph identifiers, MCIDs, PDF objects, and bounding boxes remain available.</p>
+
+</td>
+<td width="33%" valign="top">
+
+<p><sub><strong>05  RUN</strong></sub></p>
+
+<p><strong>Stay dependency-light</strong></p>
+
+<p>The runtime uses Python's standard library only. No external PDF framework, OCR engine, model download, or inference service is required.</p>
+
+</td>
+<td width="33%" valign="top">
+
+<p><sub><strong>06  TRUST</strong></sub></p>
+
+<p><strong>Prefer evidence over guesses</strong></p>
+
+<p>Unsupported or ambiguous structures produce conservative fallbacks and visible diagnostics instead of fabricated text or semantics.</p>
+
+</td>
+</tr>
+</table>
+
+<br>
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+<p><sub><strong>BEST FIT</strong></sub></p>
+
+<p><strong>Documents with real, recoverable structure</strong></p>
+
+<p>Reports, manuals, academic papers, business documents, office exports, accessible PDFs, forms, tables, figures, and multi-column layouts.</p>
+
+</td>
+<td width="50%" valign="top">
+
+<p><sub><strong>OPERATING ENVELOPE</strong></sub></p>
+
+<p><strong>Explicit inputs and clear boundaries</strong></p>
+
+<p>Designed for digitally born PDFs with a usable selectable-text layer. Requires Python 3.9 or later and uses no OCR, AI, machine learning, or runtime PDF framework.</p>
+
+</td>
+</tr>
+</table>
+
+<br>
 
 ## Why CocoaPDF?
 
@@ -83,6 +148,19 @@ Every accepted semantic element can retain evidence linking it back to its sourc
 
 > [!IMPORTANT]
 > CocoaPDF is built for **digitally born PDFs with a usable text layer**. It does not read text from scans, screenshots, photographs, or raster images.
+
+---
+
+## Capability demo
+
+[Open the rendered, side-by-side capability demo](https://raw.githack.com/sayantandey/CocoaPDF/main/examples/review.html)
+or [browse its committed inputs and exact outputs](examples/README.md). The three
+complex source PDFs, fixture prose, and assets are first-party project material
+under the bundled MIT license; no downloaded content, OCR, AI, or ML is used.
+
+The committed `examples/` tree is distinct from temporary pull-request review
+artifacts. CI regenerates it from the same case definitions and fails if any
+checked-in source or output becomes stale.
 
 ---
 
@@ -470,7 +548,7 @@ cocoapdf-macos.tar.gz
 The macOS package contains separate Apple Silicon and Intel executables.
 The Linux x86_64 binary uses an Ubuntu 22.04 build baseline for broader glibc compatibility.
 
-Before execution, verify the package against [SHA256SUMS.txt][download-checksums] and inspect its per-binary provenance in [RELEASE.json][download-manifest]. Downloads are intentionally lean: Windows and Linux contain one executable plus the required MIT license; macOS contains its Apple Silicon and Intel executables plus the license. The Windows executable embeds the CocoaPDF icon and product/version metadata.
+Before execution, verify the package against [SHA256SUMS.txt][download-checksums] and inspect its per-binary provenance in [RELEASE.json][download-manifest]. Downloads are intentionally lean: Windows and Linux contain one executable, the MIT license, and the exact third-party notices captured by that build; macOS contains its Apple Silicon and Intel executables, the MIT license, and notices for both runtimes. The Windows executable embeds the CocoaPDF icon and product/version metadata.
 
 ### Install from source
 
@@ -754,4 +832,7 @@ Until platform signing and notarization are available, users should verify publi
 
 CocoaPDF is released under the [MIT License](LICENSE).
 
-Project attribution and notices are available in [`NOTICE`](NOTICE).
+Project attribution is available in [`NOTICE`](NOTICE). Incorporated data and
+standalone-runtime licenses are recorded in
+[`THIRD_PARTY_NOTICES.txt`](THIRD_PARTY_NOTICES.txt); release archives carry
+the pinned CPython and PyInstaller license texts verified by each native build.

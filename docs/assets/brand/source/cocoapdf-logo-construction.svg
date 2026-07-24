@@ -2,7 +2,7 @@
   <rect width="1400" height="900" fill="#FFFDF7"/>
   <text x="80" y="100" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="54" font-weight="800" fill="#2B1B14">CocoaPDF mark construction</text>
   <text x="80" y="150" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="26" fill="#6B6F76">Document page + cocoa bean + PDF strip + Markdown/region lines.</text>
-  <image href="../icons/app/cocoapdf-app-icon.svg" x="100" y="230" width="420" height="420"/>
+  <image href="../logo/cocoapdf-mark.svg" x="100" y="230" width="420" height="420"/>
   <text x="620" y="270" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="28" fill="#17202A">1. Rounded cocoa tile: brand mnemonic and app-icon stability.</text>
   <text x="620" y="330" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="28" fill="#17202A">2. Folded document: PDF/source page.</text>
   <text x="620" y="390" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="28" fill="#17202A">3. Red strip: PDF identity without depending on Acrobat styling.</text>

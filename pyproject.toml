@@ -11,12 +11,27 @@ authors = [{ name = "Sayantan Dey" }]
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
 dependencies = []
-keywords = ["pdf", "markdown", "html", "conversion", "document-analysis"]
+keywords = [
+    "pdf",
+    "pdf-parser",
+    "pdf-to-markdown",
+    "pdf-to-html",
+    "structured-pdf",
+    "tagged-pdf",
+    "markdown",
+    "html",
+    "json",
+    "document-conversion",
+    "document-analysis",
+    "table-extraction",
+    "accessibility",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.9",
@@ -29,9 +44,11 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/sayantandey/CocoaPDF"
+Documentation = "https://github.com/sayantandey/CocoaPDF#readme"
 Repository = "https://github.com/sayantandey/CocoaPDF"
 Issues = "https://github.com/sayantandey/CocoaPDF/issues"
 Releases = "https://github.com/sayantandey/CocoaPDF/releases"
+Changelog = "https://github.com/sayantandey/CocoaPDF/releases"
 
 [project.scripts]
 cocoapdf = "cocoapdf.cli:main"

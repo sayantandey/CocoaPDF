@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+from importlib import metadata as importlib_metadata
 import json
 import os
 import platform
@@ -10,7 +11,7 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 
 PE_MACHINES = {
@@ -30,6 +31,87 @@ MACHO_CPUS = {
 }
 
 VERSION_PATTERN = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+PYINSTALLER_VERSION = "6.21.0"
+WINDOWS_ICON_RELATIVE = Path(
+	"docs/assets/brand/icons/app/cocoapdf-app-icon.ico"
+)
+PINNED_LICENSES = {
+	"cpython": (
+		Path("licenses/CPython-3.13.14.txt"),
+		"78b12c3a81360b357002334f0e70ea0e92eebf7a9b358805c03c48484945f3bb",
+	),
+	"pyinstaller": (
+		Path("licenses/PyInstaller-6.21.0.txt"),
+		"571f650c741ae1f6d8b689ef639b02c93297b84cef32db7c5211674d7b6fc094",
+	),
+}
+
+
+def _normalized_text_bytes(path: Path) -> bytes:
+	try:
+		data = path.read_bytes()
+	except OSError as exc:
+		raise ValueError("cannot read license file %s: %s" % (path, exc)) from exc
+	try:
+		data.decode("utf-8")
+	except UnicodeDecodeError as exc:
+		raise ValueError("license file is not UTF-8: %s" % path) from exc
+	return data.replace(b"\r\n", b"\n")
+
+
+def _pinned_license(root: Path, component: str) -> Tuple[str, bytes]:
+	relative, expected_sha256 = PINNED_LICENSES[component]
+	path = root / relative
+	data = _normalized_text_bytes(path)
+	actual_sha256 = hashlib.sha256(data).hexdigest()
+	if actual_sha256 != expected_sha256:
+		raise ValueError(
+			"%s license digest %s does not match pinned digest %s"
+			% (component, actual_sha256, expected_sha256)
+		)
+	return path.name, data
+
+
+def _pyinstaller_license(root: Path) -> Tuple[str, str, bytes]:
+	try:
+		distribution = importlib_metadata.distribution("pyinstaller")
+	except importlib_metadata.PackageNotFoundError as exc:
+		raise ValueError("PyInstaller distribution metadata is unavailable") from exc
+	if distribution.version != PYINSTALLER_VERSION:
+		raise ValueError(
+			"PyInstaller %s is installed, expected %s"
+			% (distribution.version, PYINSTALLER_VERSION)
+		)
+	name, data = _pinned_license(root, "pyinstaller")
+	return distribution.version, name, data
+
+
+def _license_section(title: str, data: bytes) -> bytes:
+	return (
+		"\n\n\n%s\n%s\n\n" % (title, "=" * len(title))
+	).encode("utf-8") + data.rstrip()
+
+
+def build_third_party_license_bundle(root: Path) -> bytes:
+	notice_path = root / "THIRD_PARTY_NOTICES.txt"
+	if not notice_path.is_file():
+		raise ValueError("missing repository third-party notice: %s" % notice_path)
+	python_name, python_license = _pinned_license(root, "cpython")
+	pyinstaller_version, pyinstaller_name, pyinstaller_license = _pyinstaller_license(root)
+	sections = [
+		_normalized_text_bytes(notice_path).rstrip(),
+		_license_section(
+			"Exact CPython %s license (%s)"
+			% (platform.python_version(), python_name),
+			python_license,
+		),
+		_license_section(
+			"Exact PyInstaller %s license (%s)"
+			% (pyinstaller_version, pyinstaller_name),
+			pyinstaller_license,
+		),
+	]
+	return b"".join(sections) + b"\n"
 
 
 def inspect_binary(path: Path) -> Tuple[str, str, int]:
@@ -101,12 +183,13 @@ def _manifest(
 	binary_format: str,
 	architecture: str,
 	bits: int,
-	brand_manifest_version: str,
-	brand_manifest_sha256: str,
 	icon_embedded: bool,
+	icon_source: Optional[Dict[str, object]],
+	third_party_licenses: Path,
 ) -> Dict[str, object]:
+	third_party_bytes = third_party_licenses.read_bytes()
 	return {
-		"schema": "cocoapdf.binary-manifest/v1",
+		"schema": "cocoapdf.binary-manifest/v2",
 		"product": "CocoaPDF",
 		"artifact": executable.name,
 		"version": version,
@@ -120,9 +203,13 @@ def _manifest(
 		"machine": platform.machine(),
 		"source_commit": os.environ.get("GITHUB_SHA", "local"),
 		"runner_image": os.environ.get("ImageOS", "local"),
-		"brand_manifest_version": brand_manifest_version,
-		"brand_manifest_sha256": brand_manifest_sha256,
 		"icon_embedded": icon_embedded,
+		"icon_source": icon_source,
+		"third_party_licenses": {
+			"filename": third_party_licenses.name,
+			"bytes": len(third_party_bytes),
+			"sha256": hashlib.sha256(third_party_bytes).hexdigest(),
+		},
 	}
 
 
@@ -183,16 +270,6 @@ def main() -> int:
 	build = root / "build"
 	dist.mkdir(exist_ok=True)
 	build.mkdir(exist_ok=True)
-	brand_manifest_path = root / "docs" / "assets" / "brand" / "BRAND_ASSET_MANIFEST.json"
-	try:
-		brand_manifest_bytes = brand_manifest_path.read_bytes()
-		canonical_brand_manifest = brand_manifest_bytes.replace(b"\r\n", b"\n")
-		brand_manifest = json.loads(canonical_brand_manifest.decode("utf-8"))
-	except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-		raise SystemExit("cannot read CocoaPDF brand manifest: %s" % exc) from exc
-	if brand_manifest.get("project") != "CocoaPDF" or not isinstance(brand_manifest.get("version"), str):
-		raise SystemExit("invalid CocoaPDF brand manifest identity")
-	brand_manifest_sha256 = hashlib.sha256(canonical_brand_manifest).hexdigest()
 
 	command = [
 		sys.executable,
@@ -216,10 +293,21 @@ def main() -> int:
 		str(root / "run_cocoapdf.py"),
 	]
 	icon_embedded = os.name == "nt"
+	icon_source: Optional[Dict[str, object]] = None
 	if icon_embedded:
-		icon_path = root / "docs" / "assets" / "brand" / "icons" / "app" / "cocoapdf-app-icon.ico"
-		if not icon_path.is_file():
-			raise SystemExit("missing Windows application icon: %s" % icon_path)
+		icon_path = root / WINDOWS_ICON_RELATIVE
+		try:
+			icon_bytes = icon_path.read_bytes()
+		except OSError as exc:
+			raise SystemExit(
+				"cannot read Windows application icon %s: %s"
+				% (icon_path, exc)
+			) from exc
+		icon_source = {
+			"path": WINDOWS_ICON_RELATIVE.as_posix(),
+			"bytes": len(icon_bytes),
+			"sha256": hashlib.sha256(icon_bytes).hexdigest(),
+		}
 		version_file = build / "cocoapdf-version-info.txt"
 		try:
 			version_file.write_text(_windows_version_file(args.version), encoding="utf-8")
@@ -242,15 +330,22 @@ def main() -> int:
 		raise SystemExit("expected %d-bit executable, found %d-bit" % (args.expected_bits, binary_bits))
 
 	_smoke_test(executable, args.version)
+	third_party_licenses = executable.with_name(
+		executable.name + ".third-party-licenses.txt"
+	)
+	try:
+		third_party_licenses.write_bytes(build_third_party_license_bundle(root))
+	except ValueError as exc:
+		raise SystemExit(str(exc)) from exc
 	manifest = _manifest(
 		executable,
 		args.version,
 		binary_format,
 		architecture,
 		binary_bits,
-		str(brand_manifest["version"]),
-		brand_manifest_sha256,
 		icon_embedded,
+		icon_source,
+		third_party_licenses,
 	)
 	manifest_path = executable.with_name(executable.name + ".manifest.json")
 	manifest_path.write_text(
