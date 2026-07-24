@@ -44,7 +44,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/sayantandey/CocoaPDF"
-Documentation = "https://sayantandey.github.io/CocoaPDF/"
+Documentation = "https://github.com/sayantandey/CocoaPDF#readme"
 Repository = "https://github.com/sayantandey/CocoaPDF"
 Issues = "https://github.com/sayantandey/CocoaPDF/issues"
 Releases = "https://github.com/sayantandey/CocoaPDF/releases"

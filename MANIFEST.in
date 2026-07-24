@@ -6,5 +6,8 @@ include SECURITY.md
 include CONTRIBUTING.md
 include CODE_OF_CONDUCT.md
 recursive-include licenses *.txt
-recursive-include docs/assets/brand *
+include docs/assets/brand/logo/cocoapdf-mark.svg
+include docs/assets/brand/icons/app/cocoapdf-app-icon.ico
+include docs/assets/brand/source/cocoapdf-brand-tokens.json
+include docs/assets/brand/source/cocoapdf-logo-construction.svg
 global-exclude __pycache__ *.py[cod]

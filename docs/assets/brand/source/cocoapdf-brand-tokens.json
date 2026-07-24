@@ -19,8 +19,8 @@
     "white": "#FFFFFF",
     "success": "#38C172"
   },
-  "runtime_font_embedding": "No fonts embedded. SVGs use system font-family declarations only.",
-  "generated_assets": "Programmatic vector/raster assets; no external image stock, no OCR, no AI model asset embedded.",
-  "recommended_primary_logo": "docs/assets/brand/logo/cocoapdf-logo-horizontal.svg",
-  "recommended_readme_hero": "docs/assets/brand/images/readme/cocoapdf-readme-hero-1600x640.png"
+  "runtime_font_embedding": "No fonts embedded.",
+  "primary_logo": "docs/assets/brand/logo/cocoapdf-mark.svg",
+  "windows_application_icon": "docs/assets/brand/icons/app/cocoapdf-app-icon.ico",
+  "construction_source": "docs/assets/brand/source/cocoapdf-logo-construction.svg"
 }

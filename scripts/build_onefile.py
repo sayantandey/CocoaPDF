@@ -11,7 +11,7 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 
 PE_MACHINES = {
@@ -32,6 +32,9 @@ MACHO_CPUS = {
 
 VERSION_PATTERN = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 PYINSTALLER_VERSION = "6.21.0"
+WINDOWS_ICON_RELATIVE = Path(
+	"docs/assets/brand/icons/app/cocoapdf-app-icon.ico"
+)
 PINNED_LICENSES = {
 	"cpython": (
 		Path("licenses/CPython-3.13.14.txt"),
@@ -180,14 +183,13 @@ def _manifest(
 	binary_format: str,
 	architecture: str,
 	bits: int,
-	brand_manifest_version: str,
-	brand_manifest_sha256: str,
 	icon_embedded: bool,
+	icon_source: Optional[Dict[str, object]],
 	third_party_licenses: Path,
 ) -> Dict[str, object]:
 	third_party_bytes = third_party_licenses.read_bytes()
 	return {
-		"schema": "cocoapdf.binary-manifest/v1",
+		"schema": "cocoapdf.binary-manifest/v2",
 		"product": "CocoaPDF",
 		"artifact": executable.name,
 		"version": version,
@@ -201,9 +203,8 @@ def _manifest(
 		"machine": platform.machine(),
 		"source_commit": os.environ.get("GITHUB_SHA", "local"),
 		"runner_image": os.environ.get("ImageOS", "local"),
-		"brand_manifest_version": brand_manifest_version,
-		"brand_manifest_sha256": brand_manifest_sha256,
 		"icon_embedded": icon_embedded,
+		"icon_source": icon_source,
 		"third_party_licenses": {
 			"filename": third_party_licenses.name,
 			"bytes": len(third_party_bytes),
@@ -269,16 +270,6 @@ def main() -> int:
 	build = root / "build"
 	dist.mkdir(exist_ok=True)
 	build.mkdir(exist_ok=True)
-	brand_manifest_path = root / "docs" / "assets" / "brand" / "BRAND_ASSET_MANIFEST.json"
-	try:
-		brand_manifest_bytes = brand_manifest_path.read_bytes()
-		canonical_brand_manifest = brand_manifest_bytes.replace(b"\r\n", b"\n")
-		brand_manifest = json.loads(canonical_brand_manifest.decode("utf-8"))
-	except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-		raise SystemExit("cannot read CocoaPDF brand manifest: %s" % exc) from exc
-	if brand_manifest.get("project") != "CocoaPDF" or not isinstance(brand_manifest.get("version"), str):
-		raise SystemExit("invalid CocoaPDF brand manifest identity")
-	brand_manifest_sha256 = hashlib.sha256(canonical_brand_manifest).hexdigest()
 
 	command = [
 		sys.executable,
@@ -302,10 +293,21 @@ def main() -> int:
 		str(root / "run_cocoapdf.py"),
 	]
 	icon_embedded = os.name == "nt"
+	icon_source: Optional[Dict[str, object]] = None
 	if icon_embedded:
-		icon_path = root / "docs" / "assets" / "brand" / "icons" / "app" / "cocoapdf-app-icon.ico"
-		if not icon_path.is_file():
-			raise SystemExit("missing Windows application icon: %s" % icon_path)
+		icon_path = root / WINDOWS_ICON_RELATIVE
+		try:
+			icon_bytes = icon_path.read_bytes()
+		except OSError as exc:
+			raise SystemExit(
+				"cannot read Windows application icon %s: %s"
+				% (icon_path, exc)
+			) from exc
+		icon_source = {
+			"path": WINDOWS_ICON_RELATIVE.as_posix(),
+			"bytes": len(icon_bytes),
+			"sha256": hashlib.sha256(icon_bytes).hexdigest(),
+		}
 		version_file = build / "cocoapdf-version-info.txt"
 		try:
 			version_file.write_text(_windows_version_file(args.version), encoding="utf-8")
@@ -341,9 +343,8 @@ def main() -> int:
 		binary_format,
 		architecture,
 		binary_bits,
-		str(brand_manifest["version"]),
-		brand_manifest_sha256,
 		icon_embedded,
+		icon_source,
 		third_party_licenses,
 	)
 	manifest_path = executable.with_name(executable.name + ".manifest.json")

@@ -17,7 +17,7 @@ from scripts.build_onefile import (
 	_windows_version_file,
 	inspect_binary,
 )
-from scripts.package_release import EXPECTED_BINARIES, load_branding, package
+from scripts.package_release import EXPECTED_BINARIES, load_release_inputs, package
 from scripts.release_version import classify_release, compute_next_version, parse_tag
 from scripts.stamp_version import stamp
 from validation.pr_visual.build import (
@@ -88,9 +88,7 @@ class BuildAutomationTests(unittest.TestCase):
 		release = (root / ".github" / "workflows" / "ci-release.yml").read_text(
 			encoding="utf-8"
 		)
-		pages = (root / ".github" / "workflows" / "pages.yml").read_text(
-			encoding="utf-8"
-		)
+		pages_path = root / ".github" / "workflows" / "pages.yml"
 		self.assertIn("branches: [main]", visual)
 		self.assertIn("retention-days: 7", visual)
 		self.assertIn("retained for up to seven days", visual)
@@ -113,11 +111,7 @@ class BuildAutomationTests(unittest.TestCase):
 		self.assertIn("sha256sum --check SHA256SUMS.txt", release)
 		self.assertIn(".third-party-licenses.txt", release)
 		self.assertIn('python-version: "3.13.14"', release)
-		self.assertIn("pages: write", pages)
-		self.assertIn("id-token: write", pages)
-		self.assertIn("cp examples/review.html", pages)
-		self.assertIn("actions/deploy-pages@", pages)
-		self.assertNotIn("pull_request:", pages)
+		self.assertFalse(pages_path.exists())
 
 	def test_committed_capability_demo_has_locked_provenance_and_hashes(self):
 		root = Path(__file__).resolve().parents[1]
@@ -133,17 +127,11 @@ class BuildAutomationTests(unittest.TestCase):
 		self.assertEqual(len(manifest["cases"]), 3)
 		self.assertTrue((examples / "README.md").is_file())
 		self.assertTrue((examples / "review.html").is_file())
-		self.assertEqual(
-			(examples / "robots.txt").read_text(encoding="utf-8"),
-			"User-agent: *\n"
-			"Allow: /\n"
-			"Sitemap: https://sayantandey.github.io/CocoaPDF/sitemap.xml\n",
-		)
-		sitemap = (examples / "sitemap.xml").read_text(encoding="utf-8")
-		self.assertIn("https://sayantandey.github.io/CocoaPDF/", sitemap)
+		self.assertFalse((examples / "robots.txt").exists())
+		self.assertFalse((examples / "sitemap.xml").exists())
 		self.assertIn(
-			"/cases/strategic_corner_cases/full/output.html",
-			sitemap,
+			"https://raw.githack.com/sayantandey/CocoaPDF/main/examples/review.html",
+			(examples / "README.md").read_text(encoding="utf-8"),
 		)
 		for index_name in ("README.md", "review.html"):
 			text = (examples / index_name).read_text(encoding="utf-8")
@@ -195,11 +183,15 @@ class BuildAutomationTests(unittest.TestCase):
 						expected["sha256"],
 					)
 
-	def test_brand_manifest_inventory_is_complete(self):
-		branding = load_branding()
-		self.assertEqual(branding["asset_count"], 47)
-		self.assertEqual(branding["version"], "1.0.2")
-		self.assertEqual(len(branding["manifest_sha256"]), 64)
+	def test_release_inputs_lock_the_actual_windows_icon(self):
+		root = Path(__file__).resolve().parents[1]
+		release_inputs = load_release_inputs()
+		icon = release_inputs["windows_icon"]
+		icon_path = root / icon["path"]
+		icon_bytes = icon_path.read_bytes()
+		self.assertEqual(icon["bytes"], len(icon_bytes))
+		self.assertEqual(icon["sha256"], hashlib.sha256(icon_bytes).hexdigest())
+		self.assertTrue(release_inputs["license"].startswith(b"MIT License"))
 
 	def test_pinned_runtime_licenses_are_complete_and_digest_locked(self):
 		root = Path(__file__).resolve().parents[1]
@@ -269,7 +261,7 @@ class BuildAutomationTests(unittest.TestCase):
 		with tempfile.TemporaryDirectory() as directory:
 			root = Path(directory)
 			artifacts = root / "artifacts"
-			branding = load_branding()
+			release_inputs = load_release_inputs()
 			for key, expected in EXPECTED_BINARIES.items():
 				# Match download-artifact's real layout.  For Linux, the artifact
 				# directory and the executable intentionally have the same name.
@@ -285,8 +277,9 @@ class BuildAutomationTests(unittest.TestCase):
 					"third-party notices for %s\n" % key
 				).encode("ascii")
 				third_party.write_bytes(third_party_data)
+				icon_embedded = expected["format"] == "PE"
 				manifest = {
-					"schema": "cocoapdf.binary-manifest/v1",
+					"schema": "cocoapdf.binary-manifest/v2",
 					"product": "CocoaPDF",
 					"artifact": expected["filename"],
 					"version": "1.2.3",
@@ -295,9 +288,12 @@ class BuildAutomationTests(unittest.TestCase):
 					"python_bits": 64,
 					"bytes": len(data),
 					"sha256": hashlib.sha256(data).hexdigest(),
-					"brand_manifest_version": branding["version"],
-					"brand_manifest_sha256": branding["manifest_sha256"],
-					"icon_embedded": expected["format"] == "PE",
+					"icon_embedded": icon_embedded,
+					"icon_source": (
+						release_inputs["windows_icon"]
+						if icon_embedded
+						else None
+					),
 					"third_party_licenses": {
 						"filename": third_party.name,
 						"bytes": len(third_party_data),
@@ -345,10 +341,15 @@ class BuildAutomationTests(unittest.TestCase):
 				self.assertEqual(archive.getmember("cocoapdf-arm64").mode, 0o755)
 				self.assertEqual(archive.getmember("cocoapdf-x86_64").mode, 0o755)
 			metadata = json.loads((output / "RELEASE.json").read_text(encoding="utf-8"))
+			self.assertEqual(metadata["schema"], "cocoapdf.release/v2")
 			self.assertEqual(metadata["product"], "CocoaPDF")
-			self.assertEqual(metadata["branding"]["manifest_version"], branding["version"])
-			self.assertEqual(metadata["branding"]["asset_count"], 47)
-			self.assertTrue(metadata["branding"]["windows_executable_icon_embedded"])
+			self.assertEqual(
+				metadata["application_icon"]["sha256"],
+				release_inputs["windows_icon"]["sha256"],
+			)
+			self.assertTrue(
+				metadata["application_icon"]["embedded_in_windows_executable"]
+			)
 			self.assertEqual(set(metadata["binaries"]), set(EXPECTED_BINARIES))
 			self.assertEqual(
 				metadata["binaries"]["windows-x86_64"]["sha256"],

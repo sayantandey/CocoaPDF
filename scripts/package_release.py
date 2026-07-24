@@ -35,7 +35,9 @@ EXPECTED_BINARIES = {
 }
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-BRAND_MANIFEST_NAME = "BRAND_ASSET_MANIFEST.json"
+WINDOWS_ICON_RELATIVE = Path(
+	"docs/assets/brand/icons/app/cocoapdf-app-icon.ico"
+)
 
 
 def _sha256(data: bytes) -> str:
@@ -52,64 +54,30 @@ def _find_one(root: Path, filename: str) -> Path:
 	return matches[0]
 
 
-def load_branding(project_root: Path = PROJECT_ROOT) -> Dict[str, Any]:
-	brand_root = project_root / "docs" / "assets" / "brand"
-	manifest_path = brand_root / BRAND_MANIFEST_NAME
+def load_release_inputs(project_root: Path = PROJECT_ROOT) -> Dict[str, Any]:
+	icon_path = project_root / WINDOWS_ICON_RELATIVE
 	try:
-		manifest_bytes = manifest_path.read_bytes()
-		canonical_manifest = manifest_bytes.replace(b"\r\n", b"\n")
-		manifest = json.loads(canonical_manifest.decode("utf-8"))
-	except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-		raise ValueError("cannot read CocoaPDF brand manifest: %s" % exc) from exc
-
-	if manifest.get("project") != "CocoaPDF" or not isinstance(manifest.get("version"), str):
-		raise ValueError("invalid CocoaPDF brand manifest identity")
-	records = manifest.get("files")
-	if not isinstance(records, list) or manifest.get("asset_count") != len(records):
-		raise ValueError("brand manifest asset count is inconsistent")
-	listed_sizes = {
-		str(item.get("path")): item.get("bytes")
-		for item in records
-		if isinstance(item, dict)
-	}
-	if len(listed_sizes) != len(records):
-		raise ValueError("brand manifest contains invalid or duplicate file records")
-	actual_paths = {
-		path.relative_to(brand_root).as_posix()
-		for path in brand_root.rglob("*")
-		if path.is_file()
-	}
-	if actual_paths != set(listed_sizes):
-		missing = sorted(set(listed_sizes) - actual_paths)
-		extra = sorted(actual_paths - set(listed_sizes))
-		raise ValueError("brand asset inventory mismatch; missing=%r extra=%r" % (missing, extra))
-	text_suffixes = {".json", ".md", ".svg", ".webmanifest"}
-	for relative, expected_size in listed_sizes.items():
-		data = (brand_root / relative).read_bytes()
-		# The untracked local kit may retain CRLF until Git first normalizes it;
-		# repository checkouts are LF per .gitattributes. Accept either byte form.
-		normalized = data.replace(b"\r\n", b"\n") if Path(relative).suffix in text_suffixes else data
-		if expected_size not in {len(data), len(normalized)}:
-			raise ValueError("brand asset %s does not match its manifest" % relative)
-	try:
+		icon_bytes = icon_path.read_bytes()
 		license_bytes = (project_root / "LICENSE").read_bytes()
 	except OSError as exc:
-		raise ValueError("cannot read release license: %s" % exc) from exc
+		raise ValueError("cannot read required release input: %s" % exc) from exc
 
 	return {
-		"version": manifest["version"],
-		"asset_count": manifest["asset_count"],
-		"manifest_sha256": _sha256(canonical_manifest),
 		"license": license_bytes,
+		"windows_icon": {
+			"path": WINDOWS_ICON_RELATIVE.as_posix(),
+			"bytes": len(icon_bytes),
+			"sha256": _sha256(icon_bytes),
+		},
 	}
 
 
 def validate_artifacts(
 	root: Path,
 	version: str,
-	branding: Optional[Dict[str, Any]] = None,
+	release_inputs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Tuple[Path, Path, Path, Dict[str, Any]]]:
-	branding = branding or load_branding()
+	release_inputs = release_inputs or load_release_inputs()
 	validated: Dict[str, Tuple[Path, Path, Path, Dict[str, Any]]] = {}
 	for key, expected in EXPECTED_BINARIES.items():
 		binary = _find_one(root, str(expected["filename"]))
@@ -119,17 +87,21 @@ def validate_artifacts(
 			str(expected["filename"]) + ".third-party-licenses.txt",
 		)
 		manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+		icon_embedded = expected["format"] == "PE"
 		checks = {
-			"schema": "cocoapdf.binary-manifest/v1",
+			"schema": "cocoapdf.binary-manifest/v2",
 			"product": "CocoaPDF",
 			"artifact": expected["filename"],
 			"version": version,
 			"binary_format": expected["format"],
 			"architecture": expected["architecture"],
 			"python_bits": 64,
-			"brand_manifest_version": branding["version"],
-			"brand_manifest_sha256": branding["manifest_sha256"],
-			"icon_embedded": expected["format"] == "PE",
+			"icon_embedded": icon_embedded,
+			"icon_source": (
+				release_inputs["windows_icon"]
+				if icon_embedded
+				else None
+			),
 		}
 		for field, value in checks.items():
 			if manifest.get(field) != value:
@@ -184,8 +156,8 @@ def _tar_gz(output: Path, entries: Iterable[Tuple[str, bytes, int]], epoch: int)
 
 
 def package(root: Path, output: Path, version: str, epoch: int) -> List[Path]:
-	branding = load_branding()
-	artifacts = validate_artifacts(root, version, branding)
+	release_inputs = load_release_inputs()
+	artifacts = validate_artifacts(root, version, release_inputs)
 	output.mkdir(parents=True, exist_ok=True)
 
 	windows_binary = artifacts["windows-x86_64"][0]
@@ -195,7 +167,7 @@ def package(root: Path, output: Path, version: str, epoch: int) -> List[Path]:
 		windows_package,
 		[
 			("cocoapdf.exe", windows_binary.read_bytes(), 0o755),
-			("LICENSE.txt", branding["license"], 0o644),
+			("LICENSE.txt", release_inputs["license"], 0o644),
 			("THIRD_PARTY_NOTICES.txt", windows_notices.read_bytes(), 0o644),
 		],
 		epoch,
@@ -208,7 +180,7 @@ def package(root: Path, output: Path, version: str, epoch: int) -> List[Path]:
 		linux_package,
 		[
 			("cocoapdf", linux_binary.read_bytes(), 0o755),
-			("LICENSE.txt", branding["license"], 0o644),
+			("LICENSE.txt", release_inputs["license"], 0o644),
 			("THIRD_PARTY_NOTICES.txt", linux_notices.read_bytes(), 0o644),
 		],
 		epoch,
@@ -224,7 +196,7 @@ def package(root: Path, output: Path, version: str, epoch: int) -> List[Path]:
 		[
 			("cocoapdf-arm64", mac_arm.read_bytes(), 0o755),
 			("cocoapdf-x86_64", mac_intel.read_bytes(), 0o755),
-			("LICENSE.txt", branding["license"], 0o644),
+			("LICENSE.txt", release_inputs["license"], 0o644),
 			(
 				"THIRD_PARTY_NOTICES-arm64.txt",
 				mac_arm_notices.read_bytes(),
@@ -241,15 +213,13 @@ def package(root: Path, output: Path, version: str, epoch: int) -> List[Path]:
 
 	packages = [windows_package, linux_package, mac_package]
 	metadata = {
-		"schema": "cocoapdf.release/v1",
+		"schema": "cocoapdf.release/v2",
 		"product": "CocoaPDF",
 		"version": version,
 		"tag": "v%s" % version,
-		"branding": {
-			"manifest_version": branding["version"],
-			"asset_count": branding["asset_count"],
-			"manifest_sha256": branding["manifest_sha256"],
-			"windows_executable_icon_embedded": True,
+		"application_icon": {
+			**release_inputs["windows_icon"],
+			"embedded_in_windows_executable": True,
 		},
 		"package_contents": {
 			"cocoapdf-windows-x86_64.zip": [

@@ -153,7 +153,7 @@ Every accepted semantic element can retain evidence linking it back to its sourc
 
 ## Capability demo
 
-[Open the rendered, side-by-side capability demo](https://sayantandey.github.io/CocoaPDF/)
+[Open the rendered, side-by-side capability demo](https://raw.githack.com/sayantandey/CocoaPDF/main/examples/review.html)
 or [browse its committed inputs and exact outputs](examples/README.md). The three
 complex source PDFs, fixture prose, and assets are first-party project material
 under the bundled MIT license; no downloaded content, OCR, AI, or ML is used.
