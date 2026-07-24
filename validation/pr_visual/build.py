@@ -30,6 +30,7 @@ def _source_imports() -> None:
 
 _source_imports()
 
+from cocoapdf._textio import write_utf8_lf  # noqa: E402
 from cocoapdf.synthetic import line_op, text_op  # noqa: E402
 
 
@@ -327,7 +328,8 @@ def run_conversion(
 		encoding="utf-8",
 		errors="replace",
 	)
-	(output_dir / "command.json").write_text(
+	write_utf8_lf(
+		output_dir / "command.json",
 		json.dumps(
 			{
 				"argv": recorded_command,
@@ -339,7 +341,6 @@ def run_conversion(
 			indent=2,
 		)
 		+ "\n",
-		encoding="utf-8",
 	)
 	if completed.returncode:
 		raise RuntimeError(
@@ -426,7 +427,8 @@ def verify_scope_selected(output_dir: Path) -> List[Dict[str, Any]]:
 
 
 def _write_assertions(path: Path, assertions: Sequence[Dict[str, Any]]) -> None:
-	path.write_text(
+	write_utf8_lf(
+		path,
 		json.dumps(
 			{
 				"passed": all(bool(item.get("passed")) for item in assertions),
@@ -435,7 +437,6 @@ def _write_assertions(path: Path, assertions: Sequence[Dict[str, Any]]) -> None:
 			indent=2,
 		)
 		+ "\n",
-		encoding="utf-8",
 	)
 
 
@@ -453,9 +454,9 @@ def _replace_full_report_with_summary(output_dir: Path) -> None:
 		"omitted_duplicate_or_glyph_heavy_report_fields": list(omitted),
 		"full_report_available_in_pull_request_artifacts": True,
 	}
-	(output_dir / "output.report.summary.json").write_text(
+	write_utf8_lf(
+		output_dir / "output.report.summary.json",
 		json.dumps(summary, indent=2, sort_keys=True) + "\n",
-		encoding="utf-8",
 	)
 	report_path.unlink()
 
@@ -563,7 +564,7 @@ def _write_review_files(
 				primary_base=html.escape(primary_base, quote=True),
 			)
 		)
-	(output_root / index_name).write_text("\n".join(lines) + "\n", encoding="utf-8")
+	write_utf8_lf(output_root / index_name, "\n".join(lines) + "\n")
 	review_page = """<!doctype html>
 <html lang="en">
 <head>
@@ -587,7 +588,8 @@ __COCOAPDF_REVIEW_SECTIONS__
 </body>
 </html>
 """
-	(output_root / "review.html").write_text(
+	write_utf8_lf(
+		output_root / "review.html",
 		review_page
 		.replace("__COCOAPDF_REVIEW_TITLE__", html.escape(title))
 		.replace("__COCOAPDF_INDEX_NAME__", index_name)
@@ -598,7 +600,6 @@ __COCOAPDF_REVIEW_SECTIONS__
 				for section in sections
 			),
 		),
-		encoding="utf-8",
 	)
 
 
@@ -745,9 +746,9 @@ def build_bundle(
 		),
 		"cases": manifest_cases,
 	}
-	(output_root / "manifest.json").write_text(
+	write_utf8_lf(
+		output_root / "manifest.json",
 		json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-		encoding="utf-8",
 	)
 	return manifest
 

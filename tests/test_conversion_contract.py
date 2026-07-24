@@ -5,9 +5,22 @@ import unittest
 from pathlib import Path
 
 from cocoapdf import ConvertOptions, convert_file
+from cocoapdf._textio import canonical_newlines, write_utf8_lf
 from cocoapdf.cli import main as cli_main
 from cocoapdf.core import convert
 from cocoapdf.synthetic import image_xobject_rgb, make_pdf, text_op
+
+
+class OutputDeterminismTests(unittest.TestCase):
+	def test_utf8_output_bytes_use_lf_on_every_platform(self):
+		self.assertEqual(
+			canonical_newlines("alpha\r\nbravo\rcharlie\n"),
+			"alpha\nbravo\ncharlie\n",
+		)
+		with tempfile.TemporaryDirectory() as directory:
+			output = Path(directory) / "output.txt"
+			write_utf8_lf(output, "alpha\r\nbravo\rcharlie\n")
+			self.assertEqual(output.read_bytes(), b"alpha\nbravo\ncharlie\n")
 
 
 class V14FixtureTests(unittest.TestCase):
