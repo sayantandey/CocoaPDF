@@ -1,0 +1,156 @@
+name: PR visual validation
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-visual-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Generate review corpus
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      artifact_name: ${{ steps.names.outputs.artifact_name }}
+      artifact_url: ${{ steps.upload.outputs.artifact-url }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Check out the pull-request merge
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Resolve artifact identity
+        id: names
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "artifact_name=cocoapdf-pr-visual-pr-${{ github.event.pull_request.number }}" >> "${GITHUB_OUTPUT}"
+
+      - name: Generate inputs, CocoaPDF outputs, hashes, and review index
+        env:
+          PYTHONHASHSEED: "0"
+          TZ: UTC
+        shell: bash
+        run: |
+          set -euo pipefail
+          python validation/pr_visual/build.py \
+            --output-dir "${RUNNER_TEMP}/cocoapdf-pr-visual" \
+            --source-commit "${GITHUB_SHA}" \
+            --head-commit "${{ github.event.pull_request.head.sha }}"
+
+      - name: Upload the immutable review artifact
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.names.outputs.artifact_name }}
+          path: ${{ runner.temp }}/cocoapdf-pr-visual
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+
+      - name: Publish the manual-review summary
+        env:
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## CocoaPDF PR visual validation"
+            echo
+            echo "[Download the three input PDFs and all Markdown/HTML/JSON outputs](${ARTIFACT_URL})"
+            echo
+            echo "Artifact SHA-256: \`${ARTIFACT_DIGEST}\`"
+            echo
+            echo "After downloading and unzipping, open \`review.html\` for side-by-side inspection."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  link:
+    name: Link artifact in PR description
+    if: >-
+      github.event.action != 'closed' &&
+      needs.build.result == 'success' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Replace the delimited visual-review block
+        env:
+          ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact_digest }}
+          ARTIFACT_URL: ${{ needs.build.outputs.artifact_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "/repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""' > current-body.md
+          awk '
+            /<!-- cocoapdf-pr-visual:start -->/ { skip = 1; next }
+            /<!-- cocoapdf-pr-visual:end -->/ { skip = 0; next }
+            !skip { print }
+          ' current-body.md > base-body.md
+          sed -i -e ':a' -e '/^[[:space:]]*$/{$d;N;ba}' base-body.md
+          {
+            cat base-body.md
+            echo
+            echo
+            echo "<!-- cocoapdf-pr-visual:start -->"
+            echo "## PR visual-validation artifact"
+            echo
+            echo "[Download three input PDFs and their CocoaPDF Markdown/HTML/JSON outputs](${ARTIFACT_URL})."
+            echo
+            echo "- Head commit: \`${HEAD_SHA}\`"
+            echo "- Artifact SHA-256: \`${ARTIFACT_DIGEST}\`"
+            echo "- Open \`review.html\` after unzipping for side-by-side inspection."
+            echo "- The artifact expires after seven days and is deleted when this PR closes."
+            echo
+            echo "No external content, OCR, AI, or ML is used; provenance and licensing are included in \`manifest.json\`."
+            echo "<!-- cocoapdf-pr-visual:end -->"
+          } > updated-body.md
+          jq -n --rawfile body updated-body.md '{body: $body}' > payload.json
+          gh api --method PATCH "/repos/${REPOSITORY}/pulls/${PR_NUMBER}" --input payload.json > /dev/null
+
+  cleanup:
+    name: Delete closed-PR artifacts
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Delete every artifact retained for this PR
+        env:
+          ARTIFACT_NAME: cocoapdf-pr-visual-pr-${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method GET "/repos/${REPOSITORY}/actions/artifacts" \
+            -f "name=${ARTIFACT_NAME}" --paginate --jq '.artifacts[].id' > artifact-ids.txt
+          while IFS= read -r artifact_id; do
+            [[ -z "${artifact_id}" ]] && continue
+            gh api --method DELETE "/repos/${REPOSITORY}/actions/artifacts/${artifact_id}"
+          done < artifact-ids.txt

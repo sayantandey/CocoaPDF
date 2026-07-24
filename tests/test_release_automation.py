@@ -13,6 +13,10 @@ from scripts.build_onefile import _windows_version_file, inspect_binary
 from scripts.package_release import EXPECTED_BINARIES, load_branding, package
 from scripts.release_version import classify_release, compute_next_version, parse_tag
 from scripts.stamp_version import stamp
+from validation.pr_visual.build import (
+	build_scope_and_adversarial_pdf,
+	build_tagged_semantics_pdf,
+)
 
 
 class ReleaseVersionTests(unittest.TestCase):
@@ -58,6 +62,36 @@ class ReleaseVersionTests(unittest.TestCase):
 
 
 class BuildAutomationTests(unittest.TestCase):
+	def test_pr_visual_inputs_are_first_party_and_deterministic(self):
+		for builder in (
+			build_tagged_semantics_pdf,
+			build_scope_and_adversarial_pdf,
+		):
+			first = builder()
+			second = builder()
+			self.assertEqual(first, second)
+			self.assertTrue(first.startswith(b"%PDF-1.7"))
+			self.assertTrue(first.endswith(b"%%EOF\n"))
+
+	def test_pr_visual_workflow_is_ephemeral_and_release_queue_is_lossless(self):
+		root = Path(__file__).resolve().parents[1]
+		visual = (root / ".github" / "workflows" / "pr-visual-validation.yml").read_text(
+			encoding="utf-8"
+		)
+		release = (root / ".github" / "workflows" / "ci-release.yml").read_text(
+			encoding="utf-8"
+		)
+		self.assertIn("branches: [main]", visual)
+		self.assertIn("retention-days: 7", visual)
+		self.assertIn("github.event.action == 'closed'", visual)
+		self.assertIn("actions: write", visual)
+		self.assertIn("pull-requests: write", visual)
+		self.assertNotIn("pull_request_target:", visual)
+		self.assertIn("queue: max", release)
+		self.assertIn("if: github.event_name == 'push'", release)
+		self.assertIn("gh release create", release)
+		self.assertIn("sha256sum --check SHA256SUMS.txt", release)
+
 	def test_brand_manifest_inventory_is_complete(self):
 		branding = load_branding()
 		self.assertEqual(branding["asset_count"], 47)
