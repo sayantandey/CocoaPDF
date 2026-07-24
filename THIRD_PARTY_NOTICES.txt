@@ -60,10 +60,12 @@ PyInstaller 6.21.0 is GPL-2.0-or-later with its Bootloader Exception for the
 embedded bootloader and loader; included run-time hooks are Apache-2.0.
 
 The release build records the exact interpreter version in each binary
-manifest. Canonical license texts:
+manifest and verifies the vendored, LF-normalized license texts by SHA-256
+before packaging. The copies in `licenses/` are pinned to these immutable
+upstream revisions:
 
-https://github.com/python/cpython/blob/3.13/LICENSE
-https://github.com/pyinstaller/pyinstaller/blob/v6.21.0/COPYING.txt
+https://github.com/python/cpython/blob/fd17997c3866d61e0e7bd8201b1d8f35b40a40bd/LICENSE
+https://github.com/pyinstaller/pyinstaller/blob/1cda34561015a90b6e1ae31dc89703799adaf13e/COPYING.txt
 
 The PyInstaller Bootloader Exception states:
 

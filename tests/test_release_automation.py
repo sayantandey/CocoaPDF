@@ -10,7 +10,13 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from scripts.build_onefile import _windows_version_file, inspect_binary
+from scripts.build_onefile import (
+	PINNED_LICENSES,
+	PYINSTALLER_VERSION,
+	_pinned_license,
+	_windows_version_file,
+	inspect_binary,
+)
 from scripts.package_release import EXPECTED_BINARIES, load_branding, package
 from scripts.release_version import classify_release, compute_next_version, parse_tag
 from scripts.stamp_version import stamp
@@ -106,6 +112,7 @@ class BuildAutomationTests(unittest.TestCase):
 		self.assertIn("gh release create", release)
 		self.assertIn("sha256sum --check SHA256SUMS.txt", release)
 		self.assertIn(".third-party-licenses.txt", release)
+		self.assertIn('python-version: "3.13.14"', release)
 		self.assertIn("pages: write", pages)
 		self.assertIn("id-token: write", pages)
 		self.assertIn("cp examples/review.html", pages)
@@ -193,6 +200,25 @@ class BuildAutomationTests(unittest.TestCase):
 		self.assertEqual(branding["asset_count"], 47)
 		self.assertEqual(branding["version"], "1.0.2")
 		self.assertEqual(len(branding["manifest_sha256"]), 64)
+
+	def test_pinned_runtime_licenses_are_complete_and_digest_locked(self):
+		root = Path(__file__).resolve().parents[1]
+		for component, (relative, expected_sha256) in PINNED_LICENSES.items():
+			name, data = _pinned_license(root, component)
+			self.assertEqual(name, relative.name)
+			self.assertGreater(len(data), 10_000)
+			self.assertEqual(hashlib.sha256(data).hexdigest(), expected_sha256)
+		pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+		self.assertIn('pyinstaller==%s' % PYINSTALLER_VERSION, pyproject)
+		notices = (root / "THIRD_PARTY_NOTICES.txt").read_text(encoding="utf-8")
+		self.assertIn(
+			"fd17997c3866d61e0e7bd8201b1d8f35b40a40bd/LICENSE",
+			notices,
+		)
+		self.assertIn(
+			"1cda34561015a90b6e1ae31dc89703799adaf13e/COPYING.txt",
+			notices,
+		)
 
 	def test_binary_header_inspection(self):
 		with tempfile.TemporaryDirectory() as directory:

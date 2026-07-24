@@ -837,4 +837,4 @@ CocoaPDF is released under the [MIT License](LICENSE).
 Project attribution is available in [`NOTICE`](NOTICE). Incorporated data and
 standalone-runtime licenses are recorded in
 [`THIRD_PARTY_NOTICES.txt`](THIRD_PARTY_NOTICES.txt); release archives carry
-the exact CPython and PyInstaller license texts captured by each native build.
+the pinned CPython and PyInstaller license texts verified by each native build.

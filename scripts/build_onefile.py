@@ -31,6 +31,17 @@ MACHO_CPUS = {
 }
 
 VERSION_PATTERN = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+PYINSTALLER_VERSION = "6.21.0"
+PINNED_LICENSES = {
+	"cpython": (
+		Path("licenses/CPython-3.13.14.txt"),
+		"78b12c3a81360b357002334f0e70ea0e92eebf7a9b358805c03c48484945f3bb",
+	),
+	"pyinstaller": (
+		Path("licenses/PyInstaller-6.21.0.txt"),
+		"571f650c741ae1f6d8b689ef639b02c93297b84cef32db7c5211674d7b6fc094",
+	),
+}
 
 
 def _normalized_text_bytes(path: Path) -> bytes:
@@ -45,44 +56,31 @@ def _normalized_text_bytes(path: Path) -> bytes:
 	return data.replace(b"\r\n", b"\n")
 
 
-def _python_license() -> Tuple[str, bytes]:
-	bases = []
-	for candidate in (
-		Path(sys.base_prefix),
-		Path(sys.prefix),
-		Path(sys.executable).resolve().parent,
-		Path(sys.executable).resolve().parent.parent,
-	):
-		if candidate not in bases:
-			bases.append(candidate)
-	for base in bases:
-		for filename in ("LICENSE.txt", "LICENSE", "LICENSE.rst"):
-			path = base / filename
-			if path.is_file():
-				return filename, _normalized_text_bytes(path)
-	raise ValueError(
-		"cannot locate the CPython license beside interpreter %s"
-		% sys.executable
-	)
+def _pinned_license(root: Path, component: str) -> Tuple[str, bytes]:
+	relative, expected_sha256 = PINNED_LICENSES[component]
+	path = root / relative
+	data = _normalized_text_bytes(path)
+	actual_sha256 = hashlib.sha256(data).hexdigest()
+	if actual_sha256 != expected_sha256:
+		raise ValueError(
+			"%s license digest %s does not match pinned digest %s"
+			% (component, actual_sha256, expected_sha256)
+		)
+	return path.name, data
 
 
-def _pyinstaller_license() -> Tuple[str, str, bytes]:
+def _pyinstaller_license(root: Path) -> Tuple[str, str, bytes]:
 	try:
 		distribution = importlib_metadata.distribution("pyinstaller")
 	except importlib_metadata.PackageNotFoundError as exc:
 		raise ValueError("PyInstaller distribution metadata is unavailable") from exc
-	matches = []
-	for entry in distribution.files or ():
-		name = Path(str(entry)).name.casefold()
-		if name != "copying.txt":
-			continue
-		path = Path(distribution.locate_file(entry))
-		if path.is_file():
-			matches.append(path)
-	if not matches:
-		raise ValueError("cannot locate PyInstaller COPYING.txt in the installed wheel")
-	path = sorted(matches, key=lambda item: item.as_posix())[0]
-	return distribution.version, path.name, _normalized_text_bytes(path)
+	if distribution.version != PYINSTALLER_VERSION:
+		raise ValueError(
+			"PyInstaller %s is installed, expected %s"
+			% (distribution.version, PYINSTALLER_VERSION)
+		)
+	name, data = _pinned_license(root, "pyinstaller")
+	return distribution.version, name, data
 
 
 def _license_section(title: str, data: bytes) -> bytes:
@@ -95,8 +93,8 @@ def build_third_party_license_bundle(root: Path) -> bytes:
 	notice_path = root / "THIRD_PARTY_NOTICES.txt"
 	if not notice_path.is_file():
 		raise ValueError("missing repository third-party notice: %s" % notice_path)
-	python_name, python_license = _python_license()
-	pyinstaller_version, pyinstaller_name, pyinstaller_license = _pyinstaller_license()
+	python_name, python_license = _pinned_license(root, "cpython")
+	pyinstaller_version, pyinstaller_name, pyinstaller_license = _pyinstaller_license(root)
 	sections = [
 		_normalized_text_bytes(notice_path).rstrip(),
 		_license_section(
