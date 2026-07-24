@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from ..ir.evidence import Evidence
 from ..ir.semantic import NodeFactory, SemanticNode, SourceRef
@@ -9,7 +9,12 @@ from ..ir.semantic import NodeFactory, SemanticNode, SourceRef
 _INHERITED_KEYS = ("FT", "Ff", "V", "DV", "DA", "Q", "Opt", "MaxLen", "I", "TI")
 
 
-def extract_acroform(document: Any, factory: NodeFactory, page_ref_to_num: Dict[Tuple[int, int], int]) -> Optional[SemanticNode]:
+def extract_acroform(
+    document: Any,
+    factory: NodeFactory,
+    page_ref_to_num: Dict[Tuple[int, int], int],
+    selected_pages: Optional[Set[int]] = None,
+) -> Optional[SemanticNode]:
     catalog = document.catalog()
     raw_form = catalog.get("AcroForm") if isinstance(catalog, dict) else None
     form = _resolve(document, raw_form)
@@ -23,6 +28,29 @@ def extract_acroform(document: Any, factory: NodeFactory, page_ref_to_num: Dict[
     active: set[Tuple[str, int]] = set()
     for raw in fields:
         children.extend(_walk_field(document, factory, raw, {}, [], page_ref_to_num, widget_pages, active))
+    if selected_pages is not None:
+        # AcroForm field trees are document-global. Interpret the complete tree
+        # first so inheritance and widget identity remain intact, then retain
+        # only widgets proven to belong to the selected page slice.
+        selected_children: List[SemanticNode] = []
+        for child in children:
+            selected_sources = [
+                source for source in child.sources
+                if source.page in selected_pages
+            ]
+            if not selected_sources:
+                # Page-less fields cannot be assigned to a partial document
+                # without inventing provenance.
+                continue
+            child.sources = selected_sources
+            widgets = child.attrs.get("widgets")
+            if isinstance(widgets, list):
+                child.attrs["widgets"] = [
+                    widget for widget in widgets
+                    if isinstance(widget, dict) and widget.get("page") in selected_pages
+                ]
+            selected_children.append(child)
+        children = selected_children
     if not children:
         return None
     sources = [source for child in children for source in child.sources]

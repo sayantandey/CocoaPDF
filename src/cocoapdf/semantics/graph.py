@@ -23,6 +23,8 @@ def build_semantic_graph(converter: Any, renderer: Any, events_by_page: Dict[int
         "source": "pdf_operators_and_structure",
         "output_policy": "markdown_first_html_fallback",
         "ocr_used": False,
+        "page_selection_active": converter.options.pages is not None,
+        "processed_pages": sorted(converter.processed_pages),
     }, version="2")
     for page in sorted(events_by_page):
         page_nodes: List[SemanticNode] = []
@@ -40,9 +42,22 @@ def build_semantic_graph(converter: Any, renderer: Any, events_by_page: Dict[int
     reconstruct_visible_toc(document, factory)
     if outline is not None:
         document.metadata["outline"] = outline.to_dict()
-        if not any(node.kind == "toc" for node in document.children):
+        # A PDF outline describes the complete source document. Keep it as
+        # diagnostic metadata, but do not inject entries outside an explicitly
+        # selected page slice. A TOC physically present on a selected page has
+        # already been reconstructed as an ordinary semantic node above.
+        if (
+            not document.metadata["page_selection_active"]
+            and not any(node.kind == "toc" for node in document.children)
+        ):
             document.children.insert(0, outline_to_toc(outline, factory))
-    form = extract_acroform(converter.doc, factory, converter._page_ref_to_num)
+    selected_pages = set(converter.processed_pages) if converter.options.pages is not None else None
+    form = extract_acroform(
+        converter.doc,
+        factory,
+        converter._page_ref_to_num,
+        selected_pages=selected_pages,
+    )
     if form is not None:
         document.children.append(form)
     enrich_notes_references_crossrefs(document, factory)

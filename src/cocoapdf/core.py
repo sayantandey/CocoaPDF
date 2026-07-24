@@ -5361,6 +5361,12 @@ class MarkdownRenderer:
 				large_boxes.append(((x0, y0, x1, y1), group))
 		if not large_boxes:
 			return []
+		if len(large_boxes) >= 4 and not self._has_form_column_pattern(large_boxes):
+			# Architecture diagrams and flowcharts commonly contain many short
+			# labeled rectangles distributed across several columns. Printed
+			# forms instead repeat controls on one or two stable alignment axes.
+			# Veto the ambiguous candidate before any lines are consumed.
+			return []
 
 		controls: List[Tuple[float, str, Line]] = []
 		used: set[int] = set()
@@ -5447,6 +5453,35 @@ class MarkdownRenderer:
 			page,
 		)
 		return [(controls[0][0], "\n".join(html), [line for _y, _markup, line in controls])]
+
+	@staticmethod
+	def _has_form_column_pattern(
+		large_boxes: Sequence[Tuple[Tuple[float, float, float, float], List[Segment]]],
+	) -> bool:
+		left_edges = sorted(box[0][0] for box in large_boxes)
+		widths = sorted(max(1.0, box[0][2] - box[0][0]) for box in large_boxes)
+		median_width = widths[len(widths) // 2]
+		tolerance = max(12.0, min(30.0, median_width * 0.18))
+		clusters: List[List[float]] = []
+		for edge in left_edges:
+			for cluster in clusters:
+				center = sum(cluster) / len(cluster)
+				if abs(edge - center) <= tolerance:
+					cluster.append(edge)
+					break
+			else:
+				clusters.append([edge])
+		sizes = sorted((len(cluster) for cluster in clusters), reverse=True)
+		count = max(len(left_edges), 1)
+		if sizes and sizes[0] / count >= 0.60:
+			return True
+		# Preserve legitimate two-column forms while rejecting diagrams spread
+		# across three or more weak axes.
+		return (
+			len(sizes) >= 2
+			and sizes[1] >= max(2, math.ceil(count * 0.25))
+			and sum(sizes[:2]) / count >= 0.85
+		)
 
 	def _control_path_groups(self, page: int) -> List[List[Segment]]:
 		segments = sorted(
@@ -6061,6 +6096,7 @@ class MarkdownRenderer:
 				)
 			out.append((caption_line.y0 if caption_line else y0, table_markdown, table_lines, (x0, y0, x1, y1)))
 		out.extend(self._form_grid_candidates(page))
+		out.extend(self._financial_statement_candidates(page))
 		out.extend(self._borderless_key_value_candidates(page))
 		out.extend(self._borderless_numeric_candidates(page))
 		out.sort(key=lambda t: (t[0], t[3][0]))
@@ -6324,6 +6360,176 @@ class MarkdownRenderer:
 			i = j
 		return out
 
+	def _financial_statement_candidates(self, page: int) -> List[Tuple[float, str, List[Line], Tuple[float, float, float, float]]]:
+		"""Recover year-column statements whose rows use dot leaders, not rules.
+
+		Admission deliberately requires a compact all-year bold header, complete
+		numeric occupancy below every year, and repeated leader evidence. This
+		keeps the detector useful for annual-report statements without treating
+		ordinary article columns or tables of contents as financial tables.
+		"""
+		lines = self.lines_by_page.get(page, [])
+		out: List[Tuple[float, str, List[Line], Tuple[float, float, float, float]]] = []
+		i = 0
+		while i < len(lines):
+			header_line = lines[i]
+			header_boxes = word_boxes(header_line)
+			years = sorted(
+				[
+					(text, (x0 + x1) / 2)
+					for text, x0, _y0, x1, _y1 in header_boxes
+					if re.fullmatch(r"(?:19|20)\d{2}", cleanup_spaces(text))
+				],
+				key=lambda item: item[1],
+			)
+			if (
+				not (2 <= len(years) <= 5)
+				or len(years) != len(header_boxes)
+				or len({year for year, _center in years}) != len(years)
+				or header_line.bold_ratio < 0.55
+			):
+				i += 1
+				continue
+			centers = [center for _year, center in years]
+			separations = [right - left for left, right in zip(centers, centers[1:])]
+			if not separations or min(separations) < max(24.0, header_line.size * 2.2):
+				i += 1
+				continue
+			column_pitch = median(separations)
+			numeric_start = centers[0] - column_pitch * 0.55
+			rows: List[Tuple[Line, str, List[str], bool]] = []
+			numeric_rows = 0
+			leader_rows = 0
+			previous_line = header_line
+			j = i + 1
+			while j < len(lines):
+				line = lines[j]
+				vertical_gap = line.y0 - previous_line.y0
+				if vertical_gap > max(header_line.size * 3.2, 34.0):
+					break
+				if vertical_gap < -max(header_line.size, 8.0):
+					# Reading order has moved to another region or column.
+					break
+				parsed = self._financial_statement_row(
+					line,
+					centers,
+					numeric_start,
+					column_pitch,
+				)
+				if parsed is None:
+					break
+				label, values, has_leader, section_row = parsed
+				if section_row:
+					rows.append((line, label, values, True))
+				else:
+					if (
+						len(values) != len(years)
+						or not all(is_financial_table_cell(value) for value in values)
+					):
+						break
+					rows.append((line, label, values, False))
+					numeric_rows += 1
+					leader_rows += int(has_leader)
+				previous_line = line
+				j += 1
+			if (
+				numeric_rows < 3
+				or leader_rows < max(3, math.ceil(numeric_rows * 0.60))
+			):
+				i += 1
+				continue
+			html = ["<table>", "<thead>"]
+			html.append(
+				'<tr><th scope="col"></th>'
+				+ "".join(
+					'<th scope="col">%s</th>' % escape_html(year)
+					for year, _center in years
+				)
+				+ "</tr>"
+			)
+			html.extend(["</thead>", "<tbody>"])
+			for _line, label, values, section_row in rows:
+				if section_row:
+					html.append(
+						'<tr><th scope="rowgroup" colspan="%d">%s</th></tr>'
+						% (len(years) + 1, escape_html(label))
+					)
+					continue
+				html.append(
+					'<tr><th scope="row">%s</th>%s</tr>'
+					% (
+						escape_html(label),
+						"".join(
+							"<td>%s</td>" % escape_html(value)
+							for value in values
+						),
+					)
+				)
+			html.extend(["</tbody>", "</table>"])
+			table_lines = [header_line] + [
+				line for line, _label, _values, _section in rows
+			]
+			out.append(
+				(
+					header_line.y0,
+					"\n".join(html),
+					table_lines,
+					(
+						min(line.x0 for line in table_lines),
+						min(line.y0 for line in table_lines),
+						max(line.x1 for line in table_lines),
+						max(line.y1 for line in table_lines),
+					),
+				)
+			)
+			i = j
+		return out
+
+	def _financial_statement_row(
+		self,
+		line: Line,
+		centers: Sequence[float],
+		numeric_start: float,
+		column_pitch: float,
+	) -> Optional[Tuple[str, List[str], bool, bool]]:
+		boxes = word_boxes(line)
+		if not boxes:
+			return None
+		label_parts: List[str] = []
+		value_parts: List[List[str]] = [[] for _center in centers]
+		has_leader = False
+		for raw_text, x0, _y0, x1, _y1 in boxes:
+			text = cleanup_spaces(raw_text).strip()
+			if not text:
+				continue
+			if re.fullmatch(r"\.{8,}", text):
+				has_leader = True
+				continue
+			trimmed = re.sub(r"\.{8,}$", "", text).rstrip()
+			if trimmed != text:
+				has_leader = True
+				text = trimmed
+				if not text:
+					continue
+			center = (x0 + x1) / 2
+			if center < numeric_start:
+				label_parts.append(text)
+				continue
+			column = min(
+				range(len(centers)),
+				key=lambda index: abs(center - centers[index]),
+			)
+			if abs(center - centers[column]) > column_pitch * 0.66:
+				return None
+			value_parts[column].append(text)
+		label = cleanup_spaces(" ".join(label_parts)).strip()
+		values = [cleanup_spaces(" ".join(parts)).strip() for parts in value_parts]
+		if label and label.endswith(":") and not any(values):
+			return label, values, has_leader, True
+		if not label or any(not value for value in values):
+			return None
+		return label, values, has_leader, False
+
 	def _borderless_numeric_candidates(self, page: int) -> List[Tuple[float, str, List[Line], Tuple[float, float, float, float]]]:
 		lines = self.lines_by_page.get(page, [])
 		out: List[Tuple[float, str, List[Line], Tuple[float, float, float, float]]] = []
@@ -6583,7 +6789,12 @@ class MarkdownRenderer:
 def line_text_tokens(line: Line) -> List[Dict[str, Any]]:
 	if line._text_tokens_cache is not None:
 		return [dict(token) for token in line._text_tokens_cache]
-	chars = ordered_line_chars(line)
+	rtl_list_marker = source_rtl_list_marker(line.chars)
+	chars = (
+		sorted(line.chars, key=lambda char: char.seq)
+		if rtl_list_marker is not None
+		else ordered_line_chars(line)
+	)
 	tokens: List[Dict[str, Any]] = []
 	prev: Optional[Char] = None
 	base_size = line.size or 1.0
@@ -6604,7 +6815,14 @@ def line_text_tokens(line: Line) -> List[Dict[str, Any]]:
 				len(candidate.text) == 1 and unicodedata.category(candidate.text) == "Cf"
 				for candidate in (prev, ch)
 			)
-			if gap > threshold and not format_control_boundary and not suppress_geometric_space(prev, ch, gap):
+			# A few producers place intended gaps just below the nominal font
+			# space width because of PDF metric rounding. Admit only a one-percent
+			# tolerance and retain every script/control suppression guard.
+			if (
+				gap >= threshold * 0.99
+				and not format_control_boundary
+				and not suppress_geometric_space(prev, ch, gap)
+			):
 				tokens.append({"text": " ", "style": neutral_style(), "link": None, "synthetic_space": True, "page": line.page, "glyph_ids": (), "mcids": (), "object_refs": (), "bbox": None})
 		style = style_key(ch, base_size, base_y0)
 		mcids = tuple(sorted({
@@ -6636,9 +6854,130 @@ def line_text_tokens(line: Line) -> List[Dict[str, Any]]:
 	# Convert geometry-ordered visual runs to logical text once. This is shared
 	# by the mature Markdown renderer and the semantic graph, so downstream
 	# emitters must not apply a second bidi reversal.
-	merged = merge_tokens(repair_bidi_tokens(tokens))
+	repaired = repair_bidi_tokens(tokens)
+	if rtl_list_marker is not None:
+		repaired = restore_rtl_list_marker(repaired, rtl_list_marker)
+	merged = merge_tokens(repaired)
 	line._text_tokens_cache = tuple(dict(token) for token in merged)
 	return [dict(token) for token in line._text_tokens_cache]
+
+
+_RTL_SOURCE_LIST_MARKERS = frozenset(
+	"\u2022\u25e6\u25aa\u25ab\u2023\u2219\u25cf\u25cb\u25a0\uf0a7\uf0b7"
+)
+
+
+def source_rtl_list_marker(
+	chars: Sequence[Char],
+) -> Optional[Tuple[str, int, Dict[str, Any]]]:
+	first_visible = min(
+		(
+			char for char in chars
+			if char.text and not char.text.isspace()
+		),
+		key=lambda char: char.seq,
+		default=None,
+	)
+	if (
+		first_visible is None
+		or first_visible.text not in _RTL_SOURCE_LIST_MARKERS
+	):
+		return None
+	visible = sorted(
+		(
+			char for char in chars
+			if char.text and not char.text.isspace()
+		),
+		key=lambda char: char.seq,
+	)
+	body = "".join(char.text for char in visible[1:])
+	if not is_rtl_dominant_text(body):
+		return None
+	marker = visible[0]
+	style = style_key(marker, marker.size or 1.0, marker.y0)
+	mcids = tuple(sorted({
+		int(mark.get("mcid"))
+		for mark in marker.mc
+		if (
+			isinstance(mark, dict)
+			and isinstance(mark.get("mcid"), int)
+			and not isinstance(mark.get("mcid"), bool)
+		)
+	}))
+	token = {
+		"text": marker.text,
+		"style": style,
+		"link": marker.link,
+		"page": marker.page,
+		"glyph_ids": (marker.seq,),
+		"mcids": mcids,
+		"object_refs": (marker.link_object_ref,) if marker.link_object_ref else (),
+		"bbox": (marker.x0, marker.y0, marker.x1, marker.y1),
+	}
+	return marker.text, marker.seq, token
+
+
+def restore_rtl_list_marker(
+	tokens: List[Dict[str, Any]],
+	marker: Tuple[str, int, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+	marker_text, marker_seq, marker_token = marker
+	target_index = next(
+		(
+			index for index, token in enumerate(tokens)
+			if marker_seq in tuple(token.get("glyph_ids", ()))
+		),
+		None,
+	)
+	if target_index is None:
+		target_index = next(
+			(
+				index for index, token in enumerate(tokens)
+				if marker_text in str(token.get("text", ""))
+			),
+			None,
+		)
+	if target_index is None:
+		return tokens
+	target_text = str(tokens[target_index].get("text", ""))
+	text_index = target_text.find(marker_text)
+	if text_index < 0:
+		return tokens
+	body: List[Dict[str, Any]] = []
+	for index, token in enumerate(tokens):
+		if index != target_index:
+			body.append(dict(token))
+			continue
+		for part in (
+			target_text[:text_index],
+			target_text[text_index + len(marker_text) :],
+		):
+			if not part:
+				continue
+			fragment = dict(token)
+			fragment["text"] = part
+			fragment["glyph_ids"] = tuple(
+				glyph_id
+				for glyph_id in fragment.get("glyph_ids", ())
+				if glyph_id != marker_seq
+			)
+			body.append(fragment)
+	while body and str(body[0].get("text", "")).isspace():
+		body.pop(0)
+	while body and str(body[-1].get("text", "")).isspace():
+		body.pop()
+	space = {
+		"text": " ",
+		"style": neutral_style(),
+		"link": None,
+		"synthetic_space": True,
+		"page": marker_token.get("page"),
+		"glyph_ids": (),
+		"mcids": (),
+		"object_refs": (),
+		"bbox": None,
+	}
+	return [dict(marker_token), space] + body
 
 
 def ordered_line_chars(line: Line) -> List[Char]:
@@ -8261,6 +8600,16 @@ def line_baseline_slope(line: Line) -> Optional[float]:
 	if denominator <= 1e-9:
 		return None
 	return sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys)) / denominator
+
+
+def is_financial_table_cell(text: str) -> bool:
+	value = cleanup_spaces(text).strip()
+	if value in {"-", "--", "---", "\u2013", "\u2014", "\u2212"}:
+		return True
+	without_currency = re.sub(r"[$\u20ac\u00a3\u00a5\u20b9]", "", value).strip()
+	without_currency = re.sub(r"\(\s+", "(", without_currency)
+	without_currency = re.sub(r"\s+\)", ")", without_currency)
+	return is_numeric_table_cell(without_currency)
 
 
 def is_numeric_table_cell(text: str) -> bool:

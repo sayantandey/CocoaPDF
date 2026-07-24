@@ -14,7 +14,7 @@ from cocoapdf.html.semantic import render_semantic_html
 from cocoapdf.ir.semantic import NodeFactory, SemanticDocument, SemanticNode, SourceRef
 from cocoapdf.markdown.semantic import render_semantic_markdown
 from cocoapdf.reporting.report import attach_semantic_document
-from cocoapdf.semantics.reconcile import reconcile_tagged_content
+from cocoapdf.semantics.reconcile import _tagged_list_node, reconcile_tagged_content
 from cocoapdf.semantics.tagged import parse_tagged_structure
 from cocoapdf.synthetic import line_op, make_pdf, rect_fill_op, text_op
 from cocoapdf.text.bidi import reorder_text, reorder_tokens
@@ -173,6 +173,75 @@ class AcroFormAndOutlineTests(unittest.TestCase):
         self.assertIn("Introduction", result.markdown)
         self.assertIn('class="cocoapdf-toc"', result.html)
 
+    def test_page_selection_keeps_outline_metadata_without_importing_full_toc(self) -> None:
+        first = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (First body) Tj ET"
+        second = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Selected body) Tj ET"
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(first) + first + b"\nendstream",
+            b"<< /Length %d >>\nstream\n" % len(second) + second + b"\nendstream",
+            b"<< /Type /Page /Parent 6 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R >>",
+            b"<< /Type /Page /Parent 6 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 3 0 R >>",
+            b"<< /Type /Pages /Kids [4 0 R 5 0 R] /Count 2 >>",
+            b"<< /Type /Outlines /First 8 0 R /Last 9 0 R /Count 2 >>",
+            b"<< /Title (Outline One) /Parent 7 0 R /Next 9 0 R /Dest [4 0 R /XYZ null null null] >>",
+            b"<< /Title (Outline Two) /Parent 7 0 R /Prev 8 0 R /Dest [5 0 R /XYZ null null null] >>",
+            b"<< /Type /Catalog /Pages 6 0 R /Outlines 7 0 R >>",
+        ]
+        result = convert(render_pdf(objects, 10), ConvertOptions(pages="2"))
+        self.assertIn("outline", result.semantic.metadata)
+        self.assertTrue(result.semantic.metadata["page_selection_active"])
+        self.assertEqual(result.semantic.metadata["processed_pages"], [2])
+        self.assertEqual(semantic_nodes(result, "toc"), [])
+        self.assertEqual(result.markdown, "Selected body\n")
+        self.assertNotIn("Outline One", result.html)
+        self.assertNotIn("Outline Two", result.html)
+
+    def test_page_selection_filters_document_global_acroform_fields(self) -> None:
+        first = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (First page) Tj ET"
+        second = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Second page) Tj ET"
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(first) + first + b"\nendstream",
+            b"<< /Length %d >>\nstream\n" % len(second) + second + b"\nendstream",
+            b"<< /Type /Page /Parent 6 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R /Annots [8 0 R] >>",
+            b"<< /Type /Page /Parent 6 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 3 0 R /Annots [9 0 R] >>",
+            b"<< /Type /Pages /Kids [4 0 R 5 0 R] /Count 2 >>",
+            b"<< /Fields [8 0 R 9 0 R] >>",
+            b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (FirstField) /V (Alpha) /Rect [72 650 240 675] /P 4 0 R >>",
+            b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (SecondField) /V (Beta) /Rect [72 650 240 675] /P 5 0 R >>",
+            b"<< /Type /Catalog /Pages 6 0 R /AcroForm 7 0 R >>",
+        ]
+        result = convert(render_pdf(objects, 10), ConvertOptions(pages="2"))
+        fields = semantic_nodes(result, "form_field")
+        self.assertEqual([field.attrs["name"] for field in fields], ["SecondField"])
+        self.assertIn("**SecondField:** Beta", result.markdown)
+        self.assertNotIn("FirstField", result.markdown)
+        self.assertNotIn("Alpha", result.markdown)
+
+    def test_page_selection_prunes_other_widgets_of_a_shared_field(self) -> None:
+        first = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (First page) Tj ET"
+        second = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Second page) Tj ET"
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(first) + first + b"\nendstream",
+            b"<< /Length %d >>\nstream\n" % len(second) + second + b"\nendstream",
+            b"<< /Type /Page /Parent 6 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R /Annots [8 0 R] >>",
+            b"<< /Type /Page /Parent 6 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 3 0 R /Annots [9 0 R] >>",
+            b"<< /Type /Pages /Kids [4 0 R 5 0 R] /Count 2 >>",
+            b"<< /Fields [10 0 R] >>",
+            b"<< /Type /Annot /Subtype /Widget /Parent 10 0 R /Rect [72 650 240 675] /P 4 0 R >>",
+            b"<< /Type /Annot /Subtype /Widget /Parent 10 0 R /Rect [72 650 240 675] /P 5 0 R >>",
+            b"<< /FT /Tx /T (SharedField) /V (Gamma) /Kids [8 0 R 9 0 R] >>",
+            b"<< /Type /Catalog /Pages 6 0 R /AcroForm 7 0 R >>",
+        ]
+        result = convert(render_pdf(objects, 11), ConvertOptions(pages="2"))
+        field = semantic_nodes(result, "form_field")[0]
+        self.assertEqual(field.source_pages(), [2])
+        self.assertEqual([widget["page"] for widget in field.attrs["widgets"]], [2])
+        self.assertEqual(field.sources[0].object_refs, ("9 0 R",))
+        self.assertIn("**SharedField:** Gamma", result.markdown)
+
 
 class NotesAndReferencesTests(unittest.TestCase):
     def test_footnote_definition_and_reference_are_paired(self) -> None:
@@ -264,6 +333,169 @@ class TaggedReconciliationIntegrationTests(unittest.TestCase):
         heading = semantic_nodes(result, "heading")[0]
         self.assertEqual(heading.attrs["tag_role"], "H2")
         self.assertTrue(any(source.mcids == (0,) for source in heading.sources))
+
+    def test_tagged_list_uses_item_pure_geometry_and_excludes_label_text(self) -> None:
+        label = SemanticNode(
+            id="label",
+            kind="text",
+            text="●",
+            attrs={"tag_role": "Lbl", "mcid": 0},
+            sources=[SourceRef(page=1, mcids=(0,))],
+        )
+        body = SemanticNode(
+            id="body",
+            kind="text",
+            text="ملاعلاب ابحرم",
+            attrs={"tag_role": "LBody", "mcid": 1},
+            sources=[SourceRef(page=1, mcids=(1,))],
+        )
+        item = SemanticNode(
+            id="item",
+            kind="item",
+            children=[label, body],
+            sources=[SourceRef(page=1, mcids=(0, 1))],
+        )
+        tagged = SemanticNode(
+            id="list",
+            kind="list",
+            children=[item],
+            sources=[SourceRef(page=1, mcids=(0, 1))],
+        )
+        geometric = SemanticNode(
+            id="paragraph",
+            kind="paragraph",
+            text="● مرحبا بالعالم",
+            sources=[SourceRef(page=1, mcids=(1,), bbox=(72, 100, 300, 120))],
+        )
+        materialized = _tagged_list_node(tagged, {(1, 1): [geometric]})
+        self.assertIsNotNone(materialized)
+        assert materialized is not None
+        self.assertEqual(
+            materialized.children[0].children[0].text,
+            "مرحبا بالعالم",
+        )
+
+    def test_tagged_list_rejects_geometry_shared_across_sibling_items(self) -> None:
+        first_label = SemanticNode(
+            id="first-label",
+            kind="text",
+            text="■",
+            attrs={"tag_role": "Lbl", "mcid": 0},
+            sources=[SourceRef(page=1, mcids=(0,))],
+        )
+        first_body = SemanticNode(
+            id="first-body",
+            kind="text",
+            text="First",
+            attrs={"tag_role": "LBody", "mcid": 1},
+            sources=[SourceRef(page=1, mcids=(1,))],
+        )
+        second_label = SemanticNode(
+            id="second-label",
+            kind="text",
+            text="■",
+            attrs={"tag_role": "Lbl", "mcid": 2},
+            sources=[SourceRef(page=1, mcids=(2,))],
+        )
+        second_body = SemanticNode(
+            id="second-body",
+            kind="text",
+            text="Second",
+            attrs={"tag_role": "LBody", "mcid": 3},
+            sources=[SourceRef(page=1, mcids=(3,))],
+        )
+        tagged = SemanticNode(
+            id="list",
+            kind="list",
+            children=[
+                SemanticNode(id="first", kind="item", children=[first_label, first_body]),
+                SemanticNode(id="second", kind="item", children=[second_label, second_body]),
+            ],
+        )
+        shared = SemanticNode(
+            id="shared-paragraph",
+            kind="paragraph",
+            text="■ First ■ Second",
+            sources=[
+                SourceRef(
+                    page=1,
+                    mcids=(0, 1, 2, 3),
+                    bbox=(72, 100, 300, 150),
+                )
+            ],
+        )
+        materialized = _tagged_list_node(
+            tagged,
+            {(1, 1): [shared], (1, 3): [shared]},
+        )
+        self.assertIsNotNone(materialized)
+        assert materialized is not None
+        bodies = [item.children[0].text for item in materialized.children]
+        self.assertEqual(bodies, ["First", "Second"])
+
+    def test_tagged_bare_letter_label_does_not_strip_body_prefix(self) -> None:
+        label = SemanticNode(
+            id="label",
+            kind="text",
+            text="A",
+            attrs={"tag_role": "Lbl", "mcid": 0},
+            sources=[SourceRef(page=1, mcids=(0,))],
+        )
+        body = SemanticNode(
+            id="body",
+            kind="text",
+            text="Apple",
+            attrs={"tag_role": "LBody", "mcid": 1},
+            sources=[SourceRef(page=1, mcids=(1,))],
+        )
+        tagged = SemanticNode(
+            id="list",
+            kind="list",
+            children=[SemanticNode(id="item", kind="item", children=[label, body])],
+        )
+        geometric = SemanticNode(
+            id="paragraph",
+            kind="paragraph",
+            text="Apple",
+            sources=[SourceRef(page=1, mcids=(0, 1), bbox=(72, 100, 150, 120))],
+        )
+        materialized = _tagged_list_node(
+            tagged,
+            {(1, 1): [geometric]},
+        )
+        self.assertIsNotNone(materialized)
+        assert materialized is not None
+        self.assertEqual(materialized.children[0].children[0].text, "Apple")
+
+    def test_tagged_list_actualtext_remains_authoritative(self) -> None:
+        body = SemanticNode(
+            id="body",
+            kind="text",
+            text="Authoritative replacement",
+            attrs={"tag_role": "LBody", "mcid": 1, "actual_text": True},
+            sources=[SourceRef(page=1, mcids=(1,))],
+        )
+        tagged = SemanticNode(
+            id="list",
+            kind="list",
+            children=[SemanticNode(id="item", kind="item", children=[body])],
+        )
+        geometric = SemanticNode(
+            id="paragraph",
+            kind="paragraph",
+            text="Geometry text",
+            sources=[SourceRef(page=1, mcids=(1,), bbox=(72, 100, 150, 120))],
+        )
+        materialized = _tagged_list_node(
+            tagged,
+            {(1, 1): [geometric]},
+        )
+        self.assertIsNotNone(materialized)
+        assert materialized is not None
+        self.assertEqual(
+            materialized.children[0].children[0].text,
+            "Authoritative replacement",
+        )
 
     def test_tagged_list_materializes_without_visual_bullets(self) -> None:
         content = (
@@ -526,6 +758,49 @@ class AdvancedTableTests(unittest.TestCase):
         self.assertEqual(semantic_nodes(result, "table"), [])
         self.assertIn("complete sentence", result.markdown)
         self.assertIn("remain readable paragraphs", result.markdown)
+
+    def test_dot_leader_financial_statement_recovers_year_columns(self) -> None:
+        content = b" ".join([
+            b"BT /F2 9 Tf 1 0 0 1 360 700 Tm (2024) Tj 1 0 0 1 430 700 Tm (2023) Tj 1 0 0 1 500 700 Tm (2022) Tj ET",
+            b"BT /F1 10 Tf 1 0 0 1 72 680 Tm (Revenue ........................................) Tj 1 0 0 1 350 680 Tm ($ 100) Tj 1 0 0 1 430 680 Tm ($ 90) Tj 1 0 0 1 500 680 Tm ($ 80) Tj ET",
+            b"BT /F1 10 Tf 1 0 0 1 72 660 Tm (Expense ........................................) Tj 1 0 0 1 350 660 Tm (($ 40)) Tj 1 0 0 1 430 660 Tm (($ 35)) Tj 1 0 0 1 500 660 Tm (($ 30)) Tj ET",
+            b"BT /F1 10 Tf 1 0 0 1 72 640 Tm (Net income .....................................) Tj 1 0 0 1 350 640 Tm ($ 60) Tj 1 0 0 1 430 640 Tm ($ 55) Tj 1 0 0 1 500 640 Tm ($ 50) Tj ET",
+        ])
+        resources = b"/Resources << /Font << /F1 1 0 R /F2 2 0 R >> >>"
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 612 792] " + resources + b" /Contents 3 0 R >>",
+            b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+            b"<< /Type /Catalog /Pages 5 0 R >>",
+        ]
+        result = convert(render_pdf(objects, 6))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        self.assertIn('<th scope="col">2024</th>', result.markdown)
+        self.assertIn('<th scope="row">Net income</th>', result.markdown)
+        self.assertNotIn("................................", result.markdown)
+
+    def test_year_columns_without_leaders_do_not_force_financial_html(self) -> None:
+        content = b" ".join([
+            b"BT /F2 9 Tf 1 0 0 1 360 700 Tm (2024) Tj 1 0 0 1 450 700 Tm (2023) Tj ET",
+            b"BT /F1 10 Tf 1 0 0 1 72 680 Tm (Alpha) Tj 1 0 0 1 360 680 Tm (100) Tj 1 0 0 1 450 680 Tm (90) Tj ET",
+            b"BT /F1 10 Tf 1 0 0 1 72 660 Tm (Bravo) Tj 1 0 0 1 360 660 Tm (80) Tj 1 0 0 1 450 660 Tm (70) Tj ET",
+            b"BT /F1 10 Tf 1 0 0 1 72 640 Tm (Charlie) Tj 1 0 0 1 360 640 Tm (60) Tj 1 0 0 1 450 640 Tm (50) Tj ET",
+        ])
+        resources = b"/Resources << /Font << /F1 1 0 R /F2 2 0 R >> >>"
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 612 792] " + resources + b" /Contents 3 0 R >>",
+            b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+            b"<< /Type /Catalog /Pages 5 0 R >>",
+        ]
+        result = convert(render_pdf(objects, 6))
+        self.assertNotIn('<th scope="row">Alpha</th>', result.markdown)
+        self.assertNotIn('scope="rowgroup"', result.markdown)
 
     def test_rotated_header_forces_loss_aware_html_table(self) -> None:
         content = (
