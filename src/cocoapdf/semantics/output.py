@@ -110,6 +110,8 @@ def _node_needs_overlay(node: SemanticNode) -> bool:
 
 
 def _outline_toc_nodes(document: SemanticDocument, layout_markdown: str) -> List[SemanticNode]:
+    if document.metadata.get("page_selection_active"):
+        return []
     if not document.metadata.get("outline"):
         return []
     import re

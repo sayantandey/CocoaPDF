@@ -116,6 +116,53 @@ class FoundationDiagnosticTests(unittest.TestCase):
 		]
 		self.assertEqual(plain_text(line_text_tokens(Line(chars, 1, 1))), "لاتجاه")
 
+	def test_rtl_source_order_list_marker_stays_at_logical_prefix(self):
+		font = Font(name="F1", base_font="Arabic")
+		logical = "مرحبا بالعالم"
+		visual = logical[::-1]
+		chars = [Char("●", 120.0, 0, 125.0, 10, 10, font, 1, 1)]
+		chars.extend(
+			Char(
+				text,
+				index * 6.0,
+				0,
+				index * 6.0 + 5.0,
+				10,
+				10,
+				font,
+				1,
+				index + 2,
+			)
+			for index, text in enumerate(visual)
+		)
+		tokens = line_text_tokens(Line(chars, 1, 1))
+		self.assertEqual(plain_text(tokens), "● مرحبا بالعالم")
+		self.assertEqual(tokens[0]["glyph_ids"], (1,))
+
+	def test_rtl_list_source_path_keeps_combining_clusters_atomic(self):
+		font = Font(name="F1", base_font="Arabic")
+		logical_clusters = ["مَ", "رْ", "حَ", "بً", "ا"]
+		visual_clusters = list(reversed(logical_clusters))
+		chars = [Char("•", 80.0, 0, 85.0, 10, 10, font, 1, 1)]
+		chars.extend(
+			Char(
+				text,
+				index * 8.0,
+				0,
+				index * 8.0 + 7.0,
+				10,
+				10,
+				font,
+				1,
+				index + 2,
+			)
+			for index, text in enumerate(visual_clusters)
+		)
+		self.assertEqual(
+			plain_text(line_text_tokens(Line(chars, 1, 1))),
+			"• مَرْحَبًا",
+		)
+
 	def test_no_space_scripts_join_without_affecting_korean_word_spaces(self):
 		self.assertTrue(joins_without_word_space("标", "点"))
 		self.assertTrue(joins_without_word_space("และ", "ลำดับ"))
@@ -133,6 +180,50 @@ class FoundationDiagnosticTests(unittest.TestCase):
 			1,
 		)
 		self.assertEqual(plain_text(line_text_tokens(line)), "ลำดับ")
+
+	def test_word_gap_tolerance_is_bounded_to_pdf_metric_rounding(self):
+		font = Font(name="F1", base_font="NimbusRomNo9L-Regu")
+		near_threshold = Line(
+			[
+				Char("A", 0.0, 0.0, 5.0, 10.0, 10.0, font, 1, 1),
+				Char("B", 7.21, 0.0, 12.21, 10.0, 10.0, font, 1, 2),
+			],
+			1,
+			1,
+		)
+		below_tolerance = Line(
+			[
+				Char("A", 0.0, 0.0, 5.0, 10.0, 10.0, font, 1, 3),
+				Char("B", 7.19, 0.0, 12.19, 10.0, 10.0, font, 1, 4),
+			],
+			1,
+			2,
+		)
+		self.assertEqual(plain_text(line_text_tokens(near_threshold)), "A B")
+		self.assertEqual(plain_text(line_text_tokens(below_tolerance)), "AB")
+
+	def test_printed_form_boxes_need_one_or_two_stable_columns(self):
+		aligned = [
+			((100.0, float(index * 30), 240.0, float(index * 30 + 20)), [])
+			for index in range(5)
+		]
+		two_column = [
+			(
+				(100.0 if index % 2 == 0 else 360.0, float(index * 30), 240.0 if index % 2 == 0 else 500.0, float(index * 30 + 20)),
+				[],
+			)
+			for index in range(6)
+		]
+		diagram = [
+			(
+				(float(40 + index * 110), 100.0, float(120 + index * 110), 122.0),
+				[],
+			)
+			for index in range(5)
+		]
+		self.assertTrue(MarkdownRenderer._has_form_column_pattern(aligned))
+		self.assertTrue(MarkdownRenderer._has_form_column_pattern(two_column))
+		self.assertFalse(MarkdownRenderer._has_form_column_pattern(diagram))
 
 	def test_generated_rtl_paragraph_passes_through_html_safely(self):
 		html = render_html('<p dir="rtl"><strong>العربية</strong> 123.45</p>', {})

@@ -313,7 +313,7 @@ def _materialize_tagged_structures(
             conflicts.append("TAGGED_STRUCTURE_INCOMPLETE_BINDING:%s" % tagged_node.id)
             continue
         replacement = (
-            _tagged_list_node(tagged_node) if tagged_node.kind == "list"
+            _tagged_list_node(tagged_node, by_mcid) if tagged_node.kind == "list"
             else _tagged_table_node(tagged_node) if tagged_node.kind == "table"
             else _tagged_toc_node(tagged_node)
         )
@@ -331,19 +331,43 @@ def _materialize_tagged_structures(
         bindings[tagged_node.id] = replacement
 
 
-def _tagged_list_node(tagged: SemanticNode) -> SemanticNode | None:
+def _tagged_list_node(
+    tagged: SemanticNode,
+    by_mcid: Dict[Tuple[int, int], List[SemanticNode]] | None = None,
+) -> SemanticNode | None:
     tagged_items = _direct_descendants(tagged, "item", stop_kinds={"list"})
     if not tagged_items:
         return None
     items: List[SemanticNode] = []
     labels: List[str] = []
     for index, tagged_item in enumerate(tagged_items):
-        nested_lists = [child for child in tagged_item.children if child.kind == "list"]
-        body_children = [child for child in tagged_item.children if child.kind != "list"]
-        label_nodes = [child for child in tagged_item.walk() if child.attrs.get("tag_role") == "Lbl"]
+        nested_lists = _direct_descendants(
+            tagged_item,
+            "list",
+            stop_kinds={"list"},
+        )
+        non_list_nodes = list(_walk_excluding(tagged_item.children, {"list"}))
+        label_nodes = [
+            child for child in non_list_nodes
+            if child.attrs.get("tag_role") == "Lbl"
+        ]
         label = "".join(_node_text(node) for node in label_nodes).strip()
         labels.append(label)
-        body = _node_text_from(body_children).strip()
+        body_roots = [
+            child for child in non_list_nodes
+            if child.attrs.get("tag_role") == "LBody"
+        ]
+        if not body_roots:
+            body_roots = [
+                child for child in tagged_item.children
+                if child.kind != "list" and child.attrs.get("tag_role") != "Lbl"
+            ]
+        allowed_keys = (
+            _tagged_keys_from_nodes(body_roots, stop_kinds={"list"})
+            | _tagged_keys_from_nodes(label_nodes, stop_kinds={"list"})
+        )
+        body = _tagged_body_text(body_roots, by_mcid, allowed_keys).strip()
+        body = _strip_tagged_label_prefix(body, label)
         sources = _recursive_sources(tagged_item)
         children: List[SemanticNode] = []
         if body:
@@ -352,7 +376,7 @@ def _tagged_list_node(tagged: SemanticNode) -> SemanticNode | None:
                 evidence=[Evidence("tagged_list_body", 0.995, data={"tagged_node": tagged_item.id})], sources=sources,
             ))
         for nested in nested_lists:
-            materialized = _tagged_list_node(nested)
+            materialized = _tagged_list_node(nested, by_mcid)
             if materialized is not None:
                 children.append(materialized)
         items.append(SemanticNode(
@@ -372,6 +396,163 @@ def _tagged_list_node(tagged: SemanticNode) -> SemanticNode | None:
         id="tagged-%s" % tagged.id, kind="list", children=items,
         attrs={"ordered": ordered, "start": start, "list_numbering": numbering or None, "tagged_node_id": tagged.id},
         confidence=0.995, evidence=[Evidence("tagged_list_structure", 0.995)], sources=sources,
+    )
+
+
+def _tagged_body_text(
+    body_nodes: Sequence[SemanticNode],
+    by_mcid: Dict[Tuple[int, int], List[SemanticNode]] | None,
+    allowed_keys: set[Tuple[int, int]],
+) -> str:
+    fallback = _node_text_from_excluding(
+        body_nodes,
+        stop_kinds={"list"},
+        stop_roles={"Lbl"},
+    )
+    # ActualText is an explicit PDF replacement and remains authoritative.
+    if any(
+        candidate.attrs.get("actual_text")
+        for candidate in _walk_excluding(body_nodes, {"list"})
+    ):
+        return fallback
+    target_keys = _tagged_keys_from_nodes(body_nodes, stop_kinds={"list"})
+    if not by_mcid or not target_keys:
+        return fallback
+
+    candidates: Dict[str, Tuple[SemanticNode, set[Tuple[int, int]]]] = {}
+    inspected: set[str] = set()
+    for key in target_keys:
+        for candidate in by_mcid.get(key, []):
+            if candidate.id in inspected:
+                continue
+            inspected.add(candidate.id)
+            if candidate.kind not in {
+                "paragraph",
+                "heading",
+                "item",
+                "table_cell",
+                "text",
+            }:
+                continue
+            candidate_keys = _semantic_mcid_keys(candidate)
+            if (
+                not candidate_keys
+                or not candidate_keys <= allowed_keys
+                or not (candidate_keys & target_keys)
+                or not _node_text(candidate).strip()
+            ):
+                continue
+            candidates[candidate.id] = (candidate, candidate_keys)
+    if not candidates:
+        return fallback
+
+    selected: List[SemanticNode] = []
+    covered: set[Tuple[int, int]] = set()
+    kind_rank = {
+        "paragraph": 5,
+        "heading": 4,
+        "item": 3,
+        "table_cell": 2,
+        "text": 1,
+    }
+    while covered != target_keys:
+        remaining = target_keys - covered
+        eligible = [
+            (candidate, keys)
+            for candidate, keys in candidates.values()
+            if (keys & target_keys) <= remaining
+        ]
+        if not eligible:
+            return fallback
+        candidate, keys = max(
+            eligible,
+            key=lambda item: (
+                len(item[1] & remaining),
+                -len(item[1] - target_keys),
+                kind_rank.get(item[0].kind, 0),
+                len(_node_text(item[0]).strip()),
+                item[0].id,
+            ),
+        )
+        selected.append(candidate)
+        covered.update(keys & target_keys)
+
+    def position(node: SemanticNode) -> Tuple[int, float, float, str]:
+        sources = [source for source in node.sources if source.page > 0]
+        page = min((source.page for source in sources), default=10**9)
+        boxes = [source.bbox for source in sources if source.bbox is not None]
+        y = min((box[1] for box in boxes), default=10**9)
+        x = min((box[0] for box in boxes), default=10**9)
+        return page, y, x, node.id
+
+    repaired = " ".join(
+        text
+        for text in (
+            _node_text(node).strip()
+            for node in sorted(selected, key=position)
+        )
+        if text
+    )
+    return repaired or fallback
+
+
+def _strip_tagged_label_prefix(body: str, label: str) -> str:
+    if not label or not body.startswith(label):
+        return body
+    remainder = body[len(label):]
+    if not remainder:
+        return ""
+    # A bare alphanumeric label must be token-delimited. Otherwise a label
+    # such as "A" would corrupt a legitimate body beginning with "Apple".
+    if (
+        label[-1].isalnum()
+        and remainder[0].isalnum()
+    ):
+        return body
+    return remainder.lstrip()
+
+
+def _walk_excluding(
+    nodes: Sequence[SemanticNode],
+    stop_kinds: set[str],
+) -> Iterable[SemanticNode]:
+    for node in nodes:
+        if node.kind in stop_kinds:
+            continue
+        yield node
+        yield from _walk_excluding(node.children, stop_kinds)
+
+
+def _tagged_keys_from_nodes(
+    nodes: Sequence[SemanticNode],
+    stop_kinds: set[str],
+) -> set[Tuple[int, int]]:
+    keys: set[Tuple[int, int]] = set()
+    for candidate in _walk_excluding(nodes, stop_kinds):
+        mcid = candidate.attrs.get("mcid")
+        if not isinstance(mcid, int) or isinstance(mcid, bool):
+            continue
+        for page in candidate.source_pages():
+            keys.add((page, mcid))
+    return keys
+
+
+def _node_text_from_excluding(
+    nodes: Sequence[SemanticNode],
+    stop_kinds: set[str],
+    stop_roles: set[str],
+) -> str:
+    def node_text(node: SemanticNode) -> str:
+        if node.kind in stop_kinds or node.attrs.get("tag_role") in stop_roles:
+            return ""
+        if node.text:
+            return node.text
+        return "".join(node_text(child) for child in node.children)
+
+    return " ".join(
+        text
+        for text in (node_text(node).strip() for node in nodes)
+        if text
     )
 
 
