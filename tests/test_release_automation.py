@@ -84,6 +84,8 @@ class BuildAutomationTests(unittest.TestCase):
 		)
 		self.assertIn("branches: [main]", visual)
 		self.assertIn("retention-days: 7", visual)
+		self.assertIn("retained for up to seven days", visual)
+		self.assertNotIn("available while the PR is open", visual)
 		self.assertIn("github.event.action == 'closed'", visual)
 		self.assertIn("actions: write", visual)
 		self.assertIn("pull-requests: write", visual)

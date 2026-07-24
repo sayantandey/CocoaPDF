@@ -124,7 +124,8 @@ jobs:
             echo "- Head commit: \`${HEAD_SHA}\`"
             echo "- Artifact SHA-256: \`${ARTIFACT_DIGEST}\`"
             echo "- Open \`review.html\` after unzipping for side-by-side inspection."
-            echo "- This temporary artifact is available while the PR is open. It is deleted when the PR closes."
+            echo "- This temporary artifact is retained for up to seven days and deleted immediately when the PR closes."
+            echo "- A new commit, reopen, or ready-for-review event generates a fresh artifact."
             echo
             echo "No external content, OCR, AI, or ML is used; provenance and licensing are included in \`manifest.json\`."
             echo
