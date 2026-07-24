@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+from importlib import metadata as importlib_metadata
 import json
 import os
 import platform
@@ -30,6 +31,86 @@ MACHO_CPUS = {
 }
 
 VERSION_PATTERN = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+
+
+def _normalized_text_bytes(path: Path) -> bytes:
+	try:
+		data = path.read_bytes()
+	except OSError as exc:
+		raise ValueError("cannot read license file %s: %s" % (path, exc)) from exc
+	try:
+		data.decode("utf-8")
+	except UnicodeDecodeError as exc:
+		raise ValueError("license file is not UTF-8: %s" % path) from exc
+	return data.replace(b"\r\n", b"\n")
+
+
+def _python_license() -> Tuple[str, bytes]:
+	bases = []
+	for candidate in (
+		Path(sys.base_prefix),
+		Path(sys.prefix),
+		Path(sys.executable).resolve().parent,
+		Path(sys.executable).resolve().parent.parent,
+	):
+		if candidate not in bases:
+			bases.append(candidate)
+	for base in bases:
+		for filename in ("LICENSE.txt", "LICENSE", "LICENSE.rst"):
+			path = base / filename
+			if path.is_file():
+				return filename, _normalized_text_bytes(path)
+	raise ValueError(
+		"cannot locate the CPython license beside interpreter %s"
+		% sys.executable
+	)
+
+
+def _pyinstaller_license() -> Tuple[str, str, bytes]:
+	try:
+		distribution = importlib_metadata.distribution("pyinstaller")
+	except importlib_metadata.PackageNotFoundError as exc:
+		raise ValueError("PyInstaller distribution metadata is unavailable") from exc
+	matches = []
+	for entry in distribution.files or ():
+		name = Path(str(entry)).name.casefold()
+		if name != "copying.txt":
+			continue
+		path = Path(distribution.locate_file(entry))
+		if path.is_file():
+			matches.append(path)
+	if not matches:
+		raise ValueError("cannot locate PyInstaller COPYING.txt in the installed wheel")
+	path = sorted(matches, key=lambda item: item.as_posix())[0]
+	return distribution.version, path.name, _normalized_text_bytes(path)
+
+
+def _license_section(title: str, data: bytes) -> bytes:
+	return (
+		"\n\n\n%s\n%s\n\n" % (title, "=" * len(title))
+	).encode("utf-8") + data.rstrip()
+
+
+def build_third_party_license_bundle(root: Path) -> bytes:
+	notice_path = root / "THIRD_PARTY_NOTICES.txt"
+	if not notice_path.is_file():
+		raise ValueError("missing repository third-party notice: %s" % notice_path)
+	python_name, python_license = _python_license()
+	pyinstaller_version, pyinstaller_name, pyinstaller_license = _pyinstaller_license()
+	sections = [
+		_normalized_text_bytes(notice_path).rstrip(),
+		_license_section(
+			"Exact CPython %s license (%s)"
+			% (platform.python_version(), python_name),
+			python_license,
+		),
+		_license_section(
+			"Exact PyInstaller %s license (%s)"
+			% (pyinstaller_version, pyinstaller_name),
+			pyinstaller_license,
+		),
+	]
+	return b"".join(sections) + b"\n"
 
 
 def inspect_binary(path: Path) -> Tuple[str, str, int]:
@@ -104,7 +185,9 @@ def _manifest(
 	brand_manifest_version: str,
 	brand_manifest_sha256: str,
 	icon_embedded: bool,
+	third_party_licenses: Path,
 ) -> Dict[str, object]:
+	third_party_bytes = third_party_licenses.read_bytes()
 	return {
 		"schema": "cocoapdf.binary-manifest/v1",
 		"product": "CocoaPDF",
@@ -123,6 +206,11 @@ def _manifest(
 		"brand_manifest_version": brand_manifest_version,
 		"brand_manifest_sha256": brand_manifest_sha256,
 		"icon_embedded": icon_embedded,
+		"third_party_licenses": {
+			"filename": third_party_licenses.name,
+			"bytes": len(third_party_bytes),
+			"sha256": hashlib.sha256(third_party_bytes).hexdigest(),
+		},
 	}
 
 
@@ -242,6 +330,13 @@ def main() -> int:
 		raise SystemExit("expected %d-bit executable, found %d-bit" % (args.expected_bits, binary_bits))
 
 	_smoke_test(executable, args.version)
+	third_party_licenses = executable.with_name(
+		executable.name + ".third-party-licenses.txt"
+	)
+	try:
+		third_party_licenses.write_bytes(build_third_party_license_bundle(root))
+	except ValueError as exc:
+		raise SystemExit(str(exc)) from exc
 	manifest = _manifest(
 		executable,
 		args.version,
@@ -251,6 +346,7 @@ def main() -> int:
 		str(brand_manifest["version"]),
 		brand_manifest_sha256,
 		icon_embedded,
+		third_party_licenses,
 	)
 	manifest_path = executable.with_name(executable.name + ".manifest.json")
 	manifest_path.write_text(

@@ -197,7 +197,7 @@
     }
   ],
   "generator": "validation/pr_visual/build.py",
-  "generator_sha256": "1898ffa09dae93e9326d9faeb7d20cf51bea8848b51239ed9cdf104edc6958a7",
+  "generator_sha256": "0ee28a722adad28da9d090c25986756804d8dec421c685d8a6caf7564c532d1a",
   "head_commit": null,
   "license": {
     "file": "LICENSE.txt",

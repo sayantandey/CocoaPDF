@@ -82,6 +82,9 @@ class BuildAutomationTests(unittest.TestCase):
 		release = (root / ".github" / "workflows" / "ci-release.yml").read_text(
 			encoding="utf-8"
 		)
+		pages = (root / ".github" / "workflows" / "pages.yml").read_text(
+			encoding="utf-8"
+		)
 		self.assertIn("branches: [main]", visual)
 		self.assertIn("retention-days: 7", visual)
 		self.assertIn("retained for up to seven days", visual)
@@ -102,6 +105,12 @@ class BuildAutomationTests(unittest.TestCase):
 		)
 		self.assertIn("gh release create", release)
 		self.assertIn("sha256sum --check SHA256SUMS.txt", release)
+		self.assertIn(".third-party-licenses.txt", release)
+		self.assertIn("pages: write", pages)
+		self.assertIn("id-token: write", pages)
+		self.assertIn("cp examples/review.html", pages)
+		self.assertIn("actions/deploy-pages@", pages)
+		self.assertNotIn("pull_request:", pages)
 
 	def test_committed_capability_demo_has_locked_provenance_and_hashes(self):
 		root = Path(__file__).resolve().parents[1]
@@ -117,6 +126,18 @@ class BuildAutomationTests(unittest.TestCase):
 		self.assertEqual(len(manifest["cases"]), 3)
 		self.assertTrue((examples / "README.md").is_file())
 		self.assertTrue((examples / "review.html").is_file())
+		self.assertEqual(
+			(examples / "robots.txt").read_text(encoding="utf-8"),
+			"User-agent: *\n"
+			"Allow: /\n"
+			"Sitemap: https://sayantandey.github.io/CocoaPDF/sitemap.xml\n",
+		)
+		sitemap = (examples / "sitemap.xml").read_text(encoding="utf-8")
+		self.assertIn("https://sayantandey.github.io/CocoaPDF/", sitemap)
+		self.assertIn(
+			"/cases/strategic_corner_cases/full/output.html",
+			sitemap,
+		)
 		for index_name in ("README.md", "review.html"):
 			text = (examples / index_name).read_text(encoding="utf-8")
 			links = re.findall(r"\]\(([^)]+)\)", text)
@@ -231,6 +252,13 @@ class BuildAutomationTests(unittest.TestCase):
 				binary = folder / str(expected["filename"])
 				data = ("binary-%s" % key).encode("ascii")
 				binary.write_bytes(data)
+				third_party = folder / (
+					str(expected["filename"]) + ".third-party-licenses.txt"
+				)
+				third_party_data = (
+					"third-party notices for %s\n" % key
+				).encode("ascii")
+				third_party.write_bytes(third_party_data)
 				manifest = {
 					"schema": "cocoapdf.binary-manifest/v1",
 					"product": "CocoaPDF",
@@ -244,6 +272,11 @@ class BuildAutomationTests(unittest.TestCase):
 					"brand_manifest_version": branding["version"],
 					"brand_manifest_sha256": branding["manifest_sha256"],
 					"icon_embedded": expected["format"] == "PE",
+					"third_party_licenses": {
+						"filename": third_party.name,
+						"bytes": len(third_party_data),
+						"sha256": hashlib.sha256(third_party_data).hexdigest(),
+					},
 				}
 				(folder / (str(expected["filename"]) + ".manifest.json")).write_text(
 					json.dumps(manifest), encoding="utf-8"
@@ -255,19 +288,33 @@ class BuildAutomationTests(unittest.TestCase):
 			with zipfile.ZipFile(output / "cocoapdf-windows-x86_64.zip") as archive:
 				self.assertEqual(
 					set(archive.namelist()),
-					{"cocoapdf.exe", "LICENSE.txt"},
+					{
+						"cocoapdf.exe",
+						"LICENSE.txt",
+						"THIRD_PARTY_NOTICES.txt",
+					},
 				)
 				self.assertTrue(archive.read("LICENSE.txt").startswith(b"MIT License"))
+				self.assertIn(
+					b"third-party notices for windows-x86_64",
+					archive.read("THIRD_PARTY_NOTICES.txt"),
+				)
 			with tarfile.open(output / "cocoapdf-linux-x86_64.tar.gz", "r:gz") as archive:
 				self.assertEqual(
 					set(archive.getnames()),
-					{"cocoapdf", "LICENSE.txt"},
+					{"cocoapdf", "LICENSE.txt", "THIRD_PARTY_NOTICES.txt"},
 				)
 				self.assertEqual(archive.getmember("cocoapdf").mode, 0o755)
 			with tarfile.open(output / "cocoapdf-macos.tar.gz", "r:gz") as archive:
 				self.assertEqual(
 					set(archive.getnames()),
-					{"cocoapdf-arm64", "cocoapdf-x86_64", "LICENSE.txt"},
+					{
+						"cocoapdf-arm64",
+						"cocoapdf-x86_64",
+						"LICENSE.txt",
+						"THIRD_PARTY_NOTICES-arm64.txt",
+						"THIRD_PARTY_NOTICES-x86_64.txt",
+					},
 				)
 				self.assertEqual(archive.getmember("cocoapdf-arm64").mode, 0o755)
 				self.assertEqual(archive.getmember("cocoapdf-x86_64").mode, 0o755)
@@ -283,7 +330,7 @@ class BuildAutomationTests(unittest.TestCase):
 			)
 			self.assertEqual(
 				metadata["package_contents"]["cocoapdf-windows-x86_64.zip"],
-				["cocoapdf.exe", "LICENSE.txt"],
+				["cocoapdf.exe", "LICENSE.txt", "THIRD_PARTY_NOTICES.txt"],
 			)
 			checksums = (output / "SHA256SUMS.txt").read_text(encoding="ascii")
 			self.assertIn("cocoapdf-windows-x86_64.zip", checksums)

@@ -19,7 +19,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 # Normative Bidi_Paired_Bracket data from Unicode 17.0.0.  This is the
 # exact opening-to-closing relation used by UAX #9 rule N0; mirroring pairs
-# that are not paired brackets intentionally do not belong here.
+# that are not paired brackets intentionally do not belong here. Distributed
+# under Unicode-3.0; see THIRD_PARTY_NOTICES.txt.
 BIDI_BRACKET_DATA_VERSION = "17.0.0"
 _BRACKET_PAIRS = {
     chr(opening): chr(closing)

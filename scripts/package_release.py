@@ -108,12 +108,16 @@ def validate_artifacts(
 	root: Path,
 	version: str,
 	branding: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Tuple[Path, Path, Dict[str, Any]]]:
+) -> Dict[str, Tuple[Path, Path, Path, Dict[str, Any]]]:
 	branding = branding or load_branding()
-	validated: Dict[str, Tuple[Path, Path, Dict[str, Any]]] = {}
+	validated: Dict[str, Tuple[Path, Path, Path, Dict[str, Any]]] = {}
 	for key, expected in EXPECTED_BINARIES.items():
 		binary = _find_one(root, str(expected["filename"]))
 		manifest_path = _find_one(root, str(expected["filename"]) + ".manifest.json")
+		third_party_path = _find_one(
+			root,
+			str(expected["filename"]) + ".third-party-licenses.txt",
+		)
 		manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 		checks = {
 			"schema": "cocoapdf.binary-manifest/v1",
@@ -138,7 +142,17 @@ def validate_artifacts(
 			raise ValueError("%s byte count does not match its manifest" % key)
 		if manifest.get("sha256") != _sha256(binary_bytes):
 			raise ValueError("%s digest does not match its manifest" % key)
-		validated[key] = (binary, manifest_path, manifest)
+		third_party_bytes = third_party_path.read_bytes()
+		third_party_record = manifest.get("third_party_licenses")
+		if not isinstance(third_party_record, dict):
+			raise ValueError("%s manifest lacks third-party license metadata" % key)
+		if third_party_record.get("filename") != third_party_path.name:
+			raise ValueError("%s third-party license filename is inconsistent" % key)
+		if third_party_record.get("bytes") != len(third_party_bytes):
+			raise ValueError("%s third-party license byte count is inconsistent" % key)
+		if third_party_record.get("sha256") != _sha256(third_party_bytes):
+			raise ValueError("%s third-party license digest is inconsistent" % key)
+		validated[key] = (binary, manifest_path, third_party_path, manifest)
 	return validated
 
 
@@ -175,29 +189,35 @@ def package(root: Path, output: Path, version: str, epoch: int) -> List[Path]:
 	output.mkdir(parents=True, exist_ok=True)
 
 	windows_binary = artifacts["windows-x86_64"][0]
+	windows_notices = artifacts["windows-x86_64"][2]
 	windows_package = output / "cocoapdf-windows-x86_64.zip"
 	_zip(
 		windows_package,
 		[
 			("cocoapdf.exe", windows_binary.read_bytes(), 0o755),
 			("LICENSE.txt", branding["license"], 0o644),
+			("THIRD_PARTY_NOTICES.txt", windows_notices.read_bytes(), 0o644),
 		],
 		epoch,
 	)
 
 	linux_binary = artifacts["linux-x86_64"][0]
+	linux_notices = artifacts["linux-x86_64"][2]
 	linux_package = output / "cocoapdf-linux-x86_64.tar.gz"
 	_tar_gz(
 		linux_package,
 		[
 			("cocoapdf", linux_binary.read_bytes(), 0o755),
 			("LICENSE.txt", branding["license"], 0o644),
+			("THIRD_PARTY_NOTICES.txt", linux_notices.read_bytes(), 0o644),
 		],
 		epoch,
 	)
 
 	mac_intel = artifacts["macos-x86_64"][0]
+	mac_intel_notices = artifacts["macos-x86_64"][2]
 	mac_arm = artifacts["macos-arm64"][0]
+	mac_arm_notices = artifacts["macos-arm64"][2]
 	mac_package = output / "cocoapdf-macos.tar.gz"
 	_tar_gz(
 		mac_package,
@@ -205,6 +225,16 @@ def package(root: Path, output: Path, version: str, epoch: int) -> List[Path]:
 			("cocoapdf-arm64", mac_arm.read_bytes(), 0o755),
 			("cocoapdf-x86_64", mac_intel.read_bytes(), 0o755),
 			("LICENSE.txt", branding["license"], 0o644),
+			(
+				"THIRD_PARTY_NOTICES-arm64.txt",
+				mac_arm_notices.read_bytes(),
+				0o644,
+			),
+			(
+				"THIRD_PARTY_NOTICES-x86_64.txt",
+				mac_intel_notices.read_bytes(),
+				0o644,
+			),
 		],
 		epoch,
 	)
@@ -222,15 +252,29 @@ def package(root: Path, output: Path, version: str, epoch: int) -> List[Path]:
 			"windows_executable_icon_embedded": True,
 		},
 		"package_contents": {
-			"cocoapdf-windows-x86_64.zip": ["cocoapdf.exe", "LICENSE.txt"],
-			"cocoapdf-linux-x86_64.tar.gz": ["cocoapdf", "LICENSE.txt"],
-			"cocoapdf-macos.tar.gz": ["cocoapdf-arm64", "cocoapdf-x86_64", "LICENSE.txt"],
+			"cocoapdf-windows-x86_64.zip": [
+				"cocoapdf.exe",
+				"LICENSE.txt",
+				"THIRD_PARTY_NOTICES.txt",
+			],
+			"cocoapdf-linux-x86_64.tar.gz": [
+				"cocoapdf",
+				"LICENSE.txt",
+				"THIRD_PARTY_NOTICES.txt",
+			],
+			"cocoapdf-macos.tar.gz": [
+				"cocoapdf-arm64",
+				"cocoapdf-x86_64",
+				"LICENSE.txt",
+				"THIRD_PARTY_NOTICES-arm64.txt",
+				"THIRD_PARTY_NOTICES-x86_64.txt",
+			],
 		},
 		"packages": {
 			path.name: {"bytes": path.stat().st_size, "sha256": _sha256(path.read_bytes())}
 			for path in packages
 		},
-		"binaries": {key: value[2] for key, value in sorted(artifacts.items())},
+		"binaries": {key: value[3] for key, value in sorted(artifacts.items())},
 	}
 	metadata_path = output / "RELEASE.json"
 	metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")

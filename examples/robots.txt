@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://sayantandey.github.io/CocoaPDF/sitemap.xml

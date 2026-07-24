@@ -21,6 +21,7 @@ STRATEGIC_SOURCE = ROOT / "tests" / "strategic_corner_cases_v1_4.md"
 PULL_REQUEST_PROFILE = "pull-request"
 PERMANENT_PROFILE = "permanent"
 VALID_PROFILES = (PULL_REQUEST_PROFILE, PERMANENT_PROFILE)
+PAGES_BASE_URL = "https://sayantandey.github.io/CocoaPDF"
 
 
 def _source_imports() -> None:
@@ -487,6 +488,10 @@ def _write_review_files(
 				"This directory is the committed, reproducible capability demo. "
 				"Pull-request review artifacts are generated separately and are never written here.",
 				"",
+				"[Open the rendered side-by-side demo](%s/). GitHub displays committed "
+				"HTML files as source code; the Pages links below render those same "
+				"revision-controlled files in a browser." % PAGES_BASE_URL,
+				"",
 				"Each row links the source PDF to the exact output committed from the same CocoaPDF revision.",
 				"",
 				"Full semantic JSON is committed. Report summaries omit only duplicate semantic graphs "
@@ -501,6 +506,7 @@ def _write_review_files(
 		]
 	)
 	sections: List[str] = []
+	sitemap_urls = ["%s/" % PAGES_BASE_URL] if permanent else []
 	for case in cases:
 		case_id = str(case["id"])
 		description = str(case["description"])
@@ -514,14 +520,21 @@ def _write_review_files(
 				if permanent
 				else "output.report.json"
 			)
+			html_link = (
+				"%s/%s/output.html" % (PAGES_BASE_URL, base)
+				if permanent
+				else "%s/output.html" % base
+			)
+			if permanent:
+				sitemap_urls.append(html_link)
 			output_links.append(
-				"[%s Markdown](%s/output.md), [%s HTML](%s/output.html), "
+				"[%s Markdown](%s/output.md), [%s rendered HTML](%s), "
 				"[%s semantic JSON](%s/output.json), [%s report](%s/%s)"
 				% (
 					name,
 					base,
 					name,
-					base,
+					html_link,
 					name,
 					base,
 					name,
@@ -565,11 +578,24 @@ def _write_review_files(
 			)
 		)
 	write_utf8_lf(output_root / index_name, "\n".join(lines) + "\n")
+	head_meta = (
+		"""
+  <meta name="description" content="Compare first-party complex PDFs with CocoaPDF's exact rendered HTML, Markdown, semantic JSON, reports, and provenance.">
+  <link rel="canonical" href="https://sayantandey.github.io/CocoaPDF/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="CocoaPDF permanent capability demo">
+  <meta property="og:description" content="Side-by-side source PDFs and deterministic CocoaPDF outputs.">
+  <meta property="og:image" content="https://sayantandey.github.io/CocoaPDF/cocoapdf-og-image-1200x630.png">
+"""
+		if permanent
+		else ""
+	)
 	review_page = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+__COCOAPDF_HEAD_META__
   <title>__COCOAPDF_REVIEW_TITLE__</title>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
@@ -593,6 +619,7 @@ __COCOAPDF_REVIEW_SECTIONS__
 		review_page
 		.replace("__COCOAPDF_REVIEW_TITLE__", html.escape(title))
 		.replace("__COCOAPDF_INDEX_NAME__", index_name)
+		.replace("__COCOAPDF_HEAD_META__", head_meta.rstrip())
 		.replace(
 			"__COCOAPDF_REVIEW_SECTIONS__",
 			"\n".join(
@@ -601,6 +628,23 @@ __COCOAPDF_REVIEW_SECTIONS__
 			),
 		),
 	)
+	if permanent:
+		write_utf8_lf(
+			output_root / "robots.txt",
+			"User-agent: *\n"
+			"Allow: /\n"
+			"Sitemap: %s/sitemap.xml\n" % PAGES_BASE_URL,
+		)
+		write_utf8_lf(
+			output_root / "sitemap.xml",
+			'<?xml version="1.0" encoding="UTF-8"?>\n'
+			'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+			+ "".join(
+				"  <url><loc>%s</loc></url>\n" % html.escape(url)
+				for url in sitemap_urls
+			)
+			+ "</urlset>\n",
+		)
 
 
 def build_bundle(

@@ -142,6 +142,7 @@ jobs:
           path: |
             ${{ matrix.executable }}
             ${{ matrix.executable }}.manifest.json
+            ${{ matrix.executable }}.third-party-licenses.txt
           if-no-files-found: error
           retention-days: 14
 

@@ -1,5 +1,9 @@
 include README.md
 include LICENSE
 include NOTICE
+include THIRD_PARTY_NOTICES.txt
+include SECURITY.md
+include CONTRIBUTING.md
+include CODE_OF_CONDUCT.md
 recursive-include docs/assets/brand *
 global-exclude __pycache__ *.py[cod]
