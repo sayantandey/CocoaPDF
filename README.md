@@ -1,8 +1,6 @@
 <div align="center">
-
-<img src="docs/assets/brand/logo/cocoapdf-mark-transparent-256x256.png" alt="CocoaPDF document-and-cocoa-bean mark" width="132">
-
-# CocoaPDF
+<img src="docs/assets/brand/logo/cocoapdf-mark.svg" alt="CocoaPDF document-and-cocoa-bean mark" width="132" align="middle">
+<h1>CocoaPDF</h1>
 
 ### Turn structured PDFs into accurate, editable documents—without OCR or AI.
 
