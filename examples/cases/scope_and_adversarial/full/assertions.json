@@ -1,0 +1,25 @@
+{
+  "passed": true,
+  "assertions": [
+    {
+      "passed": true,
+      "detail": "Markdown output is non-empty"
+    },
+    {
+      "passed": true,
+      "detail": "HTML output is non-empty"
+    },
+    {
+      "passed": true,
+      "detail": "semantic JSON uses the CocoaPDF schema"
+    },
+    {
+      "passed": true,
+      "detail": "semantic graph validates"
+    },
+    {
+      "passed": true,
+      "detail": "OCR remains disabled"
+    }
+  ]
+}

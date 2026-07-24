@@ -1,0 +1,218 @@
+{
+  "cases": [
+    {
+      "conversions": [
+        {
+          "files": {
+            "assertions.json": {
+              "bytes": 943,
+              "sha256": "f000f8b695cd79aaab74b80288d2269bac5e23604ee40bdb72441a88d8917acf"
+            },
+            "assets/formula-6e4020bb5dcec410.svg": {
+              "bytes": 17242,
+              "sha256": "6e4020bb5dcec410d68b5fb7edc753e0cdfb911c58716cbe5a5331ea1547cd68"
+            },
+            "assets/img-8d1abc8db93e78de.png": {
+              "bytes": 16402,
+              "sha256": "8d1abc8db93e78deb23984d8504484e524690fbc6c2db0b4b5f5ddcc4fe45d5e"
+            },
+            "assets/vector-cae57ae14bc20b74.svg": {
+              "bytes": 1428,
+              "sha256": "cae57ae14bc20b7421a018087bf63096f7ac9f91383b348a2caed1c2268e5d5d"
+            },
+            "command.json": {
+              "bytes": 331,
+              "sha256": "a2f4019b2c7b2dc1a278fdf5dd5ef8b3a882b63c4eb097bf9e9b4b732f97aef9"
+            },
+            "output.html": {
+              "bytes": 27689,
+              "sha256": "078d527ad9b5793e61300312ae3b4191269e2c21c490f3c2aaeff037024c5afd"
+            },
+            "output.json": {
+              "bytes": 2150060,
+              "sha256": "672912976b7db044f1e77581c5ec24c21ffd6797438beaf39ebcd34bf9dd2305"
+            },
+            "output.md": {
+              "bytes": 20589,
+              "sha256": "4bfe455f263ca9f0334fd9221976ac0aafa1f1f24103f238b4763649e52f550d"
+            },
+            "output.report.summary.json": {
+              "bytes": 9365,
+              "sha256": "e9a82eb5edf5790846f934e171e4ff3a8447349c56b0d402d48ada9f95602a29"
+            }
+          },
+          "name": "full",
+          "pages": null,
+          "passed": true
+        }
+      ],
+      "description": "Broad V1-V4 formatting, Unicode, lists, tables, figures, forms, columns, security, and fallback coverage.",
+      "id": "strategic_corner_cases",
+      "input": {
+        "bytes": 340350,
+        "deterministic": true,
+        "sha256": "f8e34e48c551d98591ab41af8c54251373067d2301beb93e9aa106aab2914256"
+      },
+      "provenance": {
+        "generation": "locked project fixture copied byte-for-byte",
+        "license": "MIT",
+        "origin": "first-party CocoaPDF regression fixture",
+        "source": "source.md"
+      }
+    },
+    {
+      "conversions": [
+        {
+          "files": {
+            "assertions.json": {
+              "bytes": 1112,
+              "sha256": "7bfe4fa8a4464815716e00539f6b034d28f7ca31b42760aa4c87dd6fc914020c"
+            },
+            "command.json": {
+              "bytes": 331,
+              "sha256": "a2f4019b2c7b2dc1a278fdf5dd5ef8b3a882b63c4eb097bf9e9b4b732f97aef9"
+            },
+            "output.html": {
+              "bytes": 2374,
+              "sha256": "099abc0a4619c27f58e298ac93690afa97fe32a2234f5adc92785c7bb2599e67"
+            },
+            "output.json": {
+              "bytes": 31548,
+              "sha256": "966d639a83a25b6751df6f169eee8882cfc18f2256a821842f030423a2bab6eb"
+            },
+            "output.md": {
+              "bytes": 142,
+              "sha256": "400dee936faff2b7f9c0af27d3ed32c1dab26446757d9d7d56360a70b9336592"
+            },
+            "output.report.summary.json": {
+              "bytes": 1341,
+              "sha256": "c5b019f47376a20f7e854cd5805591d56e1754f56307450eef1e65f435e111b2"
+            }
+          },
+          "name": "full",
+          "pages": null,
+          "passed": true
+        }
+      ],
+      "description": "Tagged heading, sibling ordered-list isolation, MCID provenance, and tagged table structure.",
+      "id": "tagged_semantics",
+      "input": {
+        "bytes": 3222,
+        "deterministic": true,
+        "sha256": "d05648651c044f2018784b9bdaebc54a36c33c8fd1e38f8f72aad06bc8cac495"
+      },
+      "provenance": {
+        "font_programs_embedded": false,
+        "generator": "build_tagged_semantics_pdf",
+        "license": "MIT",
+        "origin": "first-party deterministic raw-PDF generator",
+        "pdf_standard_fonts": [
+          "Helvetica",
+          "Helvetica-Bold"
+        ]
+      }
+    },
+    {
+      "conversions": [
+        {
+          "files": {
+            "assertions.json": {
+              "bytes": 472,
+              "sha256": "5d6c3f694e050533eeeadb2fd670c1b7a9d8f2e5b0a8d05b5626cafc4f7be462"
+            },
+            "command.json": {
+              "bytes": 331,
+              "sha256": "a2f4019b2c7b2dc1a278fdf5dd5ef8b3a882b63c4eb097bf9e9b4b732f97aef9"
+            },
+            "output.html": {
+              "bytes": 3260,
+              "sha256": "1aba1eabcbc9b5df6a89ec148863506a6c90f36b60903e03dd6e923e6e546ff1"
+            },
+            "output.json": {
+              "bytes": 88467,
+              "sha256": "073101b161bc0aae9fcc5f326b2ddff091105d0c82f256465470b5b945536bae"
+            },
+            "output.md": {
+              "bytes": 749,
+              "sha256": "9041aa6d56467b8e2d8aa242937f9b67dd57227b8347d8b6ccb274eb8c3bbb95"
+            },
+            "output.report.summary.json": {
+              "bytes": 1652,
+              "sha256": "70c8e4dfa5ca5e0455956cfd82521c70b808e416c3941200e60c2f80d359d5f1"
+            }
+          },
+          "name": "full",
+          "pages": null,
+          "passed": true
+        },
+        {
+          "files": {
+            "assertions.json": {
+              "bytes": 1502,
+              "sha256": "31e1ab8e34f6dd7717021c6b3faa7521c73e84c4446a1131e4c49e9a224f8f86"
+            },
+            "command.json": {
+              "bytes": 356,
+              "sha256": "8730539f5a746a68390b0e747f7fb15a5582da38c5e5def3d2783a7eb443e423"
+            },
+            "output.html": {
+              "bytes": 2574,
+              "sha256": "f8de410600848d182379ec5f0679fb52d0f79290e1456d2dc6eac13a80c0e638"
+            },
+            "output.json": {
+              "bytes": 73231,
+              "sha256": "69b778070dea07058575e0039e83fa76d4bf34d58bb6992ae6d31cbf55855b93"
+            },
+            "output.md": {
+              "bytes": 576,
+              "sha256": "a4ceda6e239ec4c5221ce9fd52acc0272f1f7b36f0a6a57e93546723d5739756"
+            },
+            "output.report.summary.json": {
+              "bytes": 1618,
+              "sha256": "a40577184783d76ef3d75b1edf9b50a2b342a08f910e3e34cef98d1c2cf8ef85"
+            }
+          },
+          "name": "page-2",
+          "pages": "2",
+          "passed": true
+        }
+      ],
+      "description": "Page-range outline/AcroForm scope, dot-leader finance recovery, and diagram-versus-form false-positive resistance.",
+      "id": "scope_and_adversarial",
+      "input": {
+        "bytes": 3715,
+        "deterministic": true,
+        "sha256": "0a697b6632d7ebe49f862c3b9e89273ca97b5a50771913332ce3c9ba53406e3e"
+      },
+      "provenance": {
+        "font_programs_embedded": false,
+        "generator": "build_scope_and_adversarial_pdf",
+        "license": "MIT",
+        "origin": "first-party deterministic raw-PDF generator",
+        "pdf_standard_fonts": [
+          "Helvetica",
+          "Helvetica-Bold"
+        ]
+      }
+    }
+  ],
+  "generator": "validation/pr_visual/build.py",
+  "generator_sha256": "247c1c77a25f15f892aa6e6b0fca5fcf47e7bdb966caed53ad564ce7363d6741",
+  "head_commit": null,
+  "license": {
+    "file": "LICENSE.txt",
+    "network_fetches": 0,
+    "origin": "first-party CocoaPDF project fixtures",
+    "spdx": "MIT",
+    "third_party_content_added": false
+  },
+  "lifecycle": {
+    "committed_outputs": true,
+    "location": "examples",
+    "refresh_command": "python scripts/refresh_examples.py --write",
+    "verification_command": "python scripts/refresh_examples.py --check"
+  },
+  "profile": "permanent",
+  "schema": "cocoapdf.capability-demo/v1",
+  "source_commit": null
+}

@@ -48,6 +48,7 @@ CocoaPDF converts digitally born, structured text-layer PDFs into semantic Markd
 ### Navigation
 
 [How it works](#how-it-works) ·
+[Capability demo](#capability-demo) ·
 [Capabilities](#capabilities) ·
 [Installation](#installation) ·
 [Usage](#usage) ·
@@ -55,6 +56,20 @@ CocoaPDF converts digitally born, structured text-layer PDFs into semantic Markd
 [Diagnostics](#diagnostics-and-explainability) ·
 [Development](#development-and-verification) ·
 [License](#license)
+
+---
+
+## Capability demo
+
+[Browse the permanent, reproducible capability demo](examples/README.md) to
+compare three complex source PDFs with CocoaPDF's exact Markdown, HTML,
+semantic JSON, report summaries, assertions, assets, and hashes. Every
+fixture is first-party project material under the bundled MIT license;
+generation uses no downloaded content, OCR, AI, or ML.
+
+The committed `examples/` tree is distinct from temporary pull-request review
+artifacts. CI regenerates it from the same case definitions and fails if any
+checked-in source or output becomes stale.
 
 ---
 

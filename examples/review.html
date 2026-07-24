@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CocoaPDF permanent capability demo</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { margin: 2rem auto; max-width: 1500px; padding: 0 1rem; }
+    section { border-top: 1px solid #8888; margin-top: 2rem; padding-top: 1rem; }
+    .comparison { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    object, iframe { background: white; border: 1px solid #8888; height: 75vh; width: 100%; }
+    @media (max-width: 900px) { .comparison { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <h1>CocoaPDF permanent capability demo</h1>
+  <p>Left: source PDF. Right: CocoaPDF HTML. See <a href="README.md">README.md</a>
+     and <a href="manifest.json">manifest.json</a> for every output and hash.</p>
+
+			<section>
+			  <h2>strategic_corner_cases</h2>
+			  <p>Broad V1-V4 formatting, Unicode, lists, tables, figures, forms, columns, security, and fallback coverage.</p>
+			  <p>
+			    <a href="cases/strategic_corner_cases/input.pdf">Open input PDF</a> ·
+			    <a href="cases/strategic_corner_cases/full/output.md">Open Markdown</a> ·
+			    <a href="cases/strategic_corner_cases/full/output.html">Open HTML separately</a>
+			  </p>
+			  <div class="comparison">
+			    <object data="cases/strategic_corner_cases/input.pdf" type="application/pdf">
+			      <a href="cases/strategic_corner_cases/input.pdf">Open the input PDF</a>
+			    </object>
+			    <iframe src="cases/strategic_corner_cases/full/output.html" title="strategic_corner_cases CocoaPDF HTML output"></iframe>
+			  </div>
+			</section>
+
+
+			<section>
+			  <h2>tagged_semantics</h2>
+			  <p>Tagged heading, sibling ordered-list isolation, MCID provenance, and tagged table structure.</p>
+			  <p>
+			    <a href="cases/tagged_semantics/input.pdf">Open input PDF</a> ·
+			    <a href="cases/tagged_semantics/full/output.md">Open Markdown</a> ·
+			    <a href="cases/tagged_semantics/full/output.html">Open HTML separately</a>
+			  </p>
+			  <div class="comparison">
+			    <object data="cases/tagged_semantics/input.pdf" type="application/pdf">
+			      <a href="cases/tagged_semantics/input.pdf">Open the input PDF</a>
+			    </object>
+			    <iframe src="cases/tagged_semantics/full/output.html" title="tagged_semantics CocoaPDF HTML output"></iframe>
+			  </div>
+			</section>
+
+
+			<section>
+			  <h2>scope_and_adversarial</h2>
+			  <p>Page-range outline/AcroForm scope, dot-leader finance recovery, and diagram-versus-form false-positive resistance.</p>
+			  <p>
+			    <a href="cases/scope_and_adversarial/input.pdf">Open input PDF</a> ·
+			    <a href="cases/scope_and_adversarial/full/output.md">Open Markdown</a> ·
+			    <a href="cases/scope_and_adversarial/full/output.html">Open HTML separately</a>
+			  </p>
+			  <div class="comparison">
+			    <object data="cases/scope_and_adversarial/input.pdf" type="application/pdf">
+			      <a href="cases/scope_and_adversarial/input.pdf">Open the input PDF</a>
+			    </object>
+			    <iframe src="cases/scope_and_adversarial/full/output.html" title="scope_and_adversarial CocoaPDF HTML output"></iframe>
+			  </div>
+			</section>
+
+</body>
+</html>

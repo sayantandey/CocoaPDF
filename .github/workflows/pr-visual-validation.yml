@@ -124,9 +124,11 @@ jobs:
             echo "- Head commit: \`${HEAD_SHA}\`"
             echo "- Artifact SHA-256: \`${ARTIFACT_DIGEST}\`"
             echo "- Open \`review.html\` after unzipping for side-by-side inspection."
-            echo "- The artifact expires after seven days and is deleted when this PR closes."
+            echo "- This temporary artifact is available while the PR is open. It is deleted when the PR closes."
             echo
             echo "No external content, OCR, AI, or ML is used; provenance and licensing are included in \`manifest.json\`."
+            echo
+            echo "[Browse this revision's committed capability demo](https://github.com/${REPOSITORY}/tree/${HEAD_SHA}/examples); it is separate from this PR artifact."
             echo "<!-- cocoapdf-pr-visual:end -->"
           } > updated-body.md
           jq -n --rawfile body updated-body.md '{body: $body}' > payload.json
@@ -139,8 +141,10 @@ jobs:
     timeout-minutes: 5
     permissions:
       actions: write
+      pull-requests: write
     steps:
       - name: Delete every artifact retained for this PR
+        continue-on-error: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         env:
           ARTIFACT_NAME: cocoapdf-pr-visual-pr-${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
@@ -154,3 +158,46 @@ jobs:
             [[ -z "${artifact_id}" ]] && continue
             gh api --method DELETE "/repos/${REPOSITORY}/actions/artifacts/${artifact_id}"
           done < artifact-ids.txt
+
+      - name: Replace the deleted download with a closed-state notice
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGED: ${{ github.event.pull_request.merged }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${MERGED}" == "true" ]]; then
+            disposition="merged"
+          else
+            disposition="closed without merge"
+          fi
+          gh api "/repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""' > current-body.md
+          awk '
+            /<!-- cocoapdf-pr-visual:start -->/ { skip = 1; next }
+            /<!-- cocoapdf-pr-visual:end -->/ { skip = 0; next }
+            !skip { print }
+          ' current-body.md > base-body.md
+          sed -i -e ':a' -e '/^[[:space:]]*$/{$d;N;ba}' base-body.md
+          {
+            cat base-body.md
+            echo
+            echo
+            echo "<!-- cocoapdf-pr-visual:start -->"
+            echo "## PR visual-validation artifact"
+            echo
+            echo "The temporary review artifact was deleted automatically after this PR was ${disposition}; no stale download link is retained."
+            echo
+            echo "- Reviewed head commit: \`${HEAD_SHA}\`"
+            echo "- [Review workflow close/cleanup run](https://github.com/${REPOSITORY}/actions/runs/${RUN_ID})"
+            echo "- [Browse the permanent capability demo](https://github.com/${REPOSITORY}/tree/main/examples)"
+            echo
+            echo "Reopening the PR generates a fresh artifact and restores a live download link."
+            echo "<!-- cocoapdf-pr-visual:end -->"
+          } > updated-body.md
+          jq -n --rawfile body updated-body.md '{body: $body}' > payload.json
+          gh api --method PATCH "/repos/${REPOSITORY}/pulls/${PR_NUMBER}" --input payload.json > /dev/null

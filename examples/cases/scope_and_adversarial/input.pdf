@@ -1,0 +1,116 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+3 0 obj
+<< /Length 185 >>
+stream
+BT /F2 18 Tf 1 0 0 1 72 720 Tm (Page Scope Review) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 680 Tm (First page body and first field.) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 640 Tm (FirstField: Alpha) Tj ET
+endstream
+endobj
+4 0 obj
+<< /Length 1801 >>
+stream
+BT /F2 18 Tf 1 0 0 1 72 720 Tm (Selected Evidence Page) Tj ET
+BT /F2 9 Tf 1 0 0 1 360 675 Tm (2024) Tj ET
+BT /F2 9 Tf 1 0 0 1 430 675 Tm (2023) Tj ET
+BT /F2 9 Tf 1 0 0 1 500 675 Tm (2022) Tj ET
+BT /F1 10 Tf 1 0 0 1 72 650 Tm (Revenue ........................................) Tj ET
+BT /F1 10 Tf 1 0 0 1 350 650 Tm ($ 100) Tj ET
+BT /F1 10 Tf 1 0 0 1 430 650 Tm ($ 90) Tj ET
+BT /F1 10 Tf 1 0 0 1 500 650 Tm ($ 80) Tj ET
+BT /F1 10 Tf 1 0 0 1 72 628 Tm (Expense ........................................) Tj ET
+BT /F1 10 Tf 1 0 0 1 350 628 Tm (\($ 40\)) Tj ET
+BT /F1 10 Tf 1 0 0 1 430 628 Tm (\($ 35\)) Tj ET
+BT /F1 10 Tf 1 0 0 1 500 628 Tm (\($ 30\)) Tj ET
+BT /F1 10 Tf 1 0 0 1 72 606 Tm (Net income .....................................) Tj ET
+BT /F1 10 Tf 1 0 0 1 350 606 Tm ($ 60) Tj ET
+BT /F1 10 Tf 1 0 0 1 430 606 Tm ($ 55) Tj ET
+BT /F1 10 Tf 1 0 0 1 500 606 Tm ($ 50) Tj ET
+BT /F1 11 Tf 1 0 0 1 72 545 Tm (SecondField: Beta) Tj ET
+BT /F2 11 Tf 1 0 0 1 72 510 Tm (Diagram boxes below are not form controls.) Tj ET
+1 w n 45 455 m 127 455 l S
+1 w n 127 455 m 127 479 l S
+1 w n 127 479 m 45 479 l S
+1 w n 45 479 m 45 455 l S
+BT /F1 8 Tf 1 0 0 1 53 463 Tm (Parse) Tj ET
+1 w n 155 421 m 237 421 l S
+1 w n 237 421 m 237 445 l S
+1 w n 237 445 m 155 445 l S
+1 w n 155 445 m 155 421 l S
+BT /F1 8 Tf 1 0 0 1 163 429 Tm (Decode) Tj ET
+1 w n 265 455 m 347 455 l S
+1 w n 347 455 m 347 479 l S
+1 w n 347 479 m 265 479 l S
+1 w n 265 479 m 265 455 l S
+BT /F1 8 Tf 1 0 0 1 273 463 Tm (Layout) Tj ET
+1 w n 375 421 m 457 421 l S
+1 w n 457 421 m 457 445 l S
+1 w n 457 445 m 375 445 l S
+1 w n 375 445 m 375 421 l S
+BT /F1 8 Tf 1 0 0 1 383 429 Tm (Reconcile) Tj ET
+1 w n 485 455 m 567 455 l S
+1 w n 567 455 m 567 479 l S
+1 w n 567 479 m 485 479 l S
+1 w n 485 479 m 485 455 l S
+BT /F1 8 Tf 1 0 0 1 493 463 Tm (Render) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 7 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 3 0 R /Annots [10 0 R] >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 7 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 4 0 R /Annots [11 0 R] >>
+endobj
+7 0 obj
+<< /Type /Pages /Kids [5 0 R 6 0 R] /Count 2 >>
+endobj
+8 0 obj
+<< /Fields [10 0 R 11 0 R] /NeedAppearances false >>
+endobj
+9 0 obj
+<< /Type /Outlines /First 12 0 R /Last 13 0 R /Count 2 >>
+endobj
+10 0 obj
+<< /Type /Annot /Subtype /Widget /FT /Tx /T (FirstField) /V (Alpha) /Rect [200 630 360 655] /P 5 0 R >>
+endobj
+11 0 obj
+<< /Type /Annot /Subtype /Widget /FT /Tx /T (SecondField) /V (Beta) /Rect [200 535 360 560] /P 6 0 R >>
+endobj
+12 0 obj
+<< /Title (First Page) /Parent 9 0 R /Next 13 0 R /Dest [5 0 R /XYZ null null null] >>
+endobj
+13 0 obj
+<< /Title (Selected Evidence) /Parent 9 0 R /Prev 12 0 R /Dest [6 0 R /XYZ null null null] >>
+endobj
+14 0 obj
+<< /Type /Catalog /Pages 7 0 R /AcroForm 8 0 R /Outlines 9 0 R >>
+endobj
+xref
+0 15
+0000000000 65535 f 
+0000000015 00000 n 
+0000000112 00000 n 
+0000000214 00000 n 
+0000000450 00000 n 
+0000002303 00000 n 
+0000002456 00000 n 
+0000002609 00000 n 
+0000002672 00000 n 
+0000002740 00000 n 
+0000002813 00000 n 
+0000002933 00000 n 
+0000003053 00000 n 
+0000003156 00000 n 
+0000003266 00000 n 
+trailer
+<< /Size 15 /Root 14 0 R >>
+startxref
+3348
+%%EOF

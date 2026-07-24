@@ -1,0 +1,22 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "cocoapdf",
+    "../input.pdf",
+    "--format",
+    "both",
+    "--output",
+    "output.md",
+    "--assets",
+    "assets",
+    "--image-mode",
+    "reference",
+    "--image-markup",
+    "auto"
+  ],
+  "pages": null,
+  "returncode": 0,
+  "stdout": "",
+  "stderr": ""
+}

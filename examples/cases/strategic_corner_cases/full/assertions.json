@@ -1,0 +1,45 @@
+{
+  "passed": true,
+  "assertions": [
+    {
+      "passed": true,
+      "detail": "Markdown output is non-empty"
+    },
+    {
+      "passed": true,
+      "detail": "HTML output is non-empty"
+    },
+    {
+      "passed": true,
+      "detail": "semantic JSON uses the CocoaPDF schema"
+    },
+    {
+      "passed": true,
+      "detail": "semantic graph validates"
+    },
+    {
+      "passed": true,
+      "detail": "OCR remains disabled"
+    },
+    {
+      "passed": true,
+      "detail": "all 89 strategic sentinels survive"
+    },
+    {
+      "passed": true,
+      "detail": "headings do not acquire redundant inline styles"
+    },
+    {
+      "passed": true,
+      "detail": "code spans are not over-escaped"
+    },
+    {
+      "passed": true,
+      "detail": "task-list state is preserved"
+    },
+    {
+      "passed": true,
+      "detail": "complex table fallback remains structural"
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "passed": true,
+  "assertions": [
+    {
+      "passed": true,
+      "detail": "Markdown output is non-empty"
+    },
+    {
+      "passed": true,
+      "detail": "HTML output is non-empty"
+    },
+    {
+      "passed": true,
+      "detail": "semantic JSON uses the CocoaPDF schema"
+    },
+    {
+      "passed": true,
+      "detail": "semantic graph validates"
+    },
+    {
+      "passed": true,
+      "detail": "OCR remains disabled"
+    },
+    {
+      "passed": true,
+      "detail": "selected page body is present"
+    },
+    {
+      "passed": true,
+      "detail": "unselected page body is absent"
+    },
+    {
+      "passed": true,
+      "detail": "full-document outline is not injected"
+    },
+    {
+      "passed": true,
+      "detail": "unselected form field is absent"
+    },
+    {
+      "passed": true,
+      "detail": "selected form field is retained"
+    },
+    {
+      "passed": true,
+      "detail": "diagram boxes are not emitted as form controls"
+    },
+    {
+      "passed": true,
+      "detail": "financial year columns are structural"
+    },
+    {
+      "passed": true,
+      "detail": "financial row labels are structural"
+    },
+    {
+      "passed": true,
+      "detail": "dot leaders are removed from table output"
+    },
+    {
+      "passed": true,
+      "detail": "semantic metadata records page 2 only"
+    },
+    {
+      "passed": true,
+      "detail": "diagram form-control warning is absent"
+    }
+  ]
+}
