@@ -17,3 +17,12 @@
 *.ico binary
 *.zip binary
 *.gz binary
+
+# Generated capability outputs are reviewable artifacts, not source-language
+# statistics. Markdown hard breaks intentionally retain two trailing spaces.
+examples/cases/**/full/** linguist-generated=true
+examples/cases/**/page-2/** linguist-generated=true
+examples/manifest.json linguist-generated=true
+examples/review.html linguist-generated=true
+examples/cases/**/output.md whitespace=-trailing-space
+examples/cases/strategic_corner_cases/source.md whitespace=-trailing-space

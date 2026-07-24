@@ -1,0 +1,53 @@
+{
+  "passed": true,
+  "assertions": [
+    {
+      "passed": true,
+      "detail": "Markdown output is non-empty"
+    },
+    {
+      "passed": true,
+      "detail": "HTML output is non-empty"
+    },
+    {
+      "passed": true,
+      "detail": "semantic JSON uses the CocoaPDF schema"
+    },
+    {
+      "passed": true,
+      "detail": "semantic graph validates"
+    },
+    {
+      "passed": true,
+      "detail": "OCR remains disabled"
+    },
+    {
+      "passed": true,
+      "detail": "tagged heading level is preserved"
+    },
+    {
+      "passed": true,
+      "detail": "first tagged item occurs exactly once"
+    },
+    {
+      "passed": true,
+      "detail": "second tagged item occurs exactly once"
+    },
+    {
+      "passed": true,
+      "detail": "first ordered item is materialized"
+    },
+    {
+      "passed": true,
+      "detail": "second ordered item is materialized"
+    },
+    {
+      "passed": true,
+      "detail": "tagged table cells survive"
+    },
+    {
+      "passed": true,
+      "detail": "tagged-PDF metadata is recorded"
+    }
+  ]
+}

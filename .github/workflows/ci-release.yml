@@ -70,6 +70,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      - name: Verify the committed capability demo
+        if: matrix.python-version == '3.13'
+        run: python scripts/refresh_examples.py --check
+
       - name: Install the stamped project
         run: |
           python scripts/stamp_version.py "${{ needs.version.outputs.version }}"
@@ -79,7 +83,7 @@ jobs:
         run: |
           python scripts/check_repository_invariants.py
           python -m unittest discover -s tests -v
-          python -m compileall -q src tests tools scripts
+          python -m compileall -q src tests tools scripts validation
           python -m cocoapdf --version
 
   binary:

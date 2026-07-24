@@ -1,0 +1,69 @@
+{
+  "active_content": [
+    {
+      "code": "FORMS_PRESENT_UNPROCESSED",
+      "path": "Catalog/AcroForm"
+    }
+  ],
+  "anchors": [],
+  "assets": [],
+  "chars": 312,
+  "description": "Deterministic PDF-to-Markdown/HTML conversion for structured text-layer PDFs. No OCR. No AI.",
+  "encrypted": false,
+  "fills": 0,
+  "image_text_extraction_attempted": false,
+  "images": 0,
+  "images_detail": [],
+  "mode_per_page": [
+    "not_selected",
+    "geometric"
+  ],
+  "ocr_used": false,
+  "output_derivation": {
+    "html": "semantic_graph",
+    "json": "semantic_graph",
+    "markdown": "semantic_graph"
+  },
+  "output_projection": "semantic_graph_with_lossless_layout_reconciliation",
+  "pages": 2,
+  "parser_mode": "xref",
+  "processed_pages": [
+    2
+  ],
+  "segments": 20,
+  "semantic_errors": [],
+  "semantic_kinds": [
+    "form",
+    "form_field",
+    "heading",
+    "paragraph",
+    "strong",
+    "table",
+    "table_cell",
+    "table_row",
+    "text"
+  ],
+  "semantic_node_count": 42,
+  "semantic_output_used": true,
+  "semantic_schema": "cocoapdf.semantic-document/v2",
+  "semantic_valid": true,
+  "summary_policy": {
+    "full_report_available_in_pull_request_artifacts": true,
+    "full_semantic_graph": "output.json",
+    "omitted_duplicate_or_glyph_heavy_report_fields": [
+      "nodes",
+      "regions",
+      "semantic_document",
+      "semantic_nodes"
+    ]
+  },
+  "tool": "CocoaPDF",
+  "version": "0.1.0",
+  "warnings": [
+    {
+      "code": "FORMS_PRESENT_UNPROCESSED",
+      "detail": "Catalog/AcroForm",
+      "page": null
+    }
+  ]
+}

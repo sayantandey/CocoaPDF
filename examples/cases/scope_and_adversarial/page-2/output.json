@@ -1,0 +1,2971 @@
+{
+  "schema": "cocoapdf.semantic-document",
+  "version": "2",
+  "metadata": {
+    "title": "CocoaPDF Document",
+    "producer": "",
+    "creator": "",
+    "source": "pdf_operators_and_structure",
+    "output_policy": "markdown_first_html_fallback",
+    "ocr_used": false,
+    "page_selection_active": true,
+    "processed_pages": [
+      2
+    ],
+    "outline": {
+      "id": "node-49",
+      "kind": "outline",
+      "text": "",
+      "attrs": {
+        "source": "pdf_outline"
+      },
+      "children": [
+        {
+          "id": "node-47",
+          "kind": "outline_item",
+          "text": "First Page",
+          "attrs": {
+            "level": 1,
+            "page": 1,
+            "destination": [
+              "XYZ",
+              null,
+              null,
+              null
+            ],
+            "target_id": null,
+            "target_anchor": null,
+            "open": true
+          },
+          "children": [],
+          "confidence": 0.99,
+          "evidence": [
+            {
+              "kind": "pdf_outline_item",
+              "confidence": 0.99,
+              "detail": "",
+              "page": 1,
+              "data": {
+                "object_ref": "12 0 R"
+              }
+            }
+          ],
+          "sources": [
+            {
+              "page": 1,
+              "glyph_ids": [],
+              "region_ids": [],
+              "mcids": [],
+              "object_refs": [
+                "12 0 R"
+              ]
+            }
+          ],
+          "source_pages": [
+            1
+          ],
+          "warnings": []
+        },
+        {
+          "id": "node-48",
+          "kind": "outline_item",
+          "text": "Selected Evidence",
+          "attrs": {
+            "level": 1,
+            "page": 2,
+            "destination": [
+              "XYZ",
+              null,
+              null,
+              null
+            ],
+            "target_id": null,
+            "target_anchor": null,
+            "open": true
+          },
+          "children": [],
+          "confidence": 0.99,
+          "evidence": [
+            {
+              "kind": "pdf_outline_item",
+              "confidence": 0.99,
+              "detail": "",
+              "page": 2,
+              "data": {
+                "object_ref": "13 0 R"
+              }
+            }
+          ],
+          "sources": [
+            {
+              "page": 2,
+              "glyph_ids": [],
+              "region_ids": [],
+              "mcids": [],
+              "object_refs": [
+                "13 0 R"
+              ]
+            }
+          ],
+          "source_pages": [
+            2
+          ],
+          "warnings": []
+        }
+      ],
+      "confidence": 0.99,
+      "evidence": [
+        {
+          "kind": "pdf_outline_tree",
+          "confidence": 0.99,
+          "detail": "",
+          "page": null,
+          "data": {
+            "entry_count": 2
+          }
+        }
+      ],
+      "sources": [
+        {
+          "page": 1,
+          "glyph_ids": [],
+          "region_ids": [],
+          "mcids": [],
+          "object_refs": [
+            "12 0 R"
+          ]
+        },
+        {
+          "page": 2,
+          "glyph_ids": [],
+          "region_ids": [],
+          "mcids": [],
+          "object_refs": [
+            "13 0 R"
+          ]
+        }
+      ],
+      "source_pages": [
+        1,
+        2
+      ],
+      "warnings": []
+    }
+  },
+  "children": [
+    {
+      "id": "node-3",
+      "kind": "heading",
+      "text": "",
+      "attrs": {
+        "level": 2,
+        "page": 2,
+        "bbox": [
+          72.0,
+          56.700000000000045,
+          257.022,
+          76.5
+        ],
+        "region_ids": [
+          "p2-body-2"
+        ],
+        "region_kinds": [
+          "body"
+        ],
+        "writing_mode": "horizontal",
+        "bottom_zone": false,
+        "anchor": "selected-evidence-page"
+      },
+      "children": [
+        {
+          "id": "node-2",
+          "kind": "strong",
+          "text": "",
+          "attrs": {},
+          "children": [
+            {
+              "id": "node-1",
+              "kind": "text",
+              "text": "Selected Evidence Page",
+              "attrs": {
+                "hard_break": false
+              },
+              "children": [],
+              "confidence": 0.99,
+              "evidence": [],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                    11,
+                    12,
+                    13,
+                    14,
+                    15,
+                    16,
+                    17,
+                    18,
+                    19,
+                    20,
+                    21,
+                    22
+                  ],
+                  "region_ids": [],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    72.0,
+                    56.7,
+                    257.022,
+                    76.5
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            }
+          ],
+          "confidence": 0.99,
+          "evidence": [],
+          "sources": [
+            {
+              "page": 2,
+              "glyph_ids": [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15,
+                16,
+                17,
+                18,
+                19,
+                20,
+                21,
+                22
+              ],
+              "region_ids": [],
+              "mcids": [],
+              "object_refs": [],
+              "bbox": [
+                72.0,
+                56.7,
+                257.022,
+                76.5
+              ]
+            }
+          ],
+          "source_pages": [
+            2
+          ],
+          "warnings": []
+        }
+      ],
+      "confidence": 0.92,
+      "evidence": [
+        {
+          "kind": "geometric_semantic_detector",
+          "confidence": 0.92,
+          "detail": "heading",
+          "page": 2,
+          "data": {
+            "region_ids": [
+              "p2-body-2"
+            ]
+          }
+        }
+      ],
+      "sources": [
+        {
+          "page": 2,
+          "glyph_ids": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22
+          ],
+          "region_ids": [
+            "p2-body-2"
+          ],
+          "mcids": [],
+          "object_refs": [],
+          "bbox": [
+            72.0,
+            56.7,
+            257.022,
+            76.5
+          ]
+        }
+      ],
+      "source_pages": [
+        2
+      ],
+      "warnings": []
+    },
+    {
+      "id": "node-31",
+      "kind": "table",
+      "text": "",
+      "attrs": {
+        "bbox": [
+          72.0,
+          109.35000000000002,
+          528.8999999999999,
+          188.5
+        ],
+        "header_rows": 0,
+        "output_mode": "gfm",
+        "column_count": 4,
+        "row_count": 3,
+        "page_size": [
+          612.0,
+          792.0
+        ],
+        "source_pages": [
+          2
+        ],
+        "grid_signature": [
+          0.0,
+          1.0
+        ]
+      },
+      "children": [
+        {
+          "id": "node-12",
+          "kind": "table_row",
+          "text": "",
+          "attrs": {
+            "row": 0,
+            "role": "body"
+          },
+          "children": [
+            {
+              "id": "node-5",
+              "kind": "table_cell",
+              "text": "",
+              "attrs": {
+                "row": 0,
+                "col": 0,
+                "rowspan": 1,
+                "colspan": 1,
+                "role": "td"
+              },
+              "children": [
+                {
+                  "id": "node-4",
+                  "kind": "text",
+                  "text": "Revenue ........................................",
+                  "attrs": {
+                    "hard_break": false
+                  },
+                  "children": [],
+                  "confidence": 0.99,
+                  "evidence": [],
+                  "sources": [
+                    {
+                      "page": 2,
+                      "glyph_ids": [
+                        35,
+                        36,
+                        37,
+                        38,
+                        39,
+                        40,
+                        41,
+                        42,
+                        43,
+                        44,
+                        45,
+                        46,
+                        47,
+                        48,
+                        49,
+                        50,
+                        51,
+                        52,
+                        53,
+                        54,
+                        55,
+                        56,
+                        57,
+                        58,
+                        59,
+                        60,
+                        61,
+                        62,
+                        63,
+                        64,
+                        65,
+                        66,
+                        67,
+                        68,
+                        69,
+                        70,
+                        71,
+                        72,
+                        73,
+                        74,
+                        75,
+                        76,
+                        77,
+                        78,
+                        79,
+                        80,
+                        81,
+                        82
+                      ],
+                      "region_ids": [],
+                      "mcids": [],
+                      "object_refs": [],
+                      "bbox": [
+                        72.0,
+                        133.5,
+                        222.65,
+                        144.5
+                      ]
+                    }
+                  ],
+                  "source_pages": [
+                    2
+                  ],
+                  "warnings": []
+                }
+              ],
+              "confidence": 0.91,
+              "evidence": [
+                {
+                  "kind": "borderless_alignment_cell",
+                  "confidence": 0.91,
+                  "detail": "",
+                  "page": 2,
+                  "data": {}
+                }
+              ],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    35,
+                    36,
+                    37,
+                    38,
+                    39,
+                    40,
+                    41,
+                    42,
+                    43,
+                    44,
+                    45,
+                    46,
+                    47,
+                    48,
+                    49,
+                    50,
+                    51,
+                    52,
+                    53,
+                    54,
+                    55,
+                    56,
+                    57,
+                    58,
+                    59,
+                    60,
+                    61,
+                    62,
+                    63,
+                    64,
+                    65,
+                    66,
+                    67,
+                    68,
+                    69,
+                    70,
+                    71,
+                    72,
+                    73,
+                    74,
+                    75,
+                    76,
+                    77,
+                    78,
+                    79,
+                    80,
+                    81,
+                    82
+                  ],
+                  "region_ids": [
+                    "p2-table-1"
+                  ],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    72.0,
+                    133.5,
+                    222.65,
+                    144.5
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            },
+            {
+              "id": "node-7",
+              "kind": "table_cell",
+              "text": "",
+              "attrs": {
+                "row": 0,
+                "col": 1,
+                "rowspan": 1,
+                "colspan": 1,
+                "role": "td"
+              },
+              "children": [
+                {
+                  "id": "node-6",
+                  "kind": "text",
+                  "text": "$ 100",
+                  "attrs": {
+                    "hard_break": false
+                  },
+                  "children": [],
+                  "confidence": 0.99,
+                  "evidence": [],
+                  "sources": [
+                    {
+                      "page": 2,
+                      "glyph_ids": [
+                        83,
+                        84,
+                        85,
+                        86,
+                        87
+                      ],
+                      "region_ids": [],
+                      "mcids": [],
+                      "object_refs": [],
+                      "bbox": [
+                        350.0,
+                        133.5,
+                        374.46,
+                        144.5
+                      ]
+                    }
+                  ],
+                  "source_pages": [
+                    2
+                  ],
+                  "warnings": []
+                }
+              ],
+              "confidence": 0.91,
+              "evidence": [
+                {
+                  "kind": "borderless_alignment_cell",
+                  "confidence": 0.91,
+                  "detail": "",
+                  "page": 2,
+                  "data": {}
+                }
+              ],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    83,
+                    84,
+                    85,
+                    86,
+                    87
+                  ],
+                  "region_ids": [
+                    "p2-table-1"
+                  ],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    350.0,
+                    133.5,
+                    374.46,
+                    144.5
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            },
+            {
+              "id": "node-9",
+              "kind": "table_cell",
+              "text": "",
+              "attrs": {
+                "row": 0,
+                "col": 2,
+                "rowspan": 1,
+                "colspan": 1,
+                "role": "td"
+              },
+              "children": [
+                {
+                  "id": "node-8",
+                  "kind": "text",
+                  "text": "$ 90",
+                  "attrs": {
+                    "hard_break": false
+                  },
+                  "children": [],
+                  "confidence": 0.99,
+                  "evidence": [],
+                  "sources": [
+                    {
+                      "page": 2,
+                      "glyph_ids": [
+                        88,
+                        89,
+                        90,
+                        91
+                      ],
+                      "region_ids": [],
+                      "mcids": [],
+                      "object_refs": [],
+                      "bbox": [
+                        430.0,
+                        133.5,
+                        448.9,
+                        144.5
+                      ]
+                    }
+                  ],
+                  "source_pages": [
+                    2
+                  ],
+                  "warnings": []
+                }
+              ],
+              "confidence": 0.91,
+              "evidence": [
+                {
+                  "kind": "borderless_alignment_cell",
+                  "confidence": 0.91,
+                  "detail": "",
+                  "page": 2,
+                  "data": {}
+                }
+              ],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    88,
+                    89,
+                    90,
+                    91
+                  ],
+                  "region_ids": [
+                    "p2-table-1"
+                  ],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    430.0,
+                    133.5,
+                    448.9,
+                    144.5
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            },
+            {
+              "id": "node-11",
+              "kind": "table_cell",
+              "text": "",
+              "attrs": {
+                "row": 0,
+                "col": 3,
+                "rowspan": 1,
+                "colspan": 1,
+                "role": "td"
+              },
+              "children": [
+                {
+                  "id": "node-10",
+                  "kind": "text",
+                  "text": "$ 80",
+                  "attrs": {
+                    "hard_break": false
+                  },
+                  "children": [],
+                  "confidence": 0.99,
+                  "evidence": [],
+                  "sources": [
+                    {
+                      "page": 2,
+                      "glyph_ids": [
+                        92,
+                        93,
+                        94,
+                        95
+                      ],
+                      "region_ids": [],
+                      "mcids": [],
+                      "object_refs": [],
+                      "bbox": [
+                        500.0,
+                        133.5,
+                        518.9,
+                        144.5
+                      ]
+                    }
+                  ],
+                  "source_pages": [
+                    2
+                  ],
+                  "warnings": []
+                }
+              ],
+              "confidence": 0.91,
+              "evidence": [
+                {
+                  "kind": "borderless_alignment_cell",
+                  "confidence": 0.91,
+                  "detail": "",
+                  "page": 2,
+                  "data": {}
+                }
+              ],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    92,
+                    93,
+                    94,
+                    95
+                  ],
+                  "region_ids": [
+                    "p2-table-1"
+                  ],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    500.0,
+                    133.5,
+                    518.9,
+                    144.5
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            }
+          ],
+          "confidence": 0.91,
+          "evidence": [
+            {
+              "kind": "borderless_alignment_row",
+              "confidence": 0.91,
+              "detail": "",
+              "page": 2,
+              "data": {}
+            }
+          ],
+          "sources": [
+            {
+              "page": 2,
+              "glyph_ids": [
+                35,
+                36,
+                37,
+                38,
+                39,
+                40,
+                41,
+                42,
+                43,
+                44,
+                45,
+                46,
+                47,
+                48,
+                49,
+                50,
+                51,
+                52,
+                53,
+                54,
+                55,
+                56,
+                57,
+                58,
+                59,
+                60,
+                61,
+                62,
+                63,
+                64,
+                65,
+                66,
+                67,
+                68,
+                69,
+                70,
+                71,
+                72,
+                73,
+                74,
+                75,
+                76,
+                77,
+                78,
+                79,
+                80,
+                81,
+                82,
+                83,
+                84,
+                85,
+                86,
+                87,
+                88,
+                89,
+                90,
+                91,
+                92,
+                93,
+                94,
+                95
+              ],
+              "region_ids": [
+                "p2-table-1"
+              ],
+              "mcids": [],
+              "object_refs": [],
+              "bbox": [
+                72.0,
+                133.5,
+                518.9,
+                144.5
+              ]
+            }
+          ],
+          "source_pages": [
+            2
+          ],
+          "warnings": []
+        },
+        {
+          "id": "node-21",
+          "kind": "table_row",
+          "text": "",
+          "attrs": {
+            "row": 1,
+            "role": "body"
+          },
+          "children": [
+            {
+              "id": "node-14",
+              "kind": "table_cell",
+              "text": "",
+              "attrs": {
+                "row": 1,
+                "col": 0,
+                "rowspan": 1,
+                "colspan": 1,
+                "role": "td"
+              },
+              "children": [
+                {
+                  "id": "node-13",
+                  "kind": "text",
+                  "text": "Expense ........................................",
+                  "attrs": {
+                    "hard_break": false
+                  },
+                  "children": [],
+                  "confidence": 0.99,
+                  "evidence": [],
+                  "sources": [
+                    {
+                      "page": 2,
+                      "glyph_ids": [
+                        96,
+                        97,
+                        98,
+                        99,
+                        100,
+                        101,
+                        102,
+                        103,
+                        104,
+                        105,
+                        106,
+                        107,
+                        108,
+                        109,
+                        110,
+                        111,
+                        112,
+                        113,
+                        114,
+                        115,
+                        116,
+                        117,
+                        118,
+                        119,
+                        120,
+                        121,
+                        122,
+                        123,
+                        124,
+                        125,
+                        126,
+                        127,
+                        128,
+                        129,
+                        130,
+                        131,
+                        132,
+                        133,
+                        134,
+                        135,
+                        136,
+                        137,
+                        138,
+                        139,
+                        140,
+                        141,
+                        142,
+                        143
+                      ],
+                      "region_ids": [],
+                      "mcids": [],
+                      "object_refs": [],
+                      "bbox": [
+                        72.0,
+                        155.5,
+                        222.65,
+                        166.5
+                      ]
+                    }
+                  ],
+                  "source_pages": [
+                    2
+                  ],
+                  "warnings": []
+                }
+              ],
+              "confidence": 0.91,
+              "evidence": [
+                {
+                  "kind": "borderless_alignment_cell",
+                  "confidence": 0.91,
+                  "detail": "",
+                  "page": 2,
+                  "data": {}
+                }
+              ],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    96,
+                    97,
+                    98,
+                    99,
+                    100,
+                    101,
+                    102,
+                    103,
+                    104,
+                    105,
+                    106,
+                    107,
+                    108,
+                    109,
+                    110,
+                    111,
+                    112,
+                    113,
+                    114,
+                    115,
+                    116,
+                    117,
+                    118,
+                    119,
+                    120,
+                    121,
+                    122,
+                    123,
+                    124,
+                    125,
+                    126,
+                    127,
+                    128,
+                    129,
+                    130,
+                    131,
+                    132,
+                    133,
+                    134,
+                    135,
+                    136,
+                    137,
+                    138,
+                    139,
+                    140,
+                    141,
+                    142,
+                    143
+                  ],
+                  "region_ids": [
+                    "p2-table-1"
+                  ],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    72.0,
+                    155.5,
+                    222.65,
+                    166.5
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            },
+            {
+              "id": "node-16",
+              "kind": "table_cell",
+              "text": "",
+              "attrs": {
+                "row": 1,
+                "col": 1,
+                "rowspan": 1,
+                "colspan": 1,
+                "role": "td"
+              },
+              "children": [
+                {
+                  "id": "node-15",
+                  "kind": "text",
+                  "text": "($ 40)",
+                  "attrs": {
+                    "hard_break": false
+                  },
+                  "children": [],
+                  "confidence": 0.99,
+                  "evidence": [],
+                  "sources": [
+                    {
+                      "page": 2,
+                      "glyph_ids": [
+                        144,
+                        145,
+                        146,
+                        147,
+                        148,
+                        149
+                      ],
+                      "region_ids": [],
+                      "mcids": [],
+                      "object_refs": [],
+                      "bbox": [
+                        350.0,
+                        155.5,
+                        378.9,
+                        166.5
+                      ]
+                    }
+                  ],
+                  "source_pages": [
+                    2
+                  ],
+                  "warnings": []
+                }
+              ],
+              "confidence": 0.91,
+              "evidence": [
+                {
+                  "kind": "borderless_alignment_cell",
+                  "confidence": 0.91,
+                  "detail": "",
+                  "page": 2,
+                  "data": {}
+                }
+              ],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    144,
+                    145,
+                    146,
+                    147,
+                    148,
+                    149
+                  ],
+                  "region_ids": [
+                    "p2-table-1"
+                  ],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    350.0,
+                    155.5,
+                    378.9,
+                    166.5
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            },
+            {
+              "id": "node-18",
+              "kind": "table_cell",
+              "text": "",
+              "attrs": {
+                "row": 1,
+                "col": 2,
+                "rowspan": 1,
+                "colspan": 1,
+                "role": "td"
+              },
+              "children": [
+                {
+                  "id": "node-17",
+                  "kind": "text",
+                  "text": "($ 35)",
+                  "attrs": {
+                    "hard_break": false
+                  },
+                  "children": [],
+                  "confidence": 0.99,
+                  "evidence": [],
+                  "sources": [
+                    {
+                      "page": 2,
+                      "glyph_ids": [
+                        150,
+                        151,
+                        152,
+                        153,
+                        154,
+                        155
+                      ],
+                      "region_ids": [],
+                      "mcids": [],
+                      "object_refs": [],
+                      "bbox": [
+                        430.0,
+                        155.5,
+                        458.9,
+                        166.5
+                      ]
+                    }
+                  ],
+                  "source_pages": [
+                    2
+                  ],
+                  "warnings": []
+                }
+              ],
+              "confidence": 0.91,
+              "evidence": [
+                {
+                  "kind": "borderless_alignment_cell",
+                  "confidence": 0.91,
+                  "detail": "",
+                  "page": 2,
+                  "data": {}
+                }
+              ],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    150,
+                    151,
+                    152,
+                    153,
+                    154,
+                    155
+                  ],
+                  "region_ids": [
+                    "p2-table-1"
+                  ],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    430.0,
+                    155.5,
+                    458.9,
+                    166.5
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            },
+            {
+              "id": "node-20",
+              "kind": "table_cell",
+              "text": "",
+              "attrs": {
+                "row": 1,
+                "col": 3,
+                "rowspan": 1,
+                "colspan": 1,
+                "role": "td"
+              },
+              "children": [
+                {
+                  "id": "node-19",
+                  "kind": "text",
+                  "text": "($ 30)",
+                  "attrs": {
+                    "hard_break": false
+                  },
+                  "children": [],
+                  "confidence": 0.99,
+                  "evidence": [],
+                  "sources": [
+                    {
+                      "page": 2,
+                      "glyph_ids": [
+                        156,
+                        157,
+                        158,
+                        159,
+                        160,
+                        161
+                      ],
+                      "region_ids": [],
+                      "mcids": [],
+                      "object_refs": [],
+                      "bbox": [
+                        500.0,
+                        155.5,
+                        528.9,
+                        166.5
+                      ]
+                    }
+                  ],
+                  "source_pages": [
+                    2
+                  ],
+                  "warnings": []
+                }
+              ],
+              "confidence": 0.91,
+              "evidence": [
+                {
+                  "kind": "borderless_alignment_cell",
+                  "confidence": 0.91,
+                  "detail": "",
+                  "page": 2,
+                  "data": {}
+                }
+              ],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    156,
+                    157,
+                    158,
+                    159,
+                    160,
+                    161
+                  ],
+                  "region_ids": [
+                    "p2-table-1"
+                  ],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    500.0,
+                    155.5,
+                    528.9,
+                    166.5
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            }
+          ],
+          "confidence": 0.91,
+          "evidence": [
+            {
+              "kind": "borderless_alignment_row",
+              "confidence": 0.91,
+              "detail": "",
+              "page": 2,
+              "data": {}
+            }
+          ],
+          "sources": [
+            {
+              "page": 2,
+              "glyph_ids": [
+                96,
+                97,
+                98,
+                99,
+                100,
+                101,
+                102,
+                103,
+                104,
+                105,
+                106,
+                107,
+                108,
+                109,
+                110,
+                111,
+                112,
+                113,
+                114,
+                115,
+                116,
+                117,
+                118,
+                119,
+                120,
+                121,
+                122,
+                123,
+                124,
+                125,
+                126,
+                127,
+                128,
+                129,
+                130,
+                131,
+                132,
+                133,
+                134,
+                135,
+                136,
+                137,
+                138,
+                139,
+                140,
+                141,
+                142,
+                143,
+                144,
+                145,
+                146,
+                147,
+                148,
+                149,
+                150,
+                151,
+                152,
+                153,
+                154,
+                155,
+                156,
+                157,
+                158,
+                159,
+                160,
+                161
+              ],
+              "region_ids": [
+                "p2-table-1"
+              ],
+              "mcids": [],
+              "object_refs": [],
+              "bbox": [
+                72.0,
+                155.5,
+                528.9,
+                166.5
+              ]
+            }
+          ],
+          "source_pages": [
+            2
+          ],
+          "warnings": []
+        },
+        {
+          "id": "node-30",
+          "kind": "table_row",
+          "text": "",
+          "attrs": {
+            "row": 2,
+            "role": "body"
+          },
+          "children": [
+            {
+              "id": "node-23",
+              "kind": "table_cell",
+              "text": "",
+              "attrs": {
+                "row": 2,
+                "col": 0,
+                "rowspan": 1,
+                "colspan": 1,
+                "role": "td"
+              },
+              "children": [
+                {
+                  "id": "node-22",
+                  "kind": "text",
+                  "text": "Net income .....................................",
+                  "attrs": {
+                    "hard_break": false
+                  },
+                  "children": [],
+                  "confidence": 0.99,
+                  "evidence": [],
+                  "sources": [
+                    {
+                      "page": 2,
+                      "glyph_ids": [
+                        162,
+                        163,
+                        164,
+                        165,
+                        166,
+                        167,
+                        168,
+                        169,
+                        170,
+                        171,
+                        172,
+                        173,
+                        174,
+                        175,
+                        176,
+                        177,
+                        178,
+                        179,
+                        180,
+                        181,
+                        182,
+                        183,
+                        184,
+                        185,
+                        186,
+                        187,
+                        188,
+                        189,
+                        190,
+                        191,
+                        192,
+                        193,
+                        194,
+                        195,
+                        196,
+                        197,
+                        198,
+                        199,
+                        200,
+                        201,
+                        202,
+                        203,
+                        204,
+                        205,
+                        206,
+                        207,
+                        208,
+                        209
+                      ],
+                      "region_ids": [],
+                      "mcids": [],
+                      "object_refs": [],
+                      "bbox": [
+                        72.0,
+                        177.5,
+                        225.42,
+                        188.5
+                      ]
+                    }
+                  ],
+                  "source_pages": [
+                    2
+                  ],
+                  "warnings": []
+                }
+              ],
+              "confidence": 0.91,
+              "evidence": [
+                {
+                  "kind": "borderless_alignment_cell",
+                  "confidence": 0.91,
+                  "detail": "",
+                  "page": 2,
+                  "data": {}
+                }
+              ],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    162,
+                    163,
+                    164,
+                    165,
+                    166,
+                    167,
+                    168,
+                    169,
+                    170,
+                    171,
+                    172,
+                    173,
+                    174,
+                    175,
+                    176,
+                    177,
+                    178,
+                    179,
+                    180,
+                    181,
+                    182,
+                    183,
+                    184,
+                    185,
+                    186,
+                    187,
+                    188,
+                    189,
+                    190,
+                    191,
+                    192,
+                    193,
+                    194,
+                    195,
+                    196,
+                    197,
+                    198,
+                    199,
+                    200,
+                    201,
+                    202,
+                    203,
+                    204,
+                    205,
+                    206,
+                    207,
+                    208,
+                    209
+                  ],
+                  "region_ids": [
+                    "p2-table-1"
+                  ],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    72.0,
+                    177.5,
+                    225.42,
+                    188.5
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            },
+            {
+              "id": "node-25",
+              "kind": "table_cell",
+              "text": "",
+              "attrs": {
+                "row": 2,
+                "col": 1,
+                "rowspan": 1,
+                "colspan": 1,
+                "role": "td"
+              },
+              "children": [
+                {
+                  "id": "node-24",
+                  "kind": "text",
+                  "text": "$ 60",
+                  "attrs": {
+                    "hard_break": false
+                  },
+                  "children": [],
+                  "confidence": 0.99,
+                  "evidence": [],
+                  "sources": [
+                    {
+                      "page": 2,
+                      "glyph_ids": [
+                        210,
+                        211,
+                        212,
+                        213
+                      ],
+                      "region_ids": [],
+                      "mcids": [],
+                      "object_refs": [],
+                      "bbox": [
+                        350.0,
+                        177.5,
+                        368.9,
+                        188.5
+                      ]
+                    }
+                  ],
+                  "source_pages": [
+                    2
+                  ],
+                  "warnings": []
+                }
+              ],
+              "confidence": 0.91,
+              "evidence": [
+                {
+                  "kind": "borderless_alignment_cell",
+                  "confidence": 0.91,
+                  "detail": "",
+                  "page": 2,
+                  "data": {}
+                }
+              ],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    210,
+                    211,
+                    212,
+                    213
+                  ],
+                  "region_ids": [
+                    "p2-table-1"
+                  ],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    350.0,
+                    177.5,
+                    368.9,
+                    188.5
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            },
+            {
+              "id": "node-27",
+              "kind": "table_cell",
+              "text": "",
+              "attrs": {
+                "row": 2,
+                "col": 2,
+                "rowspan": 1,
+                "colspan": 1,
+                "role": "td"
+              },
+              "children": [
+                {
+                  "id": "node-26",
+                  "kind": "text",
+                  "text": "$ 55",
+                  "attrs": {
+                    "hard_break": false
+                  },
+                  "children": [],
+                  "confidence": 0.99,
+                  "evidence": [],
+                  "sources": [
+                    {
+                      "page": 2,
+                      "glyph_ids": [
+                        214,
+                        215,
+                        216,
+                        217
+                      ],
+                      "region_ids": [],
+                      "mcids": [],
+                      "object_refs": [],
+                      "bbox": [
+                        430.0,
+                        177.5,
+                        448.9,
+                        188.5
+                      ]
+                    }
+                  ],
+                  "source_pages": [
+                    2
+                  ],
+                  "warnings": []
+                }
+              ],
+              "confidence": 0.91,
+              "evidence": [
+                {
+                  "kind": "borderless_alignment_cell",
+                  "confidence": 0.91,
+                  "detail": "",
+                  "page": 2,
+                  "data": {}
+                }
+              ],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    214,
+                    215,
+                    216,
+                    217
+                  ],
+                  "region_ids": [
+                    "p2-table-1"
+                  ],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    430.0,
+                    177.5,
+                    448.9,
+                    188.5
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            },
+            {
+              "id": "node-29",
+              "kind": "table_cell",
+              "text": "",
+              "attrs": {
+                "row": 2,
+                "col": 3,
+                "rowspan": 1,
+                "colspan": 1,
+                "role": "td"
+              },
+              "children": [
+                {
+                  "id": "node-28",
+                  "kind": "text",
+                  "text": "$ 50",
+                  "attrs": {
+                    "hard_break": false
+                  },
+                  "children": [],
+                  "confidence": 0.99,
+                  "evidence": [],
+                  "sources": [
+                    {
+                      "page": 2,
+                      "glyph_ids": [
+                        218,
+                        219,
+                        220,
+                        221
+                      ],
+                      "region_ids": [],
+                      "mcids": [],
+                      "object_refs": [],
+                      "bbox": [
+                        500.0,
+                        177.5,
+                        518.9,
+                        188.5
+                      ]
+                    }
+                  ],
+                  "source_pages": [
+                    2
+                  ],
+                  "warnings": []
+                }
+              ],
+              "confidence": 0.91,
+              "evidence": [
+                {
+                  "kind": "borderless_alignment_cell",
+                  "confidence": 0.91,
+                  "detail": "",
+                  "page": 2,
+                  "data": {}
+                }
+              ],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    218,
+                    219,
+                    220,
+                    221
+                  ],
+                  "region_ids": [
+                    "p2-table-1"
+                  ],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    500.0,
+                    177.5,
+                    518.9,
+                    188.5
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            }
+          ],
+          "confidence": 0.91,
+          "evidence": [
+            {
+              "kind": "borderless_alignment_row",
+              "confidence": 0.91,
+              "detail": "",
+              "page": 2,
+              "data": {}
+            }
+          ],
+          "sources": [
+            {
+              "page": 2,
+              "glyph_ids": [
+                162,
+                163,
+                164,
+                165,
+                166,
+                167,
+                168,
+                169,
+                170,
+                171,
+                172,
+                173,
+                174,
+                175,
+                176,
+                177,
+                178,
+                179,
+                180,
+                181,
+                182,
+                183,
+                184,
+                185,
+                186,
+                187,
+                188,
+                189,
+                190,
+                191,
+                192,
+                193,
+                194,
+                195,
+                196,
+                197,
+                198,
+                199,
+                200,
+                201,
+                202,
+                203,
+                204,
+                205,
+                206,
+                207,
+                208,
+                209,
+                210,
+                211,
+                212,
+                213,
+                214,
+                215,
+                216,
+                217,
+                218,
+                219,
+                220,
+                221
+              ],
+              "region_ids": [
+                "p2-table-1"
+              ],
+              "mcids": [],
+              "object_refs": [],
+              "bbox": [
+                72.0,
+                177.5,
+                518.9,
+                188.5
+              ]
+            }
+          ],
+          "source_pages": [
+            2
+          ],
+          "warnings": []
+        }
+      ],
+      "confidence": 0.92,
+      "evidence": [
+        {
+          "kind": "borderless_alignment",
+          "confidence": 0.92,
+          "detail": "",
+          "page": 2,
+          "data": {
+            "bbox": [
+              72.0,
+              109.35000000000002,
+              528.8999999999999,
+              188.5
+            ]
+          }
+        }
+      ],
+      "sources": [
+        {
+          "page": 2,
+          "glyph_ids": [
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            58,
+            59,
+            60,
+            61,
+            62,
+            63,
+            64,
+            65,
+            66,
+            67,
+            68,
+            69,
+            70,
+            71,
+            72,
+            73,
+            74,
+            75,
+            76,
+            77,
+            78,
+            79,
+            80,
+            81,
+            82,
+            83,
+            84,
+            85,
+            86,
+            87,
+            88,
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            96,
+            97,
+            98,
+            99,
+            100,
+            101,
+            102,
+            103,
+            104,
+            105,
+            106,
+            107,
+            108,
+            109,
+            110,
+            111,
+            112,
+            113,
+            114,
+            115,
+            116,
+            117,
+            118,
+            119,
+            120,
+            121,
+            122,
+            123,
+            124,
+            125,
+            126,
+            127,
+            128,
+            129,
+            130,
+            131,
+            132,
+            133,
+            134,
+            135,
+            136,
+            137,
+            138,
+            139,
+            140,
+            141,
+            142,
+            143,
+            144,
+            145,
+            146,
+            147,
+            148,
+            149,
+            150,
+            151,
+            152,
+            153,
+            154,
+            155,
+            156,
+            157,
+            158,
+            159,
+            160,
+            161,
+            162,
+            163,
+            164,
+            165,
+            166,
+            167,
+            168,
+            169,
+            170,
+            171,
+            172,
+            173,
+            174,
+            175,
+            176,
+            177,
+            178,
+            179,
+            180,
+            181,
+            182,
+            183,
+            184,
+            185,
+            186,
+            187,
+            188,
+            189,
+            190,
+            191,
+            192,
+            193,
+            194,
+            195,
+            196,
+            197,
+            198,
+            199,
+            200,
+            201,
+            202,
+            203,
+            204,
+            205,
+            206,
+            207,
+            208,
+            209,
+            210,
+            211,
+            212,
+            213,
+            214,
+            215,
+            216,
+            217,
+            218,
+            219,
+            220,
+            221
+          ],
+          "region_ids": [
+            "p2-table-1"
+          ],
+          "mcids": [],
+          "object_refs": [],
+          "bbox": [
+            72.0,
+            109.35,
+            528.9,
+            188.5
+          ]
+        }
+      ],
+      "source_pages": [
+        2
+      ],
+      "warnings": []
+    },
+    {
+      "id": "node-33",
+      "kind": "paragraph",
+      "text": "",
+      "attrs": {
+        "page": 2,
+        "bbox": [
+          72.0,
+          237.64999999999998,
+          157.569,
+          249.75
+        ],
+        "region_ids": [
+          "p2-body-2"
+        ],
+        "region_kinds": [
+          "body"
+        ],
+        "writing_mode": "horizontal",
+        "bottom_zone": false
+      },
+      "children": [
+        {
+          "id": "node-32",
+          "kind": "text",
+          "text": "SecondField: Beta",
+          "attrs": {
+            "hard_break": false
+          },
+          "children": [],
+          "confidence": 0.99,
+          "evidence": [],
+          "sources": [
+            {
+              "page": 2,
+              "glyph_ids": [
+                222,
+                223,
+                224,
+                225,
+                226,
+                227,
+                228,
+                229,
+                230,
+                231,
+                232,
+                233,
+                234,
+                235,
+                236,
+                237,
+                238
+              ],
+              "region_ids": [],
+              "mcids": [],
+              "object_refs": [],
+              "bbox": [
+                72.0,
+                237.65,
+                157.569,
+                249.75
+              ]
+            }
+          ],
+          "source_pages": [
+            2
+          ],
+          "warnings": []
+        }
+      ],
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "kind": "geometric_semantic_detector",
+          "confidence": 0.96,
+          "detail": "paragraph",
+          "page": 2,
+          "data": {
+            "region_ids": [
+              "p2-body-2"
+            ]
+          }
+        }
+      ],
+      "sources": [
+        {
+          "page": 2,
+          "glyph_ids": [
+            222,
+            223,
+            224,
+            225,
+            226,
+            227,
+            228,
+            229,
+            230,
+            231,
+            232,
+            233,
+            234,
+            235,
+            236,
+            237,
+            238
+          ],
+          "region_ids": [
+            "p2-body-2"
+          ],
+          "mcids": [],
+          "object_refs": [],
+          "bbox": [
+            72.0,
+            237.65,
+            157.569,
+            249.75
+          ]
+        }
+      ],
+      "source_pages": [
+        2
+      ],
+      "warnings": []
+    },
+    {
+      "id": "node-36",
+      "kind": "paragraph",
+      "text": "",
+      "attrs": {
+        "page": 2,
+        "bbox": [
+          72.0,
+          272.65,
+          273.663,
+          284.75
+        ],
+        "region_ids": [
+          "p2-body-2"
+        ],
+        "region_kinds": [
+          "body"
+        ],
+        "writing_mode": "horizontal",
+        "bottom_zone": false
+      },
+      "children": [
+        {
+          "id": "node-35",
+          "kind": "strong",
+          "text": "",
+          "attrs": {},
+          "children": [
+            {
+              "id": "node-34",
+              "kind": "text",
+              "text": "Diagram boxes below are not form controls.",
+              "attrs": {
+                "hard_break": false
+              },
+              "children": [],
+              "confidence": 0.99,
+              "evidence": [],
+              "sources": [
+                {
+                  "page": 2,
+                  "glyph_ids": [
+                    239,
+                    240,
+                    241,
+                    242,
+                    243,
+                    244,
+                    245,
+                    246,
+                    247,
+                    248,
+                    249,
+                    250,
+                    251,
+                    252,
+                    253,
+                    254,
+                    255,
+                    256,
+                    257,
+                    258,
+                    259,
+                    260,
+                    261,
+                    262,
+                    263,
+                    264,
+                    265,
+                    266,
+                    267,
+                    268,
+                    269,
+                    270,
+                    271,
+                    272,
+                    273,
+                    274,
+                    275,
+                    276,
+                    277,
+                    278,
+                    279,
+                    280
+                  ],
+                  "region_ids": [],
+                  "mcids": [],
+                  "object_refs": [],
+                  "bbox": [
+                    72.0,
+                    272.65,
+                    273.663,
+                    284.75
+                  ]
+                }
+              ],
+              "source_pages": [
+                2
+              ],
+              "warnings": []
+            }
+          ],
+          "confidence": 0.99,
+          "evidence": [],
+          "sources": [
+            {
+              "page": 2,
+              "glyph_ids": [
+                239,
+                240,
+                241,
+                242,
+                243,
+                244,
+                245,
+                246,
+                247,
+                248,
+                249,
+                250,
+                251,
+                252,
+                253,
+                254,
+                255,
+                256,
+                257,
+                258,
+                259,
+                260,
+                261,
+                262,
+                263,
+                264,
+                265,
+                266,
+                267,
+                268,
+                269,
+                270,
+                271,
+                272,
+                273,
+                274,
+                275,
+                276,
+                277,
+                278,
+                279,
+                280
+              ],
+              "region_ids": [],
+              "mcids": [],
+              "object_refs": [],
+              "bbox": [
+                72.0,
+                272.65,
+                273.663,
+                284.75
+              ]
+            }
+          ],
+          "source_pages": [
+            2
+          ],
+          "warnings": []
+        }
+      ],
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "kind": "geometric_semantic_detector",
+          "confidence": 0.96,
+          "detail": "paragraph",
+          "page": 2,
+          "data": {
+            "region_ids": [
+              "p2-body-2"
+            ]
+          }
+        }
+      ],
+      "sources": [
+        {
+          "page": 2,
+          "glyph_ids": [
+            239,
+            240,
+            241,
+            242,
+            243,
+            244,
+            245,
+            246,
+            247,
+            248,
+            249,
+            250,
+            251,
+            252,
+            253,
+            254,
+            255,
+            256,
+            257,
+            258,
+            259,
+            260,
+            261,
+            262,
+            263,
+            264,
+            265,
+            266,
+            267,
+            268,
+            269,
+            270,
+            271,
+            272,
+            273,
+            274,
+            275,
+            276,
+            277,
+            278,
+            279,
+            280
+          ],
+          "region_ids": [
+            "p2-body-2"
+          ],
+          "mcids": [],
+          "object_refs": [],
+          "bbox": [
+            72.0,
+            272.65,
+            273.663,
+            284.75
+          ]
+        }
+      ],
+      "source_pages": [
+        2
+      ],
+      "warnings": []
+    },
+    {
+      "id": "node-42",
+      "kind": "paragraph",
+      "text": "",
+      "attrs": {
+        "page": 2,
+        "bbox": [
+          53.0,
+          322.2,
+          517.0,
+          331.0
+        ],
+        "region_ids": [
+          "p2-body-2"
+        ],
+        "region_kinds": [
+          "body"
+        ],
+        "writing_mode": "horizontal",
+        "bottom_zone": false
+      },
+      "children": [
+        {
+          "id": "node-37",
+          "kind": "text",
+          "text": "Parse Layout Render",
+          "attrs": {
+            "hard_break": false
+          },
+          "children": [],
+          "confidence": 0.99,
+          "evidence": [],
+          "sources": [
+            {
+              "page": 2,
+              "glyph_ids": [
+                285,
+                286,
+                287,
+                288,
+                289,
+                304,
+                305,
+                306,
+                307,
+                308,
+                309,
+                327,
+                328,
+                329,
+                330,
+                331,
+                332
+              ],
+              "region_ids": [],
+              "mcids": [],
+              "object_refs": [],
+              "bbox": [
+                53.0,
+                322.2,
+                517.0,
+                331.0
+              ]
+            }
+          ],
+          "source_pages": [
+            2
+          ],
+          "warnings": []
+        }
+      ],
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "kind": "geometric_semantic_detector",
+          "confidence": 0.96,
+          "detail": "paragraph",
+          "page": 2,
+          "data": {
+            "region_ids": [
+              "p2-body-2"
+            ]
+          }
+        }
+      ],
+      "sources": [
+        {
+          "page": 2,
+          "glyph_ids": [
+            285,
+            286,
+            287,
+            288,
+            289,
+            304,
+            305,
+            306,
+            307,
+            308,
+            309,
+            327,
+            328,
+            329,
+            330,
+            331,
+            332
+          ],
+          "region_ids": [
+            "p2-body-2"
+          ],
+          "mcids": [],
+          "object_refs": [],
+          "bbox": [
+            53.0,
+            322.2,
+            517.0,
+            331.0
+          ]
+        }
+      ],
+      "source_pages": [
+        2
+      ],
+      "warnings": []
+    },
+    {
+      "id": "node-46",
+      "kind": "paragraph",
+      "text": "",
+      "attrs": {
+        "page": 2,
+        "bbox": [
+          163.0,
+          356.2,
+          415.88800000000003,
+          365.0
+        ],
+        "region_ids": [
+          "p2-body-2"
+        ],
+        "region_kinds": [
+          "body"
+        ],
+        "writing_mode": "horizontal",
+        "bottom_zone": false
+      },
+      "children": [
+        {
+          "id": "node-43",
+          "kind": "text",
+          "text": "Decode Reconcile",
+          "attrs": {
+            "hard_break": false
+          },
+          "children": [],
+          "confidence": 0.99,
+          "evidence": [],
+          "sources": [
+            {
+              "page": 2,
+              "glyph_ids": [
+                294,
+                295,
+                296,
+                297,
+                298,
+                299,
+                314,
+                315,
+                316,
+                317,
+                318,
+                319,
+                320,
+                321,
+                322
+              ],
+              "region_ids": [],
+              "mcids": [],
+              "object_refs": [],
+              "bbox": [
+                163.0,
+                356.2,
+                415.888,
+                365.0
+              ]
+            }
+          ],
+          "source_pages": [
+            2
+          ],
+          "warnings": []
+        }
+      ],
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "kind": "geometric_semantic_detector",
+          "confidence": 0.96,
+          "detail": "paragraph",
+          "page": 2,
+          "data": {
+            "region_ids": [
+              "p2-body-2"
+            ]
+          }
+        }
+      ],
+      "sources": [
+        {
+          "page": 2,
+          "glyph_ids": [
+            294,
+            295,
+            296,
+            297,
+            298,
+            299,
+            314,
+            315,
+            316,
+            317,
+            318,
+            319,
+            320,
+            321,
+            322
+          ],
+          "region_ids": [
+            "p2-body-2"
+          ],
+          "mcids": [],
+          "object_refs": [],
+          "bbox": [
+            163.0,
+            356.2,
+            415.888,
+            365.0
+          ]
+        }
+      ],
+      "source_pages": [
+        2
+      ],
+      "warnings": []
+    },
+    {
+      "id": "node-52",
+      "kind": "form",
+      "text": "",
+      "attrs": {
+        "need_appearances": false,
+        "signature_flags": 0,
+        "calculation_order_present": false
+      },
+      "children": [
+        {
+          "id": "node-51",
+          "kind": "form_field",
+          "text": "Beta",
+          "attrs": {
+            "name": "SecondField",
+            "partial_name": "SecondField",
+            "alternate_name": null,
+            "mapping_name": null,
+            "field_type": "text",
+            "pdf_field_type": "Tx",
+            "value": "Beta",
+            "default_value": "",
+            "flags": 0,
+            "read_only": false,
+            "required": false,
+            "no_export": false,
+            "multiline": false,
+            "password": false,
+            "value_redacted": false,
+            "comb": false,
+            "max_length": null,
+            "options": [],
+            "selected_indices": [],
+            "top_index": null,
+            "export_states": [],
+            "widgets": [
+              {
+                "object_ref": "11 0 R",
+                "page": 2,
+                "rect": [
+                  200.0,
+                  535.0,
+                  360.0,
+                  560.0
+                ],
+                "appearance_state": null,
+                "export_states": [],
+                "annotation_flags": 0,
+                "highlight_mode": null
+              }
+            ],
+            "actions_ignored": false
+          },
+          "children": [],
+          "confidence": 0.99,
+          "evidence": [
+            {
+              "kind": "acroform_terminal_field",
+              "confidence": 0.99,
+              "detail": "text",
+              "page": null,
+              "data": {
+                "object_ref": "11 0 R"
+              }
+            }
+          ],
+          "sources": [
+            {
+              "page": 2,
+              "glyph_ids": [],
+              "region_ids": [],
+              "mcids": [],
+              "object_refs": [
+                "11 0 R"
+              ],
+              "bbox": [
+                200.0,
+                535.0,
+                360.0,
+                560.0
+              ]
+            }
+          ],
+          "source_pages": [
+            2
+          ],
+          "warnings": []
+        }
+      ],
+      "confidence": 0.99,
+      "evidence": [
+        {
+          "kind": "acroform_field_tree",
+          "confidence": 0.99,
+          "detail": "",
+          "page": null,
+          "data": {
+            "field_count": 1
+          }
+        }
+      ],
+      "sources": [
+        {
+          "page": 2,
+          "glyph_ids": [],
+          "region_ids": [],
+          "mcids": [],
+          "object_refs": [
+            "11 0 R"
+          ],
+          "bbox": [
+            200.0,
+            535.0,
+            360.0,
+            560.0
+          ]
+        }
+      ],
+      "source_pages": [
+        2
+      ],
+      "warnings": []
+    }
+  ],
+  "warnings": []
+}

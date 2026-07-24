@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+from ._textio import write_utf8_lf
 from .core import ConvertOptions, Converter, convert_file
 from .layout.regions import detect_regions
 from .reporting.explain import explain_report
@@ -53,7 +54,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 	if args.cmd == "overlay":
 		out = Path(args.output) if args.output else Path("overlay-page-%d.svg" % args.page)
 		out.parent.mkdir(parents=True, exist_ok=True)
-		out.write_text(region_overlay_svg(Path(args.pdf), args.page), encoding="utf-8")
+		write_utf8_lf(out, region_overlay_svg(Path(args.pdf), args.page))
 		print(str(out))
 		return 0
 	if args.cmd == "score":

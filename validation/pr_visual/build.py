@@ -18,6 +18,9 @@ SOURCE_ROOT = ROOT / "src"
 LICENSE_PATH = ROOT / "LICENSE"
 STRATEGIC_PDF = ROOT / "tests" / "strategic_corner_cases_v1_4.pdf"
 STRATEGIC_SOURCE = ROOT / "tests" / "strategic_corner_cases_v1_4.md"
+PULL_REQUEST_PROFILE = "pull-request"
+PERMANENT_PROFILE = "permanent"
+VALID_PROFILES = (PULL_REQUEST_PROFILE, PERMANENT_PROFILE)
 
 
 def _source_imports() -> None:
@@ -27,6 +30,7 @@ def _source_imports() -> None:
 
 _source_imports()
 
+from cocoapdf._textio import write_utf8_lf  # noqa: E402
 from cocoapdf.synthetic import line_op, text_op  # noqa: E402
 
 
@@ -324,7 +328,8 @@ def run_conversion(
 		encoding="utf-8",
 		errors="replace",
 	)
-	(output_dir / "command.json").write_text(
+	write_utf8_lf(
+		output_dir / "command.json",
 		json.dumps(
 			{
 				"argv": recorded_command,
@@ -336,7 +341,6 @@ def run_conversion(
 			indent=2,
 		)
 		+ "\n",
-		encoding="utf-8",
 	)
 	if completed.returncode:
 		raise RuntimeError(
@@ -423,7 +427,8 @@ def verify_scope_selected(output_dir: Path) -> List[Dict[str, Any]]:
 
 
 def _write_assertions(path: Path, assertions: Sequence[Dict[str, Any]]) -> None:
-	path.write_text(
+	write_utf8_lf(
+		path,
 		json.dumps(
 			{
 				"passed": all(bool(item.get("passed")) for item in assertions),
@@ -432,20 +437,69 @@ def _write_assertions(path: Path, assertions: Sequence[Dict[str, Any]]) -> None:
 			indent=2,
 		)
 		+ "\n",
-		encoding="utf-8",
 	)
 
 
-def _write_review_files(output_root: Path, cases: Sequence[Dict[str, Any]]) -> None:
+def _replace_full_report_with_summary(output_dir: Path) -> None:
+	report_path = output_dir / "output.report.json"
+	report = json.loads(report_path.read_text(encoding="utf-8"))
+	omitted = ("nodes", "regions", "semantic_document", "semantic_nodes")
+	summary = {
+		key: value
+		for key, value in report.items()
+		if key not in omitted
+	}
+	summary["summary_policy"] = {
+		"full_semantic_graph": "output.json",
+		"omitted_duplicate_or_glyph_heavy_report_fields": list(omitted),
+		"full_report_available_in_pull_request_artifacts": True,
+	}
+	write_utf8_lf(
+		output_dir / "output.report.summary.json",
+		json.dumps(summary, indent=2, sort_keys=True) + "\n",
+	)
+	report_path.unlink()
+
+
+def _write_review_files(
+	output_root: Path,
+	cases: Sequence[Dict[str, Any]],
+	*,
+	profile: str,
+) -> None:
+	permanent = profile == PERMANENT_PROFILE
+	title = (
+		"CocoaPDF permanent capability demo"
+		if permanent
+		else "CocoaPDF pull-request visual review"
+	)
+	index_name = "README.md" if permanent else "REVIEW.md"
 	lines = [
-		"# CocoaPDF pull-request visual review",
+		"# %s" % title,
 		"",
 		"All inputs and fixture prose are first-party project material under the bundled MIT license.",
 		"No network content, OCR, AI, or ML was used.",
 		"",
+	]
+	if permanent:
+		lines.extend(
+			[
+				"This directory is the committed, reproducible capability demo. "
+				"Pull-request review artifacts are generated separately and are never written here.",
+				"",
+				"Each row links the source PDF to the exact output committed from the same CocoaPDF revision.",
+				"",
+				"Full semantic JSON is committed. Report summaries omit only duplicate semantic graphs "
+				"and glyph-heavy internals; the temporary PR artifact retains every full report.",
+				"",
+			]
+		)
+	lines.extend(
+		[
 		"| Case | Coverage | Input | Outputs |",
 		"| --- | --- | --- | --- |",
-	]
+		]
+	)
 	sections: List[str] = []
 	for case in cases:
 		case_id = str(case["id"])
@@ -455,10 +509,25 @@ def _write_review_files(output_root: Path, cases: Sequence[Dict[str, Any]]) -> N
 		for conversion in case["conversions"]:
 			name = str(conversion["name"])
 			base = "cases/%s/%s" % (case_id, name)
+			report_name = (
+				"output.report.summary.json"
+				if permanent
+				else "output.report.json"
+			)
 			output_links.append(
 				"[%s Markdown](%s/output.md), [%s HTML](%s/output.html), "
-				"[%s semantic JSON](%s/output.json), [%s report](%s/output.report.json)"
-				% (name, base, name, base, name, base, name, base)
+				"[%s semantic JSON](%s/output.json), [%s report](%s/%s)"
+				% (
+					name,
+					base,
+					name,
+					base,
+					name,
+					base,
+					name,
+					base,
+					report_name,
+				)
 			)
 		lines.append(
 			"| `%s` | %s | [PDF](%s) | %s |"
@@ -495,13 +564,13 @@ def _write_review_files(output_root: Path, cases: Sequence[Dict[str, Any]]) -> N
 				primary_base=html.escape(primary_base, quote=True),
 			)
 		)
-	(output_root / "REVIEW.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+	write_utf8_lf(output_root / index_name, "\n".join(lines) + "\n")
 	review_page = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CocoaPDF PR visual review</title>
+  <title>__COCOAPDF_REVIEW_TITLE__</title>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
     body { margin: 2rem auto; max-width: 1500px; padding: 0 1rem; }
@@ -512,19 +581,25 @@ def _write_review_files(output_root: Path, cases: Sequence[Dict[str, Any]]) -> N
   </style>
 </head>
 <body>
-  <h1>CocoaPDF pull-request visual review</h1>
-  <p>Left: source PDF. Right: CocoaPDF HTML. See <a href="REVIEW.md">REVIEW.md</a>
+  <h1>__COCOAPDF_REVIEW_TITLE__</h1>
+  <p>Left: source PDF. Right: CocoaPDF HTML. See <a href="__COCOAPDF_INDEX_NAME__">__COCOAPDF_INDEX_NAME__</a>
      and <a href="manifest.json">manifest.json</a> for every output and hash.</p>
-  __COCOAPDF_REVIEW_SECTIONS__
+__COCOAPDF_REVIEW_SECTIONS__
 </body>
 </html>
 """
-	(output_root / "review.html").write_text(
-		review_page.replace(
+	write_utf8_lf(
+		output_root / "review.html",
+		review_page
+		.replace("__COCOAPDF_REVIEW_TITLE__", html.escape(title))
+		.replace("__COCOAPDF_INDEX_NAME__", index_name)
+		.replace(
 			"__COCOAPDF_REVIEW_SECTIONS__",
-			"\n".join(sections),
+			"\n".join(
+				"\n".join(line.rstrip() for line in section.splitlines())
+				for section in sections
+			),
 		),
-		encoding="utf-8",
 	)
 
 
@@ -533,7 +608,10 @@ def build_bundle(
 	*,
 	source_commit: str = "",
 	head_commit: str = "",
+	profile: str = PULL_REQUEST_PROFILE,
 ) -> Dict[str, Any]:
+	if profile not in VALID_PROFILES:
+		raise ValueError("unknown visual bundle profile: %s" % profile)
 	output_root = output_root.resolve()
 	if output_root.exists() and any(output_root.iterdir()):
 		raise ValueError("output directory must be empty: %s" % output_root)
@@ -547,6 +625,12 @@ def build_bundle(
 			"description": "Broad V1-V4 formatting, Unicode, lists, tables, figures, forms, columns, security, and fallback coverage.",
 			"input": inputs["strategic_corner_cases"],
 			"source": STRATEGIC_SOURCE,
+			"provenance": {
+				"origin": "first-party CocoaPDF regression fixture",
+				"license": "MIT",
+				"source": "source.md",
+				"generation": "locked project fixture copied byte-for-byte",
+			},
 			"conversions": [("full", None, verify_strategic)],
 		},
 		{
@@ -554,6 +638,13 @@ def build_bundle(
 			"description": "Tagged heading, sibling ordered-list isolation, MCID provenance, and tagged table structure.",
 			"input": inputs["tagged_semantics"],
 			"source": None,
+			"provenance": {
+				"origin": "first-party deterministic raw-PDF generator",
+				"license": "MIT",
+				"generator": "build_tagged_semantics_pdf",
+				"font_programs_embedded": False,
+				"pdf_standard_fonts": ["Helvetica", "Helvetica-Bold"],
+			},
 			"conversions": [("full", None, verify_tagged)],
 		},
 		{
@@ -561,6 +652,13 @@ def build_bundle(
 			"description": "Page-range outline/AcroForm scope, dot-leader finance recovery, and diagram-versus-form false-positive resistance.",
 			"input": inputs["scope_and_adversarial"],
 			"source": None,
+			"provenance": {
+				"origin": "first-party deterministic raw-PDF generator",
+				"license": "MIT",
+				"generator": "build_scope_and_adversarial_pdf",
+				"font_programs_embedded": False,
+				"pdf_standard_fonts": ["Helvetica", "Helvetica-Bold"],
+			},
 			"conversions": [
 				("full", None, None),
 				("page-2", "2", verify_scope_selected),
@@ -587,6 +685,8 @@ def build_bundle(
 			else:
 				_common_contract(conversion_dir, assertions)
 			_write_assertions(conversion_dir / "assertions.json", assertions)
+			if profile == PERMANENT_PROFILE:
+				_replace_full_report_with_summary(conversion_dir)
 			conversions.append(
 				{
 					"name": name,
@@ -599,6 +699,7 @@ def build_bundle(
 			{
 				"id": spec["id"],
 				"description": spec["description"],
+				"provenance": spec["provenance"],
 				"input": {
 					"bytes": len(input_bytes),
 					"sha256": _sha256(input_bytes),
@@ -608,9 +709,15 @@ def build_bundle(
 			}
 		)
 
-	_write_review_files(output_root, manifest_cases)
+	_write_review_files(output_root, manifest_cases, profile=profile)
+	permanent = profile == PERMANENT_PROFILE
 	manifest = {
-		"schema": "cocoapdf.pr-visual-corpus/v1",
+		"schema": (
+			"cocoapdf.capability-demo/v1"
+			if permanent
+			else "cocoapdf.pr-visual-corpus/v1"
+		),
+		"profile": profile,
 		"source_commit": source_commit or None,
 		"head_commit": head_commit or None,
 		"generator": "validation/pr_visual/build.py",
@@ -622,17 +729,26 @@ def build_bundle(
 			"network_fetches": 0,
 			"third_party_content_added": False,
 		},
-		"artifact_policy": {
-			"committed_outputs": False,
-			"maximum_cases": 3,
-			"retention_days": 7,
-			"delete_on_pull_request_close": True,
-		},
+		"lifecycle": (
+			{
+				"committed_outputs": True,
+				"location": "examples",
+				"refresh_command": "python scripts/refresh_examples.py --write",
+				"verification_command": "python scripts/refresh_examples.py --check",
+			}
+			if permanent
+			else {
+				"committed_outputs": False,
+				"maximum_cases": 3,
+				"retention_days": 7,
+				"delete_on_pull_request_close": True,
+			}
+		),
 		"cases": manifest_cases,
 	}
-	(output_root / "manifest.json").write_text(
+	write_utf8_lf(
+		output_root / "manifest.json",
 		json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-		encoding="utf-8",
 	)
 	return manifest
 
@@ -644,11 +760,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 	parser.add_argument("--output-dir", type=Path, required=True)
 	parser.add_argument("--source-commit", default="")
 	parser.add_argument("--head-commit", default="")
+	parser.add_argument(
+		"--profile",
+		choices=VALID_PROFILES,
+		default=PULL_REQUEST_PROFILE,
+	)
 	args = parser.parse_args(argv)
 	manifest = build_bundle(
 		args.output_dir,
 		source_commit=args.source_commit,
 		head_commit=args.head_commit,
+		profile=args.profile,
 	)
 	print(
 		json.dumps(

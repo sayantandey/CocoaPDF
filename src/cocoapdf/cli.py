@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from ._textio import write_utf8_lf
 from ._version import __version__
 from .core import ConvertOptions, convert_file
 from . import tools
@@ -137,19 +138,25 @@ def _write_output(path: Path, result, fmt: str) -> None:
 		if path.suffix:
 			path.parent.mkdir(parents=True, exist_ok=True)
 			base = path.with_suffix("")
-			base.with_suffix(".md").write_text(result.markdown.replace("\r\n", "\n"), encoding="utf-8")
-			base.with_suffix(".html").write_text(result.html.replace("\r\n", "\n"), encoding="utf-8")
-			base.with_suffix(".json").write_text(json.dumps(result.semantic.to_dict() if result.semantic is not None else {}, indent=2), encoding="utf-8")
-			base.with_suffix(".report.json").write_text(json.dumps(result.report, indent=2), encoding="utf-8")
+			write_utf8_lf(base.with_suffix(".md"), result.markdown)
+			write_utf8_lf(base.with_suffix(".html"), result.html)
+			write_utf8_lf(
+				base.with_suffix(".json"),
+				json.dumps(result.semantic.to_dict() if result.semantic is not None else {}, indent=2),
+			)
+			write_utf8_lf(base.with_suffix(".report.json"), json.dumps(result.report, indent=2))
 		else:
 			path.mkdir(parents=True, exist_ok=True)
-			(path / "document.md").write_text(result.markdown.replace("\r\n", "\n"), encoding="utf-8")
-			(path / "document.html").write_text(result.html.replace("\r\n", "\n"), encoding="utf-8")
-			(path / "document.json").write_text(json.dumps(result.semantic.to_dict() if result.semantic is not None else {}, indent=2), encoding="utf-8")
-			(path / "report.json").write_text(json.dumps(result.report, indent=2), encoding="utf-8")
+			write_utf8_lf(path / "document.md", result.markdown)
+			write_utf8_lf(path / "document.html", result.html)
+			write_utf8_lf(
+				path / "document.json",
+				json.dumps(result.semantic.to_dict() if result.semantic is not None else {}, indent=2),
+			)
+			write_utf8_lf(path / "report.json", json.dumps(result.report, indent=2))
 		return
 	path.parent.mkdir(parents=True, exist_ok=True)
-	path.write_text(_format_payload(result, fmt).replace("\r\n", "\n"), encoding="utf-8")
+	write_utf8_lf(path, _format_payload(result, fmt))
 
 
 if __name__ == "__main__":

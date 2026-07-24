@@ -33,6 +33,9 @@ FIXTURE_TEXT_EXCEPTIONS = {
 	Path("tests/strategic_corner_cases_v1_4.md"),
 	Path("tests/strategic_corner_cases_v1_4_temp.md"),
 }
+FIXTURE_TREE_EXCEPTIONS = {
+	Path("examples/cases/strategic_corner_cases"),
+}
 
 
 def main() -> int:
@@ -45,9 +48,17 @@ def main() -> int:
 			continue
 		if path.suffix.lower() not in TEXT_SUFFIXES:
 			continue
-		if path.relative_to(ROOT) in FIXTURE_TEXT_EXCEPTIONS:
+		relative = path.relative_to(ROOT)
+		if (
+			relative in FIXTURE_TEXT_EXCEPTIONS
+			or any(
+				relative.parts[:len(prefix.parts)] == prefix.parts
+				for prefix in FIXTURE_TREE_EXCEPTIONS
+			)
+		):
 			# These strings are source-document content. The converter must
-			# preserve them until the corresponding PDFs are regenerated.
+			# preserve them until the corresponding PDFs and examples are
+			# regenerated.
 			continue
 		try:
 			text = path.read_text(encoding="utf-8")

@@ -1,8 +1,10 @@
 # Pull-request visual validation corpus
 
 This directory defines CocoaPDF's small, high-signal corpus for manual pull
-request review. It is CI infrastructure, not the permanent user-facing sample
-gallery that may later live at the repository root.
+request review. It is CI infrastructure, not the permanent user-facing
+capability demo in [`examples/`](../../examples/README.md). Both use the same
+deterministic case definitions so a pull request reviews the exact capabilities
+represented by the committed demo without writing generated files into it.
 
 `build.py` creates exactly three complementary inputs:
 
@@ -35,14 +37,18 @@ also contains `review.html` for side-by-side input/output inspection and
 ## Artifact lifecycle
 
 The workflow writes only beneath the runner's temporary directory. It never
-writes generated inputs or outputs into the checkout, so it cannot pollute a
-future root-level sample gallery. Artifacts are retained for at most seven
-days and are deleted when the pull request closes or merges.
+writes generated inputs or outputs into the checkout, so it cannot alter the
+permanent `examples/` demo. Artifacts are retained for at most seven days and
+are deleted when the pull request closes or merges.
 
 For same-repository pull requests, the workflow maintains one delimited block
-in the PR description containing the current artifact link and digest. Fork
-and automation-token restrictions may prevent that write; the artifact link
-is always available from the workflow summary.
+in the PR description containing the current artifact link and digest. When
+the PR closes, the workflow replaces that block with an explicit deletion
+notice, the reviewed head SHA, the cleanup run, and a link to the permanent
+demo. A merged PR therefore never retains a live-looking link to a deleted
+artifact. Fork and automation-token restrictions may prevent description
+writes; the artifact link is always available from the workflow summary while
+the PR is open.
 
 ## Local run
 
@@ -54,3 +60,10 @@ python validation/pr_visual/build.py --output-dir <empty-directory>
 
 The output directory must be empty. Open `review.html` after the command
 completes.
+
+The permanent demo is refreshed and verified separately:
+
+```text
+python scripts/refresh_examples.py --write
+python scripts/refresh_examples.py --check
+```

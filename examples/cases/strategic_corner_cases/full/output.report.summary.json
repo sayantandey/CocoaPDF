@@ -1,0 +1,426 @@
+{
+  "active_content": [],
+  "anchors": [
+    {
+      "id": "explicit-anchor-v1-4",
+      "page": 2,
+      "y": 294.25
+    },
+    {
+      "id": "dfref-footnote-1",
+      "page": 8,
+      "y": 592.75
+    },
+    {
+      "id": "dfref-footnote-2",
+      "page": 8,
+      "y": 608.5
+    },
+    {
+      "id": "dfref-footnote-1-1",
+      "page": 8,
+      "y": 592.75
+    },
+    {
+      "id": "header-n7",
+      "page": 1,
+      "y": 179.5
+    },
+    {
+      "id": "header-n255",
+      "page": 5,
+      "y": 195.25
+    },
+    {
+      "id": "ref-footnote-1",
+      "page": 6,
+      "y": 299.5
+    },
+    {
+      "id": "ref-footnote-1-1",
+      "page": 6,
+      "y": 325.0
+    },
+    {
+      "id": "ref-footnote-2",
+      "page": 6,
+      "y": 299.5
+    }
+  ],
+  "assets": [
+    "formula-6e4020bb5dcec410.svg",
+    "img-8d1abc8db93e78de.png",
+    "vector-cae57ae14bc20b74.svg"
+  ],
+  "chars": 15085,
+  "description": "Deterministic PDF-to-Markdown/HTML conversion for structured text-layer PDFs. No OCR. No AI.",
+  "encrypted": false,
+  "fills": 337,
+  "image_text_extraction_attempted": false,
+  "images": 6,
+  "images_detail": [
+    {
+      "alignment": "center",
+      "alt": "",
+      "asset": "img-8d1abc8db93e78de.png",
+      "bbox": {
+        "x0": 96.25,
+        "x1": 696.25,
+        "y0": 114.25,
+        "y1": 260.5
+      },
+      "display_height": 146.25,
+      "display_width": 600.0,
+      "intrinsic_height": 220,
+      "intrinsic_width": 900,
+      "kind": "raster",
+      "link": null,
+      "page": 6,
+      "placed_height": 146.25,
+      "placed_width": 600.0,
+      "quad": [
+        {
+          "x": 96.25,
+          "y": 260.5
+        },
+        {
+          "x": 696.25,
+          "y": 260.5
+        },
+        {
+          "x": 696.25,
+          "y": 114.25
+        },
+        {
+          "x": 96.25,
+          "y": 114.25
+        }
+      ]
+    },
+    {
+      "alignment": "center",
+      "alt": "Figure 1. SVG vector figure with cocoa mark, blue lines, and visible vector sentinel text.",
+      "asset": "vector-cae57ae14bc20b74.svg",
+      "bbox": {
+        "x0": 126.25,
+        "x1": 666.25,
+        "y0": 292.75,
+        "y1": 472.75
+      },
+      "display_height": 180.0,
+      "display_width": 540.0,
+      "intrinsic_height": 180,
+      "intrinsic_width": 540,
+      "kind": "vector",
+      "link": null,
+      "page": 5,
+      "placed_height": 180.0,
+      "placed_width": 540.0,
+      "quad": [
+        {
+          "x": 126.25,
+          "y": 292.75
+        },
+        {
+          "x": 666.25,
+          "y": 292.75
+        },
+        {
+          "x": 666.25,
+          "y": 472.75
+        },
+        {
+          "x": 126.25,
+          "y": 472.75
+        }
+      ]
+    },
+    {
+      "alignment": "left",
+      "alt": "Figure 2. HTML figure with explicit figcaption and vector source.",
+      "asset": "vector-cae57ae14bc20b74.svg",
+      "bbox": {
+        "x0": 96.25,
+        "x1": 636.25,
+        "y0": 508.0,
+        "y1": 688.0
+      },
+      "display_height": 180.0,
+      "display_width": 540.0,
+      "intrinsic_height": 180,
+      "intrinsic_width": 540,
+      "kind": "vector",
+      "link": null,
+      "page": 5,
+      "placed_height": 180.0,
+      "placed_width": 540.0,
+      "quad": [
+        {
+          "x": 96.25,
+          "y": 508.0
+        },
+        {
+          "x": 636.25,
+          "y": 508.0
+        },
+        {
+          "x": 636.25,
+          "y": 688.0
+        },
+        {
+          "x": 96.25,
+          "y": 688.0
+        }
+      ]
+    },
+    {
+      "alignment": "left",
+      "alt": "",
+      "asset": "vector-cae57ae14bc20b74.svg",
+      "bbox": {
+        "x0": 151.0,
+        "x1": 691.0,
+        "y0": 730.75,
+        "y1": 910.75
+      },
+      "display_height": 180.0,
+      "display_width": 540.0,
+      "intrinsic_height": 180,
+      "intrinsic_width": 540,
+      "kind": "vector",
+      "link": null,
+      "page": 5,
+      "placed_height": 180.0,
+      "placed_width": 540.0,
+      "quad": [
+        {
+          "x": 151.0,
+          "y": 730.75
+        },
+        {
+          "x": 691.0,
+          "y": 730.75
+        },
+        {
+          "x": 691.0,
+          "y": 910.75
+        },
+        {
+          "x": 151.0,
+          "y": 910.75
+        }
+      ]
+    },
+    {
+      "alignment": "left",
+      "alt": "",
+      "asset": "vector-cae57ae14bc20b74.svg",
+      "bbox": {
+        "x0": 96.25,
+        "x1": 636.25,
+        "y0": 949.75,
+        "y1": 1129.75
+      },
+      "display_height": 180.0,
+      "display_width": 540.0,
+      "intrinsic_height": 180,
+      "intrinsic_width": 540,
+      "kind": "vector",
+      "link": "https://example.com/linked-image",
+      "page": 5,
+      "placed_height": 180.0,
+      "placed_width": 540.0,
+      "quad": [
+        {
+          "x": 96.25,
+          "y": 949.75
+        },
+        {
+          "x": 636.25,
+          "y": 949.75
+        },
+        {
+          "x": 636.25,
+          "y": 1129.75
+        },
+        {
+          "x": 96.25,
+          "y": 1129.75
+        }
+      ]
+    },
+    {
+      "alignment": "center",
+      "alt": "Formula preserved from vector outlines; source text unavailable",
+      "asset": "formula-6e4020bb5dcec410.svg",
+      "bbox": {
+        "x0": 359.749,
+        "x1": 432.676,
+        "y0": 818.835,
+        "y1": 850.323
+      },
+      "display_height": 31.488,
+      "display_width": 72.927,
+      "intrinsic_height": 31,
+      "intrinsic_width": 73,
+      "kind": "formula",
+      "link": null,
+      "page": 6,
+      "placed_height": 31.488,
+      "placed_width": 72.927,
+      "quad": [
+        {
+          "x": 359.749,
+          "y": 818.835
+        },
+        {
+          "x": 432.676,
+          "y": 818.835
+        },
+        {
+          "x": 432.676,
+          "y": 850.323
+        },
+        {
+          "x": 359.749,
+          "y": 850.323
+        }
+      ]
+    }
+  ],
+  "mode_per_page": [
+    "geometric",
+    "geometric",
+    "geometric",
+    "geometric",
+    "geometric",
+    "geometric",
+    "geometric",
+    "geometric"
+  ],
+  "ocr_used": false,
+  "output_derivation": {
+    "html": "semantic_graph",
+    "json": "semantic_graph",
+    "markdown": "semantic_graph"
+  },
+  "output_projection": "semantic_graph_with_lossless_layout_reconciliation",
+  "pages": 8,
+  "parser_mode": "xref",
+  "processed_pages": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "segments": 475,
+  "semantic_errors": [],
+  "semantic_kinds": [
+    "anchor",
+    "callout",
+    "caption",
+    "code",
+    "code_block",
+    "cross_reference",
+    "emphasis",
+    "figure",
+    "footnote",
+    "footnote_ref",
+    "form",
+    "heading",
+    "image",
+    "item",
+    "link",
+    "list",
+    "mark",
+    "paragraph",
+    "quote",
+    "reference",
+    "reference_section",
+    "section",
+    "strikethrough",
+    "strong",
+    "subscript",
+    "superscript",
+    "table",
+    "table_cell",
+    "table_row",
+    "text",
+    "thematic_break",
+    "toc",
+    "toc_item",
+    "underline"
+  ],
+  "semantic_node_count": 1103,
+  "semantic_output_used": true,
+  "semantic_schema": "cocoapdf.semantic-document/v2",
+  "semantic_valid": true,
+  "summary_policy": {
+    "full_report_available_in_pull_request_artifacts": true,
+    "full_semantic_graph": "output.json",
+    "omitted_duplicate_or_glyph_heavy_report_fields": [
+      "nodes",
+      "regions",
+      "semantic_document",
+      "semantic_nodes"
+    ]
+  },
+  "tool": "CocoaPDF",
+  "version": "0.1.0",
+  "warnings": [
+    {
+      "code": "SECURITY_UNSAFE_URI",
+      "detail": "javascript:alert(1)",
+      "page": 2
+    },
+    {
+      "code": "SECURITY_UNSAFE_URI",
+      "detail": "file:///etc/passwd",
+      "page": 2
+    },
+    {
+      "code": "TABLE_SPAN_UNSUPPORTED",
+      "detail": "partial lattice emitted as HTML fallback; span inference approximate",
+      "page": 5
+    },
+    {
+      "code": "VECTOR_FIGURE_APPROXIMATE",
+      "detail": "line/rectangle/text SVG replay; Bezier and clipping replay pending",
+      "page": 5
+    },
+    {
+      "code": "VECTOR_FIGURE_APPROXIMATE",
+      "detail": "line/rectangle/text SVG replay; Bezier and clipping replay pending",
+      "page": 5
+    },
+    {
+      "code": "VECTOR_FIGURE_APPROXIMATE",
+      "detail": "line/rectangle/text SVG replay; Bezier and clipping replay pending",
+      "page": 5
+    },
+    {
+      "code": "VECTOR_FIGURE_APPROXIMATE",
+      "detail": "line/rectangle/text SVG replay; Bezier and clipping replay pending",
+      "page": 5
+    },
+    {
+      "code": "FORMULA_VECTOR_FALLBACK",
+      "detail": "outline-only formula preserved as SVG; no source text was inferred",
+      "page": 6
+    },
+    {
+      "code": "COLUMN_CONTAINER_HTML",
+      "detail": "two-column region reconstructed from whitespace gutter and outer container rule",
+      "page": 6
+    },
+    {
+      "code": "FORM_APPEARANCE_CONTROLS",
+      "detail": "disabled HTML controls reconstructed from printed appearance geometry; no AcroForm semantics claimed",
+      "page": 7
+    }
+  ]
+}

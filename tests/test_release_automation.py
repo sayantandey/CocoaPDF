@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import struct
 import tarfile
 import tempfile
@@ -83,14 +84,88 @@ class BuildAutomationTests(unittest.TestCase):
 		)
 		self.assertIn("branches: [main]", visual)
 		self.assertIn("retention-days: 7", visual)
+		self.assertIn("retained for up to seven days", visual)
+		self.assertNotIn("available while the PR is open", visual)
 		self.assertIn("github.event.action == 'closed'", visual)
 		self.assertIn("actions: write", visual)
 		self.assertIn("pull-requests: write", visual)
+		self.assertIn("no stale download link is retained", visual)
+		self.assertIn("tree/main/examples", visual)
+		self.assertIn("tree/${HEAD_SHA}/examples", visual)
 		self.assertNotIn("pull_request_target:", visual)
 		self.assertIn("queue: max", release)
 		self.assertIn("if: github.event_name == 'push'", release)
+		self.assertIn("python scripts/refresh_examples.py --check", release)
+		self.assertLess(
+			release.index("python scripts/refresh_examples.py --check"),
+			release.index("python scripts/stamp_version.py"),
+		)
 		self.assertIn("gh release create", release)
 		self.assertIn("sha256sum --check SHA256SUMS.txt", release)
+
+	def test_committed_capability_demo_has_locked_provenance_and_hashes(self):
+		root = Path(__file__).resolve().parents[1]
+		examples = root / "examples"
+		manifest = json.loads((examples / "manifest.json").read_text(encoding="utf-8"))
+		self.assertEqual(manifest["schema"], "cocoapdf.capability-demo/v1")
+		self.assertEqual(manifest["profile"], "permanent")
+		self.assertEqual(manifest["license"]["spdx"], "MIT")
+		self.assertFalse(manifest["license"]["third_party_content_added"])
+		self.assertEqual(manifest["license"]["network_fetches"], 0)
+		self.assertTrue(manifest["lifecycle"]["committed_outputs"])
+		self.assertEqual(manifest["lifecycle"]["location"], "examples")
+		self.assertEqual(len(manifest["cases"]), 3)
+		self.assertTrue((examples / "README.md").is_file())
+		self.assertTrue((examples / "review.html").is_file())
+		for index_name in ("README.md", "review.html"):
+			text = (examples / index_name).read_text(encoding="utf-8")
+			links = re.findall(r"\]\(([^)]+)\)", text)
+			links.extend(
+				re.findall(r'(?:data|href|src)="([^"]+)"', text)
+			)
+			for link in links:
+				if "://" in link or link.startswith("#"):
+					continue
+				self.assertTrue(
+					(examples / link).is_file(),
+					"%s has a broken local link: %s" % (index_name, link),
+				)
+		for html_path in examples.rglob("*.html"):
+			text = html_path.read_text(encoding="utf-8")
+			for link in re.findall(r'(?:data|href|src)="([^"]+)"', text):
+				if (
+					link.startswith("#")
+					or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", link)
+				):
+					continue
+				target = html_path.parent / link.split("#", 1)[0]
+				self.assertTrue(
+					target.is_file(),
+					"%s has a broken local link: %s" % (
+						html_path.relative_to(root),
+						link,
+					),
+				)
+		for case in manifest["cases"]:
+			self.assertEqual(case["provenance"]["license"], "MIT")
+			case_root = examples / "cases" / case["id"]
+			input_path = case_root / "input.pdf"
+			input_data = input_path.read_bytes()
+			self.assertEqual(len(input_data), case["input"]["bytes"])
+			self.assertEqual(
+				hashlib.sha256(input_data).hexdigest(),
+				case["input"]["sha256"],
+			)
+			for conversion in case["conversions"]:
+				self.assertTrue(conversion["passed"])
+				conversion_root = case_root / conversion["name"]
+				for relative, expected in conversion["files"].items():
+					data = (conversion_root / relative).read_bytes()
+					self.assertEqual(len(data), expected["bytes"])
+					self.assertEqual(
+						hashlib.sha256(data).hexdigest(),
+						expected["sha256"],
+					)
 
 	def test_brand_manifest_inventory_is_complete(self):
 		branding = load_branding()

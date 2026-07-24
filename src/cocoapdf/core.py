@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from . import limits
+from ._textio import write_utf8_lf
 from ._version import __version__
 from .html.sanitize import is_unsafe_href, safe_href
 
@@ -1215,7 +1216,7 @@ class Converter:
 			if self.options.report_path:
 				report_path = Path(self.options.report_path)
 				report_path.parent.mkdir(parents=True, exist_ok=True)
-				report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+				write_utf8_lf(report_path, json.dumps(report, indent=2))
 			return result
 		pages = self.doc.pages()
 		self._pages = pages
@@ -1298,7 +1299,7 @@ class Converter:
 		if self.options.report_path:
 			report_path = Path(self.options.report_path)
 			report_path.parent.mkdir(parents=True, exist_ok=True)
-			report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+			write_utf8_lf(report_path, json.dumps(report, indent=2))
 		return ConvertResult(markdown=markdown, html=html, assets=self.assets, warnings=self.doc.warnings, report=report, semantic=semantic_document)
 
 	def _report(self, pages: List[Dict[str, PdfObj]], regions: Optional[List[Any]] = None) -> Dict[str, Any]:
