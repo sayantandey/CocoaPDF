@@ -346,19 +346,19 @@ SENTINEL-HTML-TABLE-001 complex table:
 SENTINEL-FIGURE-001 Markdown image with SVG data URI:
 
 <figure class="cocoapdf-figure cocoapdf-align-center">
-<img src="assets/vector-cae57ae14bc20b74.svg" alt="Figure 1. SVG vector figure with cocoa mark, blue lines, and visible vector sentinel text." style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain; display: block; margin-left: auto; margin-right: auto;" />
+<img src="assets/vector-36d70b475f1d2d1e.svg" alt="Figure 1. SVG vector figure with cocoa mark, blue lines, and visible vector sentinel text." style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain; display: block; margin-left: auto; margin-right: auto;" />
 <figcaption>Figure 1. SVG vector figure with cocoa mark, blue lines, and visible vector sentinel text.</figcaption>
 </figure>
 
 <figure class="cocoapdf-figure cocoapdf-align-left">
-<img src="assets/vector-cae57ae14bc20b74.svg" alt="Figure 2. HTML figure with explicit figcaption and vector source." style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain;" />
+<img src="assets/vector-36d70b475f1d2d1e.svg" alt="Figure 2. HTML figure with explicit figcaption and vector source." style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain;" />
 <figcaption>Figure 2. HTML figure with explicit figcaption and vector source.</figcaption>
 </figure>
 
 SENTINEL-FIGURE-002 inline icon-like image should not destroy surrounding text:
 
 <figure class="cocoapdf-figure cocoapdf-align-left">
-<img src="assets/vector-cae57ae14bc20b74.svg" alt="" style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain;" />
+<img src="assets/vector-36d70b475f1d2d1e.svg" alt="" style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain;" />
 </figure>
 
 before-icon
@@ -368,7 +368,7 @@ after-icon.
 SENTINEL-FIGURE-003 image wrapped in link:
 
 <figure class="cocoapdf-figure cocoapdf-align-left">
-<a href="https://example.com/linked-image" rel="noopener noreferrer"><img src="assets/vector-cae57ae14bc20b74.svg" alt="" style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain;" /></a>
+<a href="https://example.com/linked-image" rel="noopener noreferrer"><img src="assets/vector-36d70b475f1d2d1e.svg" alt="" style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain;" /></a>
 </figure>
 
 ---

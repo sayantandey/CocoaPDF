@@ -2813,7 +2813,7 @@ class MarkdownRenderer:
 			)
 			self.conv.doc.warn(
 				"VECTOR_FIGURE_APPROXIMATE",
-				"line/rectangle/text SVG replay; Bezier and clipping replay pending",
+				"supported PDF fills, line segments, filled paths, and text replayed as one SVG; original authoring vector unavailable",
 				figure.page,
 			)
 
@@ -3607,6 +3607,8 @@ class MarkdownRenderer:
 			blocks.append(self._event(page, self._rank_for_y(lines, y) - 0.2, kind, callout_md, callout_lines))
 			consumed.update(id(l) for l in callout_lines)
 		for y, table_md, table_lines, table_box in self._table_candidates(page):
+			if self._box_is_inside_vector_artwork(page, table_box):
+				continue
 			blocks.append(self._event(page, self._rank_for_y(lines, y) - 0.1, "table", table_md, table_lines, {"bbox": table_box}))
 			consumed.update(id(l) for l in table_lines)
 		for img in self.conv.images:
@@ -3848,6 +3850,20 @@ class MarkdownRenderer:
 		if page in self.conv.ink_pages and not lines:
 			return ["<!-- page %d: no extractable text layer -->" % page] + rendered
 		return rendered
+
+	def _box_is_inside_vector_artwork(
+		self,
+		page: int,
+		box: Tuple[float, float, float, float],
+	) -> bool:
+		x0, y0, x1, y1 = box
+		return any(
+			vx0 - 3.0 <= x0
+			and vy0 - 3.0 <= y0
+			and x1 <= vx1 + 3.0
+			and y1 <= vy1 + 3.0
+			for vx0, vy0, vx1, vy1 in self._vector_boxes.get(page, [])
+		)
 
 	def _paragraph_style_boundary(self, previous: Line, current: Line) -> bool:
 		"""Detect a strong block-level font transition between adjacent lines."""
@@ -6267,6 +6283,7 @@ class MarkdownRenderer:
 				and len(text) <= 180
 				and not text.endswith(":")
 				and list_marker(text) is None
+				and not self._line_is_heading_candidate(line)
 				and gap <= max(line.size * 2.2, 26.0)
 				and abs(center - table_center) <= max(8.0, table_width * 0.06)
 				and line.x0 >= x0 - 8.0
@@ -6277,6 +6294,32 @@ class MarkdownRenderer:
 		if not candidates:
 			return None
 		return min(candidates, key=lambda item: (item[0], item[1]))[2]
+
+	def _line_is_heading_candidate(self, line: Line) -> bool:
+		lines = self.lines_by_page.get(line.page, [])
+		index = next(
+			(
+				position
+				for position, candidate in enumerate(lines)
+				if candidate is line
+			),
+			-1,
+		)
+		if index < 0:
+			return False
+		body_size = self._body_font_size(
+			[
+				candidate
+				for page_lines in self.lines_by_page.values()
+				for candidate in page_lines
+			]
+		)
+		return self._is_heading(
+			line,
+			body_size,
+			previous_line(lines, index),
+			next_line(lines, index),
+		)
 
 	def _table_note_after(self, page: int, y1: float, x0: float, x1: float) -> Optional[Line]:
 		candidates: List[Tuple[float, Line]] = []

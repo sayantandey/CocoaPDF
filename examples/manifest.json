@@ -16,9 +16,9 @@
               "bytes": 16402,
               "sha256": "8d1abc8db93e78deb23984d8504484e524690fbc6c2db0b4b5f5ddcc4fe45d5e"
             },
-            "assets/vector-cae57ae14bc20b74.svg": {
-              "bytes": 1428,
-              "sha256": "cae57ae14bc20b7421a018087bf63096f7ac9f91383b348a2caed1c2268e5d5d"
+            "assets/vector-36d70b475f1d2d1e.svg": {
+              "bytes": 4767,
+              "sha256": "36d70b475f1d2d1eb1d52f9675d2bafc08ab42c5ad96001f8c3770d465fdbae0"
             },
             "command.json": {
               "bytes": 309,
@@ -26,19 +26,19 @@
             },
             "output.html": {
               "bytes": 27279,
-              "sha256": "d047586f84587f9e8c0f2db2aa08c30fcb5c2f3b4a577fedbe783b28eb567620"
+              "sha256": "7b2f03fd9088213140b4745fa0d88795490947a9524faf99d5a6f46bd2cb1b23"
             },
             "output.json": {
-              "bytes": 2067254,
-              "sha256": "0b42d8b1c8f24464145ed8aaddf975081406f1f54ed89da7201e2a792b5a2055"
+              "bytes": 2080924,
+              "sha256": "8d3baef8dedb69e6e89b8fbb976f344108ec21f72a3d952d055e8281266fc70a"
             },
             "output.md": {
               "bytes": 20064,
-              "sha256": "7de11b50212b7b52d5c3ba9f6b721f5470d4f34a0689d811e5ea3485c74e64a6"
+              "sha256": "c4f68a52afa3539d08ec9730b7f7c1e4f15c36c1ac6f19899da3849600260955"
             },
             "output.report.summary.json": {
-              "bytes": 8939,
-              "sha256": "dd8ff0640bf7b29a167073b7963808262712f1c6ffdb6b1e38f377843edf0476"
+              "bytes": 9143,
+              "sha256": "71a6da94229dfe2df9cfb0ba03c9a1322fa387eb4c678b6468ea3a933e36b9ae"
             }
           },
           "name": "full",

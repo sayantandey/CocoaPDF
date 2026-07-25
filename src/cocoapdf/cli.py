@@ -14,6 +14,16 @@ BRAND = "CocoaPDF"
 DESCRIPTION = "Deterministic PDF-to-Markdown/HTML conversion for structured text-layer PDFs. No OCR. No AI."
 
 
+def _confidence_threshold(value: str) -> float:
+	try:
+		threshold = float(value)
+	except ValueError as exc:
+		raise argparse.ArgumentTypeError("confidence must be a number from 0 to 1") from exc
+	if not 0.0 <= threshold <= 1.0:
+		raise argparse.ArgumentTypeError("confidence must be between 0 and 1")
+	return threshold
+
+
 def main(argv=None):
 	if hasattr(sys.stdout, "reconfigure"):
 		sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -27,7 +37,7 @@ def main(argv=None):
 	)
 	parser.add_argument("--version", action="version", version="%(prog)s " + __version__)
 	parser.add_argument("pdf", help="Input PDF path")
-	parser.add_argument("-o", "--output", help="Output Markdown path")
+	parser.add_argument("-o", "--output", help="Output path; --format both also accepts a directory")
 	parser.add_argument("--assets", default="assets", help="Asset output directory")
 	parser.add_argument(
 		"--html-underline",
@@ -57,7 +67,7 @@ def main(argv=None):
 	parser.add_argument("--report", help="Write JSON conversion report")
 	parser.add_argument("--format", choices=["md", "html", "both", "json"], default="md", help="Output format")
 	parser.add_argument("--explain", action="store_true", help="Print confidence/provenance explanations after conversion")
-	parser.add_argument("--min-confidence", type=float, default=0.0, help="Report low-confidence semantic nodes below this threshold")
+	parser.add_argument("--min-confidence", type=_confidence_threshold, default=0.0, help="Report low-confidence semantic nodes below this threshold")
 	parser.add_argument("--show-low-confidence", action="store_true", help="Print low-confidence semantic nodes")
 	args = parser.parse_args(argv)
 	asset_reference_dir = _asset_reference_dir(args.output, args.assets, args.format)
