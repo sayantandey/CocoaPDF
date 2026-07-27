@@ -1,14 +1,17 @@
+import io
 import importlib
+import json
 import re
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from cocoapdf import ConvertOptions, convert_file
 from cocoapdf._textio import canonical_newlines, write_utf8_lf
 from cocoapdf.cli import main as cli_main
 from cocoapdf.core import convert
-from cocoapdf.synthetic import image_xobject_rgb, make_pdf, text_op
+from cocoapdf.synthetic import image_xobject_rgb, line_op, make_pdf, text_op
 
 
 class OutputDeterminismTests(unittest.TestCase):
@@ -432,6 +435,64 @@ class ArchitectureAndImageTests(unittest.TestCase):
 		self.assertNotIn(b"before-icon", vector)
 		self.assertIn(b"Vector figure text", vector)
 
+	def test_connected_flowchart_is_one_complete_vector_figure(self):
+		stream = b"\n".join(
+			[
+				text_op(80, 710, "System Architecture", "F2", 16),
+				b"1 1 .87 rg 80 280 450 400 re f",
+				b"1 1 .87 rg 190 170 230 80 re f",
+				b".93 .93 1 rg 120 610 130 40 re f",
+				b".93 .93 1 rg 360 610 130 40 re f",
+				b".93 .93 1 rg 120 500 130 40 re f",
+				b".93 .93 1 rg 360 500 130 40 re f",
+				b".93 .93 1 rg 240 380 130 40 re f",
+				b".93 .93 1 rg 230 190 150 40 re f",
+				b"0 0 0 RG 1 w",
+				line_op(185, 610, 185, 545, 1),
+				line_op(425, 610, 425, 545, 1),
+				line_op(185, 500, 280, 425, 1),
+				line_op(425, 500, 330, 425, 1),
+				line_op(305, 380, 305, 280, 1),
+				line_op(305, 280, 305, 250, 1),
+				b".2 .2 .2 rg 180 555 m 190 555 l 185 545 l 180 555 l f",
+				b".2 .2 .2 rg 420 555 m 430 555 l 425 545 l 420 555 l f",
+				b".2 .2 .2 rg 300 290 m 310 290 l 305 280 l 300 290 l f",
+				text_op(145, 625, "Node Alpha", "F1", 10),
+				text_op(385, 625, "Node Bravo", "F1", 10),
+				text_op(145, 515, "Node Charlie", "F1", 10),
+				text_op(385, 515, "Node Delta", "F1", 10),
+				text_op(265, 395, "Validated merge", "F1", 10),
+				text_op(250, 205, "Existing controller", "F1", 10),
+			]
+		)
+		result = convert(
+			make_pdf([stream]),
+			ConvertOptions(assets_dir="assets", image_markup="auto"),
+		)
+		vectors = [
+			(name, data)
+			for name, data in result.assets.items()
+			if name.startswith("vector-")
+		]
+		self.assertEqual(len(vectors), 1)
+		self.assertEqual(result.markdown.count("<img "), 1)
+		self.assertIn("System Architecture", result.markdown)
+		self.assertNotIn("Node Alpha", result.markdown)
+		self.assertNotIn("Existing controller", result.markdown)
+		self.assertIn(b"Node Alpha", vectors[0][1])
+		self.assertIn(b"Existing controller", vectors[0][1])
+		self.assertGreaterEqual(vectors[0][1].count(b"<path "), 3)
+		image = result.report["images_detail"][0]
+		self.assertGreater(image["placed_height"], 500.0)
+		self.assertFalse(result.report["image_text_extraction_attempted"])
+		self.assertFalse(result.report["ocr_used"])
+		image_node = next(
+			node
+			for node in result.semantic.walk()
+			if node.kind == "image" and node.attrs.get("kind") == "vector"
+		)
+		self.assertEqual(image_node.evidence[0].kind, "pdf_vector_artwork")
+
 	def test_outline_only_display_formula_is_preserved_as_external_svg(self):
 		curve = (
 			b"%d 500 m %d 520 %d 520 %d 510 c "
@@ -474,6 +535,328 @@ class ArchitectureAndImageTests(unittest.TestCase):
 			"FORMULA_VECTOR_FALLBACK",
 			{warning.code for warning in result.warnings},
 		)
+
+
+class HeadingAndTableBoundaryTests(unittest.TestCase):
+	def test_large_bold_titles_before_tables_remain_headings(self):
+		parts = [
+			text_op(72, 760, "Body text establishes the document font size.", "F1", 10),
+			text_op(280, 720, "Pilot software", "F2", 15),
+		]
+		for y in (700, 660, 620):
+			parts.append(line_op(180, y, 480, y, 1))
+		for x in (180, 330, 480):
+			parts.append(line_op(x, 620, x, 700, 1))
+		parts.extend(
+			[
+				text_op(195, 675, "Component", "F2", 10),
+				text_op(345, 675, "Choice", "F2", 10),
+				text_op(195, 635, "Runtime", "F1", 10),
+				text_op(345, 635, "Local", "F1", 10),
+				text_op(72, 590, "Intervening explanatory body text.", "F1", 10),
+				text_op(235, 550, "Language-model comparison", "F2", 15),
+			]
+		)
+		for y in (530, 490, 450):
+			parts.append(line_op(180, y, 480, y, 1))
+		for x in (180, 330, 480):
+			parts.append(line_op(x, 450, x, 530, 1))
+		parts.extend(
+			[
+				text_op(195, 505, "Candidate", "F2", 10),
+				text_op(345, 505, "Role", "F2", 10),
+				text_op(195, 465, "Compact", "F1", 10),
+				text_op(345, 465, "Pilot", "F1", 10),
+			]
+		)
+		result = convert(make_pdf([b"\n".join(parts)]), ConvertOptions())
+		markdown = result.markdown
+		self.assertIn("### Pilot software", markdown)
+		self.assertIn("### Language-model comparison", markdown)
+		self.assertNotIn('<p align="center">Pilot software</p>', markdown)
+		self.assertNotIn('<p align="center">Language-model comparison</p>', markdown)
+		self.assertEqual(markdown.count("| Component | Choice |"), 1)
+		self.assertEqual(markdown.count("| Candidate | Role |"), 1)
+		self.assertIn('<h3 id="pilot-software">Pilot software</h3>', result.html)
+		self.assertIn(
+			'<h3 id="language-model-comparison">Language-model comparison</h3>',
+			result.html,
+		)
+
+	def test_explicit_table_label_remains_a_caption_even_when_bold(self):
+		parts = [text_op(278, 720, "Table 1. Results", "F2", 15)]
+		for y in (700, 660, 620):
+			parts.append(line_op(180, y, 480, y, 1))
+		for x in (180, 330, 480):
+			parts.append(line_op(x, 620, x, 700, 1))
+		parts.extend(
+			[
+				text_op(195, 675, "Metric", "F2", 10),
+				text_op(345, 675, "Value", "F2", 10),
+				text_op(195, 635, "Accuracy", "F1", 10),
+				text_op(345, 635, "High", "F1", 10),
+			]
+		)
+		markdown = convert(make_pdf([b"\n".join(parts)]), ConvertOptions()).markdown
+		self.assertIn('<p align="center">Table 1. Results</p>', markdown)
+		self.assertNotIn("### Table 1. Results", markdown)
+
+
+class CliSurfaceContractTests(unittest.TestCase):
+	def test_help_version_and_confidence_validation(self):
+		stdout = io.StringIO()
+		with redirect_stdout(stdout):
+			with self.assertRaises(SystemExit) as raised:
+				cli_main(["--help"])
+		self.assertEqual(raised.exception.code, 0)
+		help_text = stdout.getvalue()
+		for option in (
+			"--version",
+			"--output",
+			"--assets",
+			"--html-underline",
+			"--no-html-underline",
+			"--page-breaks",
+			"--pages",
+			"--image-mode",
+			"--image-markup",
+			"--report",
+			"--format",
+			"--explain",
+			"--min-confidence",
+			"--show-low-confidence",
+		):
+			self.assertIn(option, help_text)
+		self.assertIn("Structured text-layer PDFs only. No OCR. No AI.", help_text)
+
+		stdout = io.StringIO()
+		with redirect_stdout(stdout):
+			with self.assertRaises(SystemExit) as raised:
+				cli_main(["--version"])
+		self.assertEqual(raised.exception.code, 0)
+		self.assertRegex(stdout.getvalue(), r"^cocoapdf \d")
+
+		stderr = io.StringIO()
+		with redirect_stderr(stderr):
+			with self.assertRaises(SystemExit) as raised:
+				cli_main(["missing.pdf", "--min-confidence", "1.01"])
+		self.assertEqual(raised.exception.code, 2)
+		self.assertIn("confidence must be between 0 and 1", stderr.getvalue())
+
+	def test_output_formats_image_modes_and_markup_choices(self):
+		pdf = make_pdf(
+			[
+				b"\n".join(
+					[
+						text_op(72, 720, "Image contract", "F2", 14),
+						b"q 120 0 0 60 246 500 cm /Im1 Do Q",
+					]
+				)
+			],
+			xobjects={"Im1": image_xobject_rgb(1, 1, b"\xff\x00\x00")},
+		)
+		with tempfile.TemporaryDirectory() as tmp:
+			root = Path(tmp)
+			pdf_path = root / "fixture.pdf"
+			pdf_path.write_bytes(pdf)
+
+			stdout = io.StringIO()
+			with redirect_stdout(stdout):
+				self.assertEqual(
+					cli_main(
+						[
+							str(pdf_path),
+							"--image-mode",
+							"embed",
+						]
+					),
+					0,
+				)
+			self.assertIn("Image contract", stdout.getvalue())
+			self.assertIn("data:image/png;base64,", stdout.getvalue())
+
+			md_output = root / "markdown" / "document.md"
+			md_assets = root / "markdown" / "assets"
+			self.assertEqual(
+				cli_main(
+					[
+						str(pdf_path),
+						"--output",
+						str(md_output),
+						"--assets",
+						str(md_assets),
+						"--format",
+						"md",
+						"--image-mode",
+						"reference",
+						"--image-markup",
+						"markdown",
+					]
+				),
+				0,
+			)
+			self.assertRegex(
+				md_output.read_text(encoding="utf-8"),
+				r"!\[[^\]]*\]\(assets/img-[0-9a-f]+\.png\)",
+			)
+			self.assertTrue(any(md_assets.glob("img-*.png")))
+
+			html_output = root / "html" / "document.html"
+			html_assets = root / "html" / "assets"
+			self.assertEqual(
+				cli_main(
+					[
+						str(pdf_path),
+						"-o",
+						str(html_output),
+						"--assets",
+						str(html_assets),
+						"--format",
+						"html",
+						"--image-markup",
+						"html",
+					]
+				),
+				0,
+			)
+			html_output_text = html_output.read_text(encoding="utf-8")
+			self.assertIn("<!doctype html>", html_output_text)
+			self.assertRegex(html_output_text, r'<img src="assets/img-[0-9a-f]+\.png"')
+
+			json_output = root / "json" / "document.json"
+			self.assertEqual(
+				cli_main(
+					[
+						str(pdf_path),
+						"-o",
+						str(json_output),
+						"--format",
+						"json",
+						"--assets",
+						str(root / "json" / "assets"),
+					]
+				),
+				0,
+			)
+			payload = json.loads(json_output.read_text(encoding="utf-8"))
+			self.assertEqual(
+				set(payload),
+				{"semantic_document", "report", "markdown", "html"},
+			)
+
+			both_output = root / "both"
+			self.assertEqual(
+				cli_main(
+					[
+						str(pdf_path),
+						"-o",
+						str(both_output),
+						"--assets",
+						str(root / "both-assets"),
+						"--format",
+						"both",
+					]
+				),
+				0,
+			)
+			for name in ("document.md", "document.html", "document.json", "report.json"):
+				self.assertTrue((both_output / name).is_file(), name)
+			self.assertIn(
+				'class="cocoapdf-figure',
+				(both_output / "document.md").read_text(encoding="utf-8"),
+			)
+
+			embed_output = root / "embed" / "document.md"
+			embed_assets = root / "embed-assets"
+			self.assertEqual(
+				cli_main(
+					[
+						str(pdf_path),
+						"-o",
+						str(embed_output),
+						"--assets",
+						str(embed_assets),
+						"--image-mode",
+						"embed",
+						"--image-markup",
+						"html",
+					]
+				),
+				0,
+			)
+			self.assertIn(
+				"data:image/png;base64,",
+				embed_output.read_text(encoding="utf-8"),
+			)
+			self.assertFalse(embed_assets.exists())
+
+	def test_page_underline_report_and_explainability_options(self):
+		pdf = make_pdf(
+			[
+				b"\n".join(
+					[
+						text_op(72, 720, "Underlined text", "F1", 10),
+						line_op(72, 718, 145, 718, 0.8),
+					]
+				),
+				text_op(72, 720, "Page two", "F1", 10),
+			]
+		)
+		with tempfile.TemporaryDirectory() as tmp:
+			root = Path(tmp)
+			pdf_path = root / "fixture.pdf"
+			output = root / "with-underline.md"
+			report = root / "diagnostics" / "report.json"
+			pdf_path.write_bytes(pdf)
+			stderr = io.StringIO()
+			with redirect_stderr(stderr):
+				self.assertEqual(
+					cli_main(
+						[
+							str(pdf_path),
+							"-o",
+							str(output),
+							"--html-underline",
+							"--page-breaks",
+							"--pages",
+							"1-2",
+							"--report",
+							str(report),
+							"--explain",
+							"--min-confidence",
+							"1",
+							"--show-low-confidence",
+						]
+					),
+					0,
+				)
+			markdown = output.read_text(encoding="utf-8")
+			self.assertIn("<u>Underlined text</u>", markdown)
+			self.assertIn("<!-- page 2 -->", markdown)
+			self.assertIn("Page two", markdown)
+			self.assertTrue(report.is_file())
+			self.assertEqual(json.loads(report.read_text(encoding="utf-8"))["processed_pages"], [1, 2])
+			self.assertIn("CocoaPDF", stderr.getvalue())
+			self.assertIn('"low_confidence"', stderr.getvalue())
+
+			plain_output = root / "without-underline.md"
+			self.assertEqual(
+				cli_main(
+					[
+						str(pdf_path),
+						"-o",
+						str(plain_output),
+						"--no-html-underline",
+						"--pages",
+						"1",
+					]
+				),
+				0,
+			)
+			plain_markdown = plain_output.read_text(encoding="utf-8")
+			self.assertIn("Underlined text", plain_markdown)
+			self.assertNotIn("<u>", plain_markdown)
+			self.assertNotIn("Page two", plain_markdown)
 
 
 # ---- public package architecture contracts ----

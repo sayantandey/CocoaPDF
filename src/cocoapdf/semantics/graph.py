@@ -317,6 +317,11 @@ def _figure_node(factory: NodeFactory, converter: Any, event: Any, attrs: Dict[s
         object_refs=object_refs,
         bbox=(image.x0, image.y0, image.x1, image.y1),
     )
+    evidence_kind = {
+        "vector": "pdf_vector_artwork",
+        "formula": "pdf_vector_formula",
+    }.get(image.kind, "pdf_image_xobject")
+    image_confidence = 0.96 if image.kind in {"vector", "formula"} else 0.99
     image_node = factory.make(
         "image",
         attrs={
@@ -333,8 +338,15 @@ def _figure_node(factory: NodeFactory, converter: Any, event: Any, attrs: Dict[s
             "text_extraction_attempted": False,
             "marked_content_tags": list(getattr(image, "tags", ()) or ()),
         },
-        confidence=0.99,
-        evidence=[Evidence("pdf_image_xobject", 0.99, page=image.page, data={"asset": image.name})],
+        confidence=image_confidence,
+        evidence=[
+            Evidence(
+                evidence_kind,
+                image_confidence,
+                page=image.page,
+                data={"asset": image.name, "kind": image.kind},
+            )
+        ],
         sources=[image_source],
     )
     children = [image_node]

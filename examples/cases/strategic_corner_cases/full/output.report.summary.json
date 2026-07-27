@@ -50,7 +50,7 @@
   "assets": [
     "formula-6e4020bb5dcec410.svg",
     "img-8d1abc8db93e78de.png",
-    "vector-cae57ae14bc20b74.svg"
+    "vector-36d70b475f1d2d1e.svg"
   ],
   "chars": 15085,
   "description": "Deterministic PDF-to-Markdown/HTML conversion for structured text-layer PDFs. No OCR. No AI.",
@@ -100,7 +100,7 @@
     {
       "alignment": "center",
       "alt": "Figure 1. SVG vector figure with cocoa mark, blue lines, and visible vector sentinel text.",
-      "asset": "vector-cae57ae14bc20b74.svg",
+      "asset": "vector-36d70b475f1d2d1e.svg",
       "bbox": {
         "x0": 126.25,
         "x1": 666.25,
@@ -138,7 +138,7 @@
     {
       "alignment": "left",
       "alt": "Figure 2. HTML figure with explicit figcaption and vector source.",
-      "asset": "vector-cae57ae14bc20b74.svg",
+      "asset": "vector-36d70b475f1d2d1e.svg",
       "bbox": {
         "x0": 96.25,
         "x1": 636.25,
@@ -176,7 +176,7 @@
     {
       "alignment": "left",
       "alt": "",
-      "asset": "vector-cae57ae14bc20b74.svg",
+      "asset": "vector-36d70b475f1d2d1e.svg",
       "bbox": {
         "x0": 151.0,
         "x1": 691.0,
@@ -214,7 +214,7 @@
     {
       "alignment": "left",
       "alt": "",
-      "asset": "vector-cae57ae14bc20b74.svg",
+      "asset": "vector-36d70b475f1d2d1e.svg",
       "bbox": {
         "x0": 96.25,
         "x1": 636.25,
@@ -389,22 +389,22 @@
     },
     {
       "code": "VECTOR_FIGURE_APPROXIMATE",
-      "detail": "line/rectangle/text SVG replay; Bezier and clipping replay pending",
+      "detail": "supported PDF fills, line segments, filled paths, and text replayed as one SVG; original authoring vector unavailable",
       "page": 5
     },
     {
       "code": "VECTOR_FIGURE_APPROXIMATE",
-      "detail": "line/rectangle/text SVG replay; Bezier and clipping replay pending",
+      "detail": "supported PDF fills, line segments, filled paths, and text replayed as one SVG; original authoring vector unavailable",
       "page": 5
     },
     {
       "code": "VECTOR_FIGURE_APPROXIMATE",
-      "detail": "line/rectangle/text SVG replay; Bezier and clipping replay pending",
+      "detail": "supported PDF fills, line segments, filled paths, and text replayed as one SVG; original authoring vector unavailable",
       "page": 5
     },
     {
       "code": "VECTOR_FIGURE_APPROXIMATE",
-      "detail": "line/rectangle/text SVG replay; Bezier and clipping replay pending",
+      "detail": "supported PDF fills, line segments, filled paths, and text replayed as one SVG; original authoring vector unavailable",
       "page": 5
     },
     {
