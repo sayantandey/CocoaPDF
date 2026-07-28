@@ -59,6 +59,54 @@
     },
     {
       "passed": true,
+      "detail": "five outlined diagram panels are retained as one vector figure"
+    },
+    {
+      "passed": true,
+      "detail": "all native diagram labels remain inside the vector figure"
+    },
+    {
+      "passed": true,
+      "detail": "the SVG retains the outlined-panel stroke geometry"
+    },
+    {
+      "passed": true,
+      "detail": "diagram labels are not flattened into false prose lines"
+    },
+    {
+      "passed": true,
+      "detail": "Markdown and HTML both reference the generated diagram asset"
+    },
+    {
+      "passed": true,
+      "detail": "semantic JSON records one vector image node"
+    },
+    {
+      "passed": true,
+      "detail": "the vector figure retains page-2 provenance"
+    },
+    {
+      "passed": true,
+      "detail": "the vector figure remains traceable to its source glyphs"
+    },
+    {
+      "passed": true,
+      "detail": "diagram labels provide deterministic alternative text"
+    },
+    {
+      "passed": true,
+      "detail": "the vector figure records PDF-native artwork evidence"
+    },
+    {
+      "passed": true,
+      "detail": "report geometry shows one page-spanning, multi-row diagram"
+    },
+    {
+      "passed": true,
+      "detail": "diagram preservation does not invoke image-text extraction"
+    },
+    {
+      "passed": true,
       "detail": "semantic metadata records page 2 only"
     },
     {

@@ -235,6 +235,7 @@ class ImageItem:
 	kind: str = "raster"
 	mcids: Tuple[int, ...] = field(default_factory=tuple)
 	tags: Tuple[str, ...] = field(default_factory=tuple)
+	glyph_ids: Tuple[int, ...] = field(default_factory=tuple, repr=False)
 	object_ref: Optional[str] = None
 	link_object_ref: Optional[str] = None
 
@@ -2789,12 +2790,14 @@ class MarkdownRenderer:
 				seq=figure.seq,
 				name=figure.name,
 				data=figure.data,
+				alt=figure.alt,
 				intrinsic_width=max(1, int(round(x1 - x0))),
 				intrinsic_height=max(1, int(round(y1 - y0))),
 				placed_width=max(1.0, x1 - x0),
 				placed_height=max(1.0, y1 - y0),
 				quad=((x0, y0), (x1, y0), (x1, y1), (x0, y1)),
 				kind="vector",
+				glyph_ids=figure.glyph_ids,
 			)
 			cx = (x0 + x1) / 2
 			cy = (y0 + y1) / 2
@@ -3623,7 +3626,7 @@ class MarkdownRenderer:
 						)
 					)
 					consumed.update(id(line) for line in caption_lines)
-					if not img.alt:
+					if not img.alt or img.kind == "vector":
 						img.alt = caption
 				blocks.append(
 					self._event(

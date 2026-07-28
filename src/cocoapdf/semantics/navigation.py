@@ -147,7 +147,17 @@ def _walk_siblings(
         target = _destination(document, destination, page_ref_to_num, named_destinations)
         children = _walk_siblings(document, factory, value.get("First"), level + 1, page_ref_to_num, named_destinations, semantic_document, active) if value.get("First") is not None else []
         sources = [SourceRef(page=target[0], object_refs=(key,))] if target[0] else []
-        target_node = _best_heading_target(semantic_document.children, title, target[0], level) if semantic_document is not None else None
+        target_node = (
+            _best_heading_target(
+                semantic_document.children,
+                title,
+                target[0],
+                level,
+                destination=target[1],
+            )
+            if semantic_document is not None
+            else None
+        )
         out.append(factory.make(
             "outline_item",
             text=title,
@@ -200,6 +210,7 @@ def _best_heading_target(
     title: str,
     page: Optional[int] = None,
     outline_level: int = 1,
+    destination: Any = None,
 ) -> Optional[Tuple[str, str]]:
     normalized = _normalize(title)
     title_words = set(normalized.split())
@@ -224,9 +235,53 @@ def _best_heading_target(
         if score > best[0]:
             best = (score, node)
     if best[0] < 0.72 or best[1] is None:
-        return None
+        # A page-only outline destination cannot identify a precise vertical
+        # coordinate.  When that page has exactly one recovered heading, the
+        # PDF destination plus unique page structure is stronger evidence than
+        # title wording alone (for example "First Page" targeting "Page Scope
+        # Review").  Do not guess when multiple headings compete.
+        if not _page_only_destination(destination):
+            return None
+        page_headings = [
+            node
+            for node in candidates
+            if page
+            and node.kind == "heading"
+            and node.source_pages()
+            and page in node.source_pages()
+        ]
+        if len(page_headings) != 1:
+            return None
+        node = page_headings[0]
+        node.evidence.append(
+            Evidence(
+                "pdf_outline_unique_page_heading",
+                0.90,
+                page=page,
+                detail=title,
+            )
+        )
+        node.confidence = min(node.confidence, 0.90)
+        return node.id, _ensure_anchor(candidates, node, _node_text(node))
     node = best[1]
     return node.id, _ensure_anchor(candidates, node, _node_text(node))
+
+
+def _page_only_destination(destination: Any) -> bool:
+    """Return true only when a PDF destination carries no vertical target."""
+    if not isinstance(destination, list) or not destination:
+        return False
+    mode = str(destination[0] or "").lstrip("/")
+    operands = destination[1:]
+    if mode in {"Fit", "FitB", "FitV", "FitBV"}:
+        return True
+    if mode == "XYZ":
+        top = operands[1] if len(operands) > 1 else None
+        return top is None
+    if mode in {"FitH", "FitBH"}:
+        top = operands[0] if operands else None
+        return top is None
+    return False
 
 
 def _ensure_anchor(nodes: Sequence[SemanticNode], node: SemanticNode, title: str) -> str:

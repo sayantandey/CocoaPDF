@@ -14,6 +14,7 @@ from cocoapdf.html.semantic import render_semantic_html
 from cocoapdf.ir.semantic import NodeFactory, SemanticDocument, SemanticNode, SourceRef
 from cocoapdf.markdown.semantic import render_semantic_markdown
 from cocoapdf.reporting.report import attach_semantic_document
+from cocoapdf.semantics.navigation import _best_heading_target
 from cocoapdf.semantics.reconcile import _tagged_list_node, reconcile_tagged_content
 from cocoapdf.semantics.tagged import parse_tagged_structure
 from cocoapdf.synthetic import line_op, make_pdf, rect_fill_op, text_op
@@ -156,6 +157,11 @@ class AcroFormAndOutlineTests(unittest.TestCase):
         self.assertIn("PDF_ACTIONS_NOT_EXECUTED", fields[0].warnings)
         self.assertIn("**Name:** Alice", result.markdown)
         self.assertIn('name="Name"', result.html)
+        self.assertIn(
+            '<span class="cocoapdf-form-field-name">Name:</span> '
+            '<span class="cocoapdf-form-field-value">Alice</span>',
+            result.html,
+        )
 
     def test_outline_is_parsed_and_used_as_toc_when_visible_toc_is_absent(self) -> None:
         content = b"BT /F1 18 Tf 1 0 0 1 72 720 Tm (Introduction) Tj ET"
@@ -172,6 +178,84 @@ class AcroFormAndOutlineTests(unittest.TestCase):
         self.assertEqual(len(semantic_nodes(result, "toc")), 1)
         self.assertIn("Introduction", result.markdown)
         self.assertIn('class="cocoapdf-toc"', result.html)
+
+    def test_page_only_outline_targets_the_unique_heading_on_that_page(self) -> None:
+        factory = NodeFactory()
+        source = [SourceRef(page=1)]
+        heading = factory.make(
+            "heading",
+            attrs={"level": 2},
+            sources=source,
+        ).add(
+            factory.make("text", text="Page Scope Review", sources=source)
+        )
+        body = factory.make("paragraph", sources=source).add(
+            factory.make("text", text="First page body", sources=source)
+        )
+
+        target = _best_heading_target(
+            [heading, body],
+            "First Page",
+            page=1,
+            outline_level=1,
+            destination=["XYZ", None, None, None],
+        )
+
+        self.assertEqual(target, (heading.id, "page-scope-review"))
+        self.assertEqual(heading.attrs["anchor"], "page-scope-review")
+        self.assertIn(
+            "pdf_outline_unique_page_heading",
+            {evidence.kind for evidence in heading.evidence},
+        )
+
+        competing = factory.make(
+            "heading",
+            attrs={"level": 2},
+            sources=source,
+        ).add(
+            factory.make("text", text="Another Heading", sources=source)
+        )
+        self.assertIsNone(
+            _best_heading_target(
+                [heading, competing, body],
+                "Unrelated Destination",
+                page=1,
+                outline_level=1,
+                destination=["XYZ", None, None, None],
+            )
+        )
+
+        self.assertIsNone(
+            _best_heading_target(
+                [heading, body],
+                "Unrelated Destination",
+                page=1,
+                outline_level=1,
+                destination=["XYZ", None, 400.0, None],
+            )
+        )
+
+    def test_unresolved_outline_item_never_emits_a_none_anchor(self) -> None:
+        content = b"\n".join(
+            [
+                b"BT /F1 18 Tf 1 0 0 1 72 720 Tm (Alpha Heading) Tj ET",
+                b"BT /F1 18 Tf 1 0 0 1 72 650 Tm (Bravo Heading) Tj ET",
+            ]
+        )
+        data = one_page_pdf(
+            content,
+            catalog_extra=b"/Outlines 6 0 R",
+            extra_objects=[
+                b"<< /Type /Outlines /First 7 0 R /Last 7 0 R /Count 1 >>",
+                b"<< /Title (Unrelated Destination) /Parent 6 0 R /Dest [3 0 R /XYZ null null null] >>",
+            ],
+        )
+        result = convert(data)
+        item = semantic_nodes(result, "toc_item")[0]
+        self.assertIsNone(item.attrs["target_anchor"])
+        self.assertIn("Unrelated Destination", result.markdown)
+        self.assertNotIn("#None", result.markdown)
+        self.assertNotIn('href="#None"', result.html)
 
     def test_page_selection_keeps_outline_metadata_without_importing_full_toc(self) -> None:
         first = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (First body) Tj ET"

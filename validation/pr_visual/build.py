@@ -368,6 +368,128 @@ def _common_contract(output_dir: Path, results: List[Dict[str, Any]]) -> Tuple[s
 	return markdown, semantic, report
 
 
+def _semantic_nodes(
+	semantic: Dict[str, Any],
+	kind: str,
+) -> List[Dict[str, Any]]:
+	found: List[Dict[str, Any]] = []
+	stack: List[Any] = list(reversed(semantic.get("children", [])))
+	while stack:
+		node = stack.pop()
+		if not isinstance(node, dict):
+			continue
+		if node.get("kind") == kind:
+			found.append(node)
+		children = node.get("children")
+		if isinstance(children, list):
+			stack.extend(reversed(children))
+	return found
+
+
+def _verify_scope_diagram(
+	output_dir: Path,
+	markdown: str,
+	semantic: Dict[str, Any],
+	report: Dict[str, Any],
+	results: List[Dict[str, Any]],
+) -> None:
+	"""Verify meaning and visible geometry without locking an asset hash."""
+	html_output = (output_dir / "output.html").read_text(encoding="utf-8")
+	vector_assets = sorted((output_dir / "assets").glob("vector-*.svg"))
+	_require(
+		len(vector_assets) == 1,
+		"five outlined diagram panels are retained as one vector figure",
+		results,
+	)
+	if len(vector_assets) != 1:
+		return
+	asset = vector_assets[0]
+	svg = asset.read_text(encoding="utf-8")
+	labels = ("Parse", "Decode", "Layout", "Reconcile", "Render")
+	_require(
+		all(label in svg for label in labels),
+		"all native diagram labels remain inside the vector figure",
+		results,
+	)
+	_require(
+		svg.count("<line ") >= 16,
+		"the SVG retains the outlined-panel stroke geometry",
+		results,
+	)
+	_require(
+		not re.search(
+			r"(?m)^(?:Parse\s+Layout\s+Render|Decode\s+Reconcile)\s*$",
+			markdown,
+		),
+		"diagram labels are not flattened into false prose lines",
+		results,
+	)
+	_require(
+		asset.name in markdown and asset.name in html_output,
+		"Markdown and HTML both reference the generated diagram asset",
+		results,
+	)
+	vector_nodes = [
+		node
+		for node in _semantic_nodes(semantic, "image")
+		if isinstance(node.get("attrs"), dict)
+		and node["attrs"].get("kind") == "vector"
+	]
+	_require(
+		len(vector_nodes) == 1,
+		"semantic JSON records one vector image node",
+		results,
+	)
+	if vector_nodes:
+		node = vector_nodes[0]
+		attrs = node.get("attrs") if isinstance(node.get("attrs"), dict) else {}
+		evidence = node.get("evidence") if isinstance(node.get("evidence"), list) else []
+		_require(
+			node.get("source_pages") == [2],
+			"the vector figure retains page-2 provenance",
+			results,
+		)
+		sources = node.get("sources") if isinstance(node.get("sources"), list) else []
+		_require(
+			bool(sources)
+			and isinstance(sources[0], dict)
+			and bool(sources[0].get("glyph_ids")),
+			"the vector figure remains traceable to its source glyphs",
+			results,
+		)
+		_require(
+			all(label in str(attrs.get("alt", "")) for label in labels),
+			"diagram labels provide deterministic alternative text",
+			results,
+		)
+		_require(
+			any(
+				isinstance(item, dict)
+				and item.get("kind") == "pdf_vector_artwork"
+				for item in evidence
+			),
+			"the vector figure records PDF-native artwork evidence",
+			results,
+		)
+	image_details = [
+		item
+		for item in report.get("images_detail", [])
+		if isinstance(item, dict) and item.get("kind") == "vector"
+	]
+	_require(
+		len(image_details) == 1
+		and float(image_details[0].get("placed_width", 0.0)) > 450.0
+		and float(image_details[0].get("placed_height", 0.0)) > 40.0,
+		"report geometry shows one page-spanning, multi-row diagram",
+		results,
+	)
+	_require(
+		report.get("image_text_extraction_attempted") is False,
+		"diagram preservation does not invoke image-text extraction",
+		results,
+	)
+
+
 def verify_strategic(output_dir: Path) -> List[Dict[str, Any]]:
 	results: List[Dict[str, Any]] = []
 	markdown, _semantic, _report = _common_contract(output_dir, results)
@@ -416,6 +538,7 @@ def verify_scope_selected(output_dir: Path) -> List[Dict[str, Any]]:
 	_require('<th scope="col">2024</th>' in markdown, "financial year columns are structural", results)
 	_require('<th scope="row">Net income</th>' in markdown, "financial row labels are structural", results)
 	_require("................................" not in markdown, "dot leaders are removed from table output", results)
+	_verify_scope_diagram(output_dir, markdown, semantic, report, results)
 	metadata = semantic.get("metadata") if isinstance(semantic.get("metadata"), dict) else {}
 	_require(metadata.get("processed_pages") == [2], "semantic metadata records page 2 only", results)
 	warning_codes = {
@@ -424,6 +547,38 @@ def verify_scope_selected(output_dir: Path) -> List[Dict[str, Any]]:
 		if isinstance(warning, dict)
 	}
 	_require("FORM_APPEARANCE_CONTROLS" not in warning_codes, "diagram form-control warning is absent", results)
+	return results
+
+
+def verify_scope_full(output_dir: Path) -> List[Dict[str, Any]]:
+	results: List[Dict[str, Any]] = []
+	markdown, semantic, report = _common_contract(output_dir, results)
+	_require(
+		"[First Page](#page-scope-review)" in markdown
+		and "[Selected Evidence](#selected-evidence-page)" in markdown,
+		"page-only outline destinations resolve to unique page headings",
+		results,
+	)
+	_require(
+		"#None" not in markdown and 'href="#None"' not in (
+			output_dir / "output.html"
+		).read_text(encoding="utf-8"),
+		"unresolved navigation never emits a literal None anchor",
+		results,
+	)
+	_require(
+		"**FirstField:** Alpha" in markdown
+		and "**SecondField:** Beta" in markdown,
+		"both full-document AcroForm fields are retained",
+		results,
+	)
+	_require(
+		'<th scope="col">2024</th>' in markdown
+		and '<th scope="row">Net income</th>' in markdown,
+		"the finance grid remains a structural table",
+		results,
+	)
+	_verify_scope_diagram(output_dir, markdown, semantic, report, results)
 	return results
 
 
@@ -639,6 +794,10 @@ def build_bundle(
 	(output_root / "LICENSE.txt").write_bytes(LICENSE_PATH.read_bytes())
 
 	inputs = generate_inputs()
+	# Keep these PDF-native microfixtures separate. StructTreeRoot/ParentTree,
+	# AcroForm, and Outlines are catalog-scoped semantics, not page-local
+	# decorations; appending their pages to one PDF would create a partially
+	# tagged hybrid and weaken the isolation that makes each failure diagnostic.
 	case_specs = [
 		{
 			"id": "strategic_corner_cases",
@@ -669,7 +828,7 @@ def build_bundle(
 		},
 		{
 			"id": "scope_and_adversarial",
-			"description": "Page-range outline/AcroForm scope, dot-leader finance recovery, and diagram-versus-form false-positive resistance.",
+			"description": "Page-range outline/AcroForm scope, valid heading anchors, dot-leader finance recovery, and two-sided diagram-versus-form/table fidelity.",
 			"input": inputs["scope_and_adversarial"],
 			"source": None,
 			"provenance": {
@@ -680,7 +839,7 @@ def build_bundle(
 				"pdf_standard_fonts": ["Helvetica", "Helvetica-Bold"],
 			},
 			"conversions": [
-				("full", None, None),
+				("full", None, verify_scope_full),
 				("page-2", "2", verify_scope_selected),
 			],
 		},

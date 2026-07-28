@@ -358,7 +358,7 @@ SENTINEL-FIGURE-001 Markdown image with SVG data URI:
 SENTINEL-FIGURE-002 inline icon-like image should not destroy surrounding text:
 
 <figure class="cocoapdf-figure cocoapdf-align-left">
-<img src="assets/vector-36d70b475f1d2d1e.svg" alt="" style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain;" />
+<img src="assets/vector-36d70b475f1d2d1e.svg" alt="SVG FIGURE · vector sentinel: VEC-001 αβγ → Markdow" style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain;" />
 </figure>
 
 before-icon
@@ -368,7 +368,7 @@ after-icon.
 SENTINEL-FIGURE-003 image wrapped in link:
 
 <figure class="cocoapdf-figure cocoapdf-align-left">
-<a href="https://example.com/linked-image" rel="noopener noreferrer"><img src="assets/vector-36d70b475f1d2d1e.svg" alt="" style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain;" /></a>
+<a href="https://example.com/linked-image" rel="noopener noreferrer"><img src="assets/vector-36d70b475f1d2d1e.svg" alt="SVG FIGURE · vector sentinel: VEC-001 αβγ → Markdow" style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain;" /></a>
 </figure>
 
 ---

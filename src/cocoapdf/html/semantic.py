@@ -84,7 +84,10 @@ def _render_node(node: SemanticNode) -> str:
     if kind == "toc":
         return '<nav class="cocoapdf-toc" aria-label="Table of contents"%s><ol>%s</ol></nav>' % (data_attrs, "".join(_render_node(child) for child in node.children))
     if kind == "toc_item":
-        target = html.escape(str(node.attrs.get("target_anchor") or node.attrs.get("target_id", "")), quote=True)
+        target = html.escape(
+            str(node.attrs.get("target_anchor") or node.attrs.get("target_id") or ""),
+            quote=True,
+        )
         body = html.escape(node.text)
         if target:
             body = '<a href="#%s">%s</a>' % (target, body)
@@ -131,7 +134,10 @@ def _render_inline(node: SemanticNode) -> str:
         href = safe_href(str(node.attrs.get("href", "")))
         return '<a href="%s"%s>%s</a>' % (html.escape(href, quote=True), data_attrs, body) if href else body
     if node.kind == "cross_reference":
-        target = html.escape(str(node.attrs.get("target_anchor") or node.attrs.get("target_id", "")), quote=True)
+        target = html.escape(
+            str(node.attrs.get("target_anchor") or node.attrs.get("target_id") or ""),
+            quote=True,
+        )
         return '<a class="cocoapdf-cross-reference" href="#%s"%s>%s</a>' % (target, data_attrs, body) if target else body
     if node.kind in {"footnote_ref", "image"}:
         return _render_node(node)
@@ -215,12 +221,23 @@ def _render_form_field(node: SemanticNode, attrs: str) -> str:
     display = value or state
     if state and value and state != value:
         display = "%s (%s)" % (value, state)
+    display_name = (
+        name
+        if not name or name.rstrip().endswith(":")
+        else name + ":"
+    )
     # Form extraction is documentary only: never emit active controls or copy
     # PDF actions into HTML. The typed semantic JSON retains options, flags,
     # widget rectangles, export states, and signature metadata.
     return (
         '<div class="cocoapdf-form-field" data-field-type="%s" data-name="%s"%s>'
-        '<span class="cocoapdf-form-field-name">%s</span>'
+        '<span class="cocoapdf-form-field-name">%s</span> '
         '<span class="cocoapdf-form-field-value">%s</span></div>'
-        % (html.escape(kind, quote=True), html.escape(str(node.attrs.get("name", "")), quote=True), attrs, name, display)
+        % (
+            html.escape(kind, quote=True),
+            html.escape(str(node.attrs.get("name", "")), quote=True),
+            attrs,
+            display_name,
+            display,
+        )
     )

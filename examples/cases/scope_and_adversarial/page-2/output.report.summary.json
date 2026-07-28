@@ -6,14 +6,55 @@
     }
   ],
   "anchors": [],
-  "assets": [],
+  "assets": [
+    "vector-a60ea913b6a0a8ba.svg"
+  ],
   "chars": 312,
   "description": "Deterministic PDF-to-Markdown/HTML conversion for structured text-layer PDFs. No OCR. No AI.",
   "encrypted": false,
   "fills": 0,
   "image_text_extraction_attempted": false,
-  "images": 0,
-  "images_detail": [],
+  "images": 1,
+  "images_detail": [
+    {
+      "alignment": "center",
+      "alt": "Parse \u00b7 Layout \u00b7 Render \u00b7 Decode \u00b7 Reconcile",
+      "asset": "vector-a60ea913b6a0a8ba.svg",
+      "bbox": {
+        "x0": 44.0,
+        "x1": 568.0,
+        "y0": 312.0,
+        "y1": 372.0
+      },
+      "display_height": 60.0,
+      "display_width": 524.0,
+      "intrinsic_height": 60,
+      "intrinsic_width": 524,
+      "kind": "vector",
+      "link": null,
+      "page": 2,
+      "placed_height": 60.0,
+      "placed_width": 524.0,
+      "quad": [
+        {
+          "x": 44.0,
+          "y": 312.0
+        },
+        {
+          "x": 568.0,
+          "y": 312.0
+        },
+        {
+          "x": 568.0,
+          "y": 372.0
+        },
+        {
+          "x": 44.0,
+          "y": 372.0
+        }
+      ]
+    }
+  ],
   "mode_per_page": [
     "not_selected",
     "geometric"
@@ -33,9 +74,11 @@
   "segments": 20,
   "semantic_errors": [],
   "semantic_kinds": [
+    "figure",
     "form",
     "form_field",
     "heading",
+    "image",
     "paragraph",
     "strong",
     "table",
@@ -43,7 +86,7 @@
     "table_row",
     "text"
   ],
-  "semantic_node_count": 42,
+  "semantic_node_count": 40,
   "semantic_output_used": true,
   "semantic_schema": "cocoapdf.semantic-document/v2",
   "semantic_valid": true,
@@ -64,6 +107,11 @@
       "code": "FORMS_PRESENT_UNPROCESSED",
       "detail": "Catalog/AcroForm",
       "page": null
+    },
+    {
+      "code": "VECTOR_FIGURE_APPROXIMATE",
+      "detail": "supported PDF fills, line segments, filled paths, and text replayed as one SVG; original authoring vector unavailable",
+      "page": 2
     }
   ]
 }
