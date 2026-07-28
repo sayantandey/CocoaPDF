@@ -2838,9 +2838,111 @@
                 "appearance_state": null,
                 "export_states": [],
                 "annotation_flags": 0,
-                "highlight_mode": null
+                "highlight_mode": null,
+                "appearance": {
+                  "declared_default_appearance": {
+                    "font_resource": "F1",
+                    "font_size_pt": 18.0,
+                    "text_color_rgb": [
+                      0.18,
+                      0.25,
+                      0.42
+                    ]
+                  },
+                  "declared_appearance_characteristics": {
+                    "background_color_rgb": [
+                      0.91,
+                      0.93,
+                      0.98
+                    ],
+                    "border_color_rgb": [
+                      0.65,
+                      0.7,
+                      0.78
+                    ]
+                  },
+                  "background_color_rgb": [
+                    0.91,
+                    0.93,
+                    0.98
+                  ],
+                  "border_color_rgb": [
+                    0.65,
+                    0.7,
+                    0.78
+                  ],
+                  "border_width_pt": 1.0,
+                  "text_color_rgb": [
+                    0.18,
+                    0.25,
+                    0.42
+                  ],
+                  "font_resource": "F1",
+                  "font_size_pt": 18.0,
+                  "text_alignment": "left",
+                  "width_pt": 160.0,
+                  "height_pt": 25.0,
+                  "sources": [
+                    "appearance_characteristics",
+                    "default_appearance",
+                    "normal_appearance_stream",
+                    "quadding",
+                    "widget_rect"
+                  ]
+                }
               }
             ],
+            "appearance": {
+              "declared_default_appearance": {
+                "font_resource": "F1",
+                "font_size_pt": 18.0,
+                "text_color_rgb": [
+                  0.18,
+                  0.25,
+                  0.42
+                ]
+              },
+              "declared_appearance_characteristics": {
+                "background_color_rgb": [
+                  0.91,
+                  0.93,
+                  0.98
+                ],
+                "border_color_rgb": [
+                  0.65,
+                  0.7,
+                  0.78
+                ]
+              },
+              "background_color_rgb": [
+                0.91,
+                0.93,
+                0.98
+              ],
+              "border_color_rgb": [
+                0.65,
+                0.7,
+                0.78
+              ],
+              "border_width_pt": 1.0,
+              "text_color_rgb": [
+                0.18,
+                0.25,
+                0.42
+              ],
+              "font_resource": "F1",
+              "font_size_pt": 18.0,
+              "text_alignment": "left",
+              "width_pt": 160.0,
+              "height_pt": 25.0,
+              "sources": [
+                "appearance_characteristics",
+                "default_appearance",
+                "normal_appearance_stream",
+                "quadding",
+                "widget_rect"
+              ]
+            },
             "actions_ignored": false
           },
           "children": [],

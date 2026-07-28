@@ -162,6 +162,97 @@ class AcroFormAndOutlineTests(unittest.TestCase):
             '<span class="cocoapdf-form-field-value">Alice</span>',
             result.html,
         )
+        self.assertNotIn(
+            'class="cocoapdf-form-field-value cocoapdf-form-field-value-evidenced"',
+            result.html,
+        )
+
+    def test_acroform_widget_appearance_uses_only_pdf_native_evidence(self) -> None:
+        content = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Styled field) Tj ET"
+        appearance = (
+            b"q 0.91 0.93 0.98 rg 0 0 160 25 re f "
+            b"0.65 0.70 0.78 RG 1 w 0.5 0.5 159 24 re S "
+            b"0.18 0.25 0.42 rg "
+            b"BT /F1 18 Tf 1 0 0 1 4 5 Tm (Beta) Tj ET Q"
+        )
+        data = one_page_pdf(
+            content,
+            page_extra=b"/Annots [7 0 R]",
+            catalog_extra=b"/AcroForm 6 0 R",
+            extra_objects=[
+                b"<< /Fields [7 0 R] /NeedAppearances false >>",
+                (
+                    b"<< /Type /Annot /Subtype /Widget /FT /Tx "
+                    b"/T (SecondField) /V (Beta) /Rect [200 535 360 560] "
+                    b"/P 3 0 R /DA (/F1 9 Tf 1 0 0 rg) /Q 0 "
+                    b"/MK << /BG [1 0 0] /BC [0 1 0] >> "
+                    b"/BS << /W 1 /S /S >> /AP << /N 8 0 R >> >>"
+                ),
+                (
+                    b"<< /Type /XObject /Subtype /Form /FormType 1 "
+                    b"/BBox [0 0 160 25] "
+                    b"/Resources << /Font << /F1 1 0 R >> >> "
+                    b"/Length %d >>\nstream\n" % len(appearance)
+                    + appearance
+                    + b"\nendstream"
+                ),
+            ],
+        )
+        result = convert(data)
+        field = semantic_nodes(result, "form_field")[0]
+        evidence = field.attrs["appearance"]
+        self.assertEqual(evidence["font_size_pt"], 18.0)
+        self.assertEqual(evidence["text_color_rgb"], [0.18, 0.25, 0.42])
+        self.assertEqual(evidence["background_color_rgb"], [0.91, 0.93, 0.98])
+        self.assertEqual(evidence["width_pt"], 160.0)
+        self.assertEqual(evidence["height_pt"], 25.0)
+        self.assertEqual(
+            evidence["declared_default_appearance"]["font_size_pt"],
+            9.0,
+        )
+        self.assertEqual(
+            evidence["declared_appearance_characteristics"][
+                "background_color_rgb"
+            ],
+            [1.0, 0.0, 0.0],
+        )
+        self.assertIn("normal_appearance_stream", evidence["sources"])
+        self.assertIn("default_appearance", evidence["sources"])
+        self.assertIn("appearance_characteristics", evidence["sources"])
+        self.assertIn("cocoapdf-form-field-value-evidenced", result.html)
+        self.assertIn("background-color: rgb(232, 237, 250)", result.html)
+        self.assertIn("color: rgb(46, 64, 107)", result.html)
+        self.assertIn("font-size: 18.000pt", result.html)
+        self.assertNotIn("<input", result.html)
+
+    def test_acroform_default_appearance_is_inherited(self) -> None:
+        content = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Inherited style) Tj ET"
+        data = one_page_pdf(
+            content,
+            page_extra=b"/Annots [7 0 R]",
+            catalog_extra=b"/AcroForm 6 0 R",
+            extra_objects=[
+                (
+                    b"<< /Fields [7 0 R] /NeedAppearances true "
+                    b"/DA (/F1 13 Tf 0.1 g) "
+                    b"/DR << /Font << /F1 1 0 R >> >> >>"
+                ),
+                (
+                    b"<< /Type /Annot /Subtype /Widget /FT /Tx "
+                    b"/T (InheritedField) /V (Value) "
+                    b"/Rect [72 650 240 675] /P 3 0 R >>"
+                ),
+            ],
+        )
+        result = convert(data)
+        appearance = semantic_nodes(result, "form_field")[0].attrs["appearance"]
+        self.assertEqual(appearance["font_size_pt"], 13.0)
+        self.assertEqual(appearance["text_color_rgb"], [0.1, 0.1, 0.1])
+        self.assertEqual(
+            appearance["sources"],
+            ["default_appearance", "widget_rect"],
+        )
+        self.assertIn("font-size: 13.000pt", result.html)
 
     def test_outline_is_parsed_and_used_as_toc_when_visible_toc_is_absent(self) -> None:
         content = b"BT /F1 18 Tf 1 0 0 1 72 720 Tm (Introduction) Tj ET"
@@ -314,16 +405,25 @@ class AcroFormAndOutlineTests(unittest.TestCase):
             b"<< /Type /Page /Parent 6 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 3 0 R /Annots [9 0 R] >>",
             b"<< /Type /Pages /Kids [4 0 R 5 0 R] /Count 2 >>",
             b"<< /Fields [10 0 R] >>",
-            b"<< /Type /Annot /Subtype /Widget /Parent 10 0 R /Rect [72 650 240 675] /P 4 0 R >>",
-            b"<< /Type /Annot /Subtype /Widget /Parent 10 0 R /Rect [72 650 240 675] /P 5 0 R >>",
+            b"<< /Type /Annot /Subtype /Widget /Parent 10 0 R /Rect [72 650 240 675] /P 4 0 R /DA (/F1 9 Tf 0 g) >>",
+            b"<< /Type /Annot /Subtype /Widget /Parent 10 0 R /Rect [72 650 240 675] /P 5 0 R /DA (/F1 18 Tf 0 0 1 rg) >>",
             b"<< /FT /Tx /T (SharedField) /V (Gamma) /Kids [8 0 R 9 0 R] >>",
             b"<< /Type /Catalog /Pages 6 0 R /AcroForm 7 0 R >>",
         ]
-        result = convert(render_pdf(objects, 11), ConvertOptions(pages="2"))
+        data = render_pdf(objects, 11)
+        full_field = semantic_nodes(convert(data), "form_field")[0]
+        self.assertIsNone(full_field.attrs["appearance"])
+        result = convert(data, ConvertOptions(pages="2"))
         field = semantic_nodes(result, "form_field")[0]
         self.assertEqual(field.source_pages(), [2])
         self.assertEqual([widget["page"] for widget in field.attrs["widgets"]], [2])
         self.assertEqual(field.sources[0].object_refs, ("9 0 R",))
+        self.assertEqual(field.attrs["appearance"]["font_size_pt"], 18.0)
+        self.assertEqual(field.attrs["appearance"]["text_color_rgb"], [0.0, 0.0, 1.0])
+        self.assertIn(
+            'class="cocoapdf-form-field-value cocoapdf-form-field-value-evidenced"',
+            result.html,
+        )
         self.assertIn("**SharedField:** Gamma", result.markdown)
 
 

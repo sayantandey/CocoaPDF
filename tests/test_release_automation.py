@@ -99,6 +99,22 @@ class BuildAutomationTests(unittest.TestCase):
 		self.assertIn("no stale download link is retained", visual)
 		self.assertIn("tree/main/examples", visual)
 		self.assertIn("tree/${HEAD_SHA}/examples", visual)
+		self.assertIn(
+			"rawcdn.githack.com/${HEAD_REPOSITORY}/${HEAD_SHA}/examples/review.html",
+			visual,
+		)
+		self.assertIn(
+			"HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}",
+			visual,
+		)
+		self.assertIn(
+			'if [[ "${HEAD_REPOSITORY}" == "${BASE_REPOSITORY}" ]]',
+			visual,
+		)
+		self.assertIn(
+			"External HTML preview is intentionally omitted for fork pull requests",
+			visual,
+		)
 		self.assertNotIn("pull_request_target:", visual)
 		self.assertIn("queue: max", release)
 		self.assertIn("if: github.event_name == 'push'", release)
@@ -122,6 +138,11 @@ class BuildAutomationTests(unittest.TestCase):
 		self.assertEqual(manifest["license"]["spdx"], "MIT")
 		self.assertFalse(manifest["license"]["third_party_content_added"])
 		self.assertEqual(manifest["license"]["network_fetches"], 0)
+		self.assertFalse(manifest["fixture_isolation"]["combined_pdf"])
+		self.assertEqual(
+			manifest["fixture_isolation"]["catalog_scoped_features"],
+			["StructTreeRoot", "ParentTree", "AcroForm", "Outlines"],
+		)
 		self.assertTrue(manifest["lifecycle"]["committed_outputs"])
 		self.assertEqual(manifest["lifecycle"]["location"], "examples")
 		self.assertEqual(len(manifest["cases"]), 3)
@@ -131,6 +152,14 @@ class BuildAutomationTests(unittest.TestCase):
 		self.assertFalse((examples / "sitemap.xml").exists())
 		self.assertIn(
 			"https://raw.githack.com/sayantandey/CocoaPDF/main/examples/review.html",
+			(examples / "README.md").read_text(encoding="utf-8"),
+		)
+		self.assertIn(
+			"rendered main-branch side-by-side demo",
+			(examples / "README.md").read_text(encoding="utf-8"),
+		)
+		self.assertIn(
+			"rendered HTML on main",
 			(examples / "README.md").read_text(encoding="utf-8"),
 		)
 		for index_name in ("README.md", "review.html"):

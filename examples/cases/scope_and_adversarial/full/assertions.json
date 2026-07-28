@@ -84,6 +84,38 @@
     {
       "passed": true,
       "detail": "diagram preservation does not invoke image-text extraction"
+    },
+    {
+      "passed": true,
+      "detail": "SecondField has one page-scoped semantic field"
+    },
+    {
+      "passed": true,
+      "detail": "SecondField retains explicit PDF widget appearance evidence"
+    },
+    {
+      "passed": true,
+      "detail": "SecondField preserves its explicitly large text size"
+    },
+    {
+      "passed": true,
+      "detail": "SecondField preserves its dark blue-gray text color"
+    },
+    {
+      "passed": true,
+      "detail": "SecondField preserves its pale blue-gray background"
+    },
+    {
+      "passed": true,
+      "detail": "SecondField appearance remains traceable to independent PDF-native evidence"
+    },
+    {
+      "passed": true,
+      "detail": "HTML renders only the evidenced field with its size and colors"
+    },
+    {
+      "passed": true,
+      "detail": "documentary form output never creates an active browser control"
     }
   ]
 }

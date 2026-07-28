@@ -68,6 +68,9 @@ jobs:
         env:
           ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          BASE_REPOSITORY: ${{ github.repository }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -79,6 +82,12 @@ jobs:
             echo "Artifact SHA-256: \`${ARTIFACT_DIGEST}\`"
             echo
             echo "After downloading and unzipping, open \`review.html\` for side-by-side inspection."
+            echo
+            if [[ "${HEAD_REPOSITORY}" == "${BASE_REPOSITORY}" ]]; then
+              echo "[Open this exact commit's rendered capability demo](https://rawcdn.githack.com/${HEAD_REPOSITORY}/${HEAD_SHA}/examples/review.html)"
+            else
+              echo "External HTML preview is intentionally omitted for fork pull requests; review the generated artifact instead."
+            fi
           } >> "${GITHUB_STEP_SUMMARY}"
 
   link:
@@ -98,6 +107,7 @@ jobs:
         env:
           ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact_digest }}
           ARTIFACT_URL: ${{ needs.build.outputs.artifact_url }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
@@ -128,6 +138,8 @@ jobs:
             echo "- A new commit, reopen, or ready-for-review event generates a fresh artifact."
             echo
             echo "No external content, OCR, AI, or ML is used; provenance and licensing are included in \`manifest.json\`."
+            echo
+            echo "[Open this exact commit's rendered capability demo](https://rawcdn.githack.com/${HEAD_REPOSITORY}/${HEAD_SHA}/examples/review.html)."
             echo
             echo "[Browse this revision's committed capability demo](https://github.com/${REPOSITORY}/tree/${HEAD_SHA}/examples); it is separate from this PR artifact."
             echo "<!-- cocoapdf-pr-visual:end -->"

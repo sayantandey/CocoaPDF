@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import html
-from typing import List
+import math
+from typing import Any, List, Optional, Tuple
 
 from .css import DEFAULT_CSS
 from .sanitize import safe_asset_href, safe_href
@@ -226,18 +227,139 @@ def _render_form_field(node: SemanticNode, attrs: str) -> str:
         if not name or name.rstrip().endswith(":")
         else name + ":"
     )
+    value_class, value_attrs = _form_value_appearance_attributes(node)
     # Form extraction is documentary only: never emit active controls or copy
     # PDF actions into HTML. The typed semantic JSON retains options, flags,
-    # widget rectangles, export states, and signature metadata.
+    # widget rectangles, appearance evidence, export states, and signatures.
     return (
         '<div class="cocoapdf-form-field" data-field-type="%s" data-name="%s"%s>'
         '<span class="cocoapdf-form-field-name">%s</span> '
-        '<span class="cocoapdf-form-field-value">%s</span></div>'
+        '<span class="%s"%s>%s</span></div>'
         % (
             html.escape(kind, quote=True),
             html.escape(str(node.attrs.get("name", "")), quote=True),
             attrs,
             display_name,
+            value_class,
+            value_attrs,
             display,
         )
     )
+
+
+def _form_value_appearance_attributes(
+    node: SemanticNode,
+) -> Tuple[str, str]:
+    appearance = node.attrs.get("appearance")
+    if not isinstance(appearance, dict):
+        return "cocoapdf-form-field-value", ""
+
+    styles: List[str] = []
+    text_color = _css_rgb(appearance.get("text_color_rgb"))
+    background = _css_rgb(appearance.get("background_color_rgb"))
+    border = _css_rgb(appearance.get("border_color_rgb"))
+    font_size = _safe_style_number(
+        appearance.get("font_size_pt"),
+        minimum=0.5,
+        maximum=144.0,
+    )
+    width = _safe_style_number(
+        appearance.get("width_pt"),
+        minimum=1.0,
+        maximum=1_000.0,
+    )
+    height = _safe_style_number(
+        appearance.get("height_pt"),
+        minimum=1.0,
+        maximum=1_000.0,
+    )
+    border_width = _safe_style_number(
+        appearance.get("border_width_pt"),
+        minimum=0.0,
+        maximum=12.0,
+    )
+    if text_color:
+        styles.append("color: %s" % text_color)
+    if background:
+        styles.append("background-color: %s" % background)
+    if font_size is not None:
+        styles.append("font-size: %.3fpt" % font_size)
+    if width is not None:
+        styles.extend(
+            [
+                "inline-size: %.3fpt" % width,
+                "max-inline-size: 100%",
+            ]
+        )
+    if height is not None:
+        styles.append("min-block-size: %.3fpt" % height)
+    if border:
+        width_css = (
+            "%.3fpt" % border_width
+            if border_width is not None and border_width > 0
+            else "1px"
+        )
+        styles.append("border: %s solid %s" % (width_css, border))
+    alignment = str(appearance.get("text_alignment", ""))
+    if alignment in {"left", "center", "right"}:
+        styles.append(
+            "justify-content: %s"
+            % {"left": "flex-start", "center": "center", "right": "flex-end"}[
+                alignment
+            ]
+        )
+
+    # A parsed font resource name is provenance, not a portable CSS family;
+    # silently mapping /F1 to a browser font would invent semantics.
+    sources = appearance.get("sources")
+    source_attr = ""
+    if isinstance(sources, list):
+        safe_sources = [
+            str(source)
+            for source in sources
+            if isinstance(source, str) and source
+        ]
+        if safe_sources:
+            source_attr = ' data-appearance-source="%s"' % html.escape(
+                ",".join(safe_sources),
+                quote=True,
+            )
+    if not styles:
+        return "cocoapdf-form-field-value", source_attr
+    style_attr = ' style="%s"' % html.escape("; ".join(styles), quote=True)
+    return (
+        "cocoapdf-form-field-value cocoapdf-form-field-value-evidenced",
+        source_attr + style_attr,
+    )
+
+
+def _css_rgb(raw: Any) -> Optional[str]:
+    if (
+        not isinstance(raw, (list, tuple))
+        or len(raw) != 3
+        or any(isinstance(value, bool) for value in raw)
+    ):
+        return None
+    values: List[int] = []
+    for value in raw:
+        if not isinstance(value, (int, float)):
+            return None
+        number = float(value)
+        if not math.isfinite(number):
+            return None
+        values.append(int(round(min(1.0, max(0.0, number)) * 255.0)))
+    return "rgb(%d, %d, %d)" % tuple(values)
+
+
+def _safe_style_number(
+    raw: Any,
+    *,
+    minimum: float,
+    maximum: float,
+) -> Optional[float]:
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    value = float(raw)
+    if not math.isfinite(value) or value < minimum:
+        return None
+    return min(value, maximum)

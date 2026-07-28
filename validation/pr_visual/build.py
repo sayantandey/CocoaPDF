@@ -21,7 +21,7 @@ STRATEGIC_SOURCE = ROOT / "tests" / "strategic_corner_cases_v1_4.md"
 PULL_REQUEST_PROFILE = "pull-request"
 PERMANENT_PROFILE = "permanent"
 VALID_PROFILES = (PULL_REQUEST_PROFILE, PERMANENT_PROFILE)
-RENDER_BASE_URL = "https://raw.githack.com/sayantandey/CocoaPDF/main/examples"
+MAIN_RENDER_BASE_URL = "https://raw.githack.com/sayantandey/CocoaPDF/main/examples"
 
 
 def _source_imports() -> None:
@@ -150,6 +150,16 @@ def _outline(x0: float, y0: float, x1: float, y1: float) -> List[bytes]:
 
 def build_scope_and_adversarial_pdf() -> bytes:
 	"""Build page-scope semantics plus a diagram/form near-miss."""
+	second_field_appearance = b"\n".join(
+		[
+			b"q",
+			b"0.91 0.93 0.98 rg 0 0 160 25 re f",
+			b"0.65 0.70 0.78 RG 1 w 0.5 0.5 159 24 re S",
+			b"0.18 0.25 0.42 rg",
+			b"BT /F1 18 Tf 1 0 0 1 4 5 Tm (Beta) Tj ET",
+			b"Q",
+		]
+	)
 	page_one = b"\n".join(
 		[
 			text_op(72, 720, "Page Scope Review", "F2", 18),
@@ -206,7 +216,10 @@ def build_scope_and_adversarial_pdf() -> bytes:
 			b"/Contents 4 0 R /Annots [11 0 R] >>"
 		),
 		b"<< /Type /Pages /Kids [5 0 R 6 0 R] /Count 2 >>",
-		b"<< /Fields [10 0 R 11 0 R] /NeedAppearances false >>",
+		(
+			b"<< /Fields [10 0 R 11 0 R] /NeedAppearances false "
+			b"/DR << /Font << /F1 1 0 R >> >> >>"
+		),
 		b"<< /Type /Outlines /First 12 0 R /Last 13 0 R /Count 2 >>",
 		(
 			b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (FirstField) "
@@ -214,7 +227,10 @@ def build_scope_and_adversarial_pdf() -> bytes:
 		),
 		(
 			b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (SecondField) "
-			b"/V (Beta) /Rect [200 535 360 560] /P 6 0 R >>"
+			b"/V (Beta) /Rect [200 535 360 560] /P 6 0 R "
+			b"/DA (/F1 18 Tf 0.18 0.25 0.42 rg) /Q 0 "
+			b"/MK << /BG [0.91 0.93 0.98] /BC [0.65 0.70 0.78] >> "
+			b"/BS << /W 1 /S /S >> /AP << /N 15 0 R >> >>"
 		),
 		(
 			b"<< /Title (First Page) /Parent 9 0 R /Next 13 0 R "
@@ -227,6 +243,14 @@ def build_scope_and_adversarial_pdf() -> bytes:
 		(
 			b"<< /Type /Catalog /Pages 7 0 R /AcroForm 8 0 R "
 			b"/Outlines 9 0 R >>"
+		),
+		(
+			b"<< /Type /XObject /Subtype /Form /FormType 1 "
+			b"/BBox [0 0 160 25] "
+			b"/Resources << /Font << /F1 1 0 R >> >> "
+			b"/Length %d >>\nstream\n" % len(second_field_appearance)
+			+ second_field_appearance
+			+ b"\nendstream"
 		),
 	]
 	return render_pdf(objects, 14)
@@ -490,6 +514,84 @@ def _verify_scope_diagram(
 	)
 
 
+def _verify_second_field_appearance(
+	output_dir: Path,
+	semantic: Dict[str, Any],
+	results: List[Dict[str, Any]],
+) -> None:
+	"""Check evidence classes and broad visual intent, not serializer trivia."""
+	fields = [
+		node
+		for node in _semantic_nodes(semantic, "form_field")
+		if isinstance(node.get("attrs"), dict)
+		and node["attrs"].get("name") == "SecondField"
+	]
+	_require(
+		len(fields) == 1,
+		"SecondField has one page-scoped semantic field",
+		results,
+	)
+	if len(fields) != 1:
+		return
+	appearance = fields[0]["attrs"].get("appearance")
+	_require(
+		isinstance(appearance, dict),
+		"SecondField retains explicit PDF widget appearance evidence",
+		results,
+	)
+	if not isinstance(appearance, dict):
+		return
+	font_size = float(appearance.get("font_size_pt", 0.0) or 0.0)
+	text_color = appearance.get("text_color_rgb")
+	background = appearance.get("background_color_rgb")
+	sources = set(appearance.get("sources") or [])
+	_require(
+		16.0 <= font_size <= 22.0,
+		"SecondField preserves its explicitly large text size",
+		results,
+	)
+	_require(
+		isinstance(text_color, list)
+		and len(text_color) == 3
+		and float(text_color[2]) > float(text_color[1]) > float(text_color[0]),
+		"SecondField preserves its dark blue-gray text color",
+		results,
+	)
+	_require(
+		isinstance(background, list)
+		and len(background) == 3
+		and all(0.85 <= float(component) <= 1.0 for component in background),
+		"SecondField preserves its pale blue-gray background",
+		results,
+	)
+	_require(
+		{
+			"default_appearance",
+			"appearance_characteristics",
+			"normal_appearance_stream",
+			"widget_rect",
+		}.issubset(sources),
+		"SecondField appearance remains traceable to independent PDF-native evidence",
+		results,
+	)
+	html_output = (output_dir / "output.html").read_text(encoding="utf-8")
+	_require(
+		html_output.count(
+			'class="cocoapdf-form-field-value cocoapdf-form-field-value-evidenced"'
+		) == 1
+		and 'data-name="SecondField"' in html_output
+		and "background-color: rgb(" in html_output
+		and "font-size: " in html_output,
+		"HTML renders only the evidenced field with its size and colors",
+		results,
+	)
+	_require(
+		"<input" not in html_output,
+		"documentary form output never creates an active browser control",
+		results,
+	)
+
+
 def verify_strategic(output_dir: Path) -> List[Dict[str, Any]]:
 	results: List[Dict[str, Any]] = []
 	markdown, _semantic, _report = _common_contract(output_dir, results)
@@ -539,6 +641,7 @@ def verify_scope_selected(output_dir: Path) -> List[Dict[str, Any]]:
 	_require('<th scope="row">Net income</th>' in markdown, "financial row labels are structural", results)
 	_require("................................" not in markdown, "dot leaders are removed from table output", results)
 	_verify_scope_diagram(output_dir, markdown, semantic, report, results)
+	_verify_second_field_appearance(output_dir, semantic, results)
 	metadata = semantic.get("metadata") if isinstance(semantic.get("metadata"), dict) else {}
 	_require(metadata.get("processed_pages") == [2], "semantic metadata records page 2 only", results)
 	warning_codes = {
@@ -579,6 +682,7 @@ def verify_scope_full(output_dir: Path) -> List[Dict[str, Any]]:
 		results,
 	)
 	_verify_scope_diagram(output_dir, markdown, semantic, report, results)
+	_verify_second_field_appearance(output_dir, semantic, results)
 	return results
 
 
@@ -636,6 +740,10 @@ def _write_review_files(
 		"All inputs and fixture prose are first-party project material under the bundled MIT license.",
 		"No network content, OCR, AI, or ML was used.",
 		"",
+		"The three PDFs are intentionally isolated: Tagged-PDF structure trees, AcroForm fields, "
+		"and outlines are document-catalog semantics. Concatenating their pages would alter the "
+		"evidence being tested and make failures less diagnostic.",
+		"",
 	]
 	if permanent:
 		lines.extend(
@@ -643,12 +751,15 @@ def _write_review_files(
 				"This directory is the committed, reproducible capability demo. "
 				"Pull-request review artifacts are generated separately and are never written here.",
 				"",
-				"[Open the rendered side-by-side demo](%s/review.html). GitHub displays "
+				"[Open the rendered main-branch side-by-side demo](%s/review.html). GitHub displays "
 				"committed HTML files as source code; this third-party browser preview "
-				"renders the same files from `main` without a project website."
-				% RENDER_BASE_URL,
+				"renders the same files from `main` without a project website. Same-repository "
+				"pull requests receive a separate commit-pinned rendered link in their description."
+				% MAIN_RENDER_BASE_URL,
 				"",
-				"Each row links the source PDF to the exact output committed from the same CocoaPDF revision.",
+				"Relative row links resolve against the revision being viewed. External rendered-HTML "
+				"links are explicitly labeled as `main`; a same-repository PR description supplies "
+				"the exact commit-pinned rendered demo.",
 				"",
 				"Full semantic JSON is committed. Report summaries omit only duplicate semantic graphs "
 				"and glyph-heavy internals; the temporary PR artifact retains every full report.",
@@ -676,17 +787,22 @@ def _write_review_files(
 				else "output.report.json"
 			)
 			html_link = (
-				"%s/%s/output.html" % (RENDER_BASE_URL, base)
+				"%s/%s/output.html" % (MAIN_RENDER_BASE_URL, base)
 				if permanent
 				else "%s/output.html" % base
 			)
+			html_label = (
+				"%s rendered HTML on main" % name
+				if permanent
+				else "%s HTML" % name
+			)
 			output_links.append(
-				"[%s Markdown](%s/output.md), [%s rendered HTML](%s), "
+				"[%s Markdown](%s/output.md), [%s](%s), "
 				"[%s semantic JSON](%s/output.json), [%s report](%s/%s)"
 				% (
 					name,
 					base,
-					name,
+					html_label,
 					html_link,
 					name,
 					base,
@@ -758,6 +874,8 @@ __COCOAPDF_HEAD_META__
   <h1>__COCOAPDF_REVIEW_TITLE__</h1>
   <p>Left: source PDF. Right: CocoaPDF HTML. See <a href="__COCOAPDF_INDEX_NAME__">__COCOAPDF_INDEX_NAME__</a>
      and <a href="manifest.json">manifest.json</a> for every output and hash.</p>
+  <p>The three source PDFs remain separate because Tagged-PDF trees, AcroForm fields, and outlines
+     are document-catalog semantics; concatenating pages would change the evidence under review.</p>
 __COCOAPDF_REVIEW_SECTIONS__
 </body>
 </html>
@@ -907,6 +1025,19 @@ def build_bundle(
 			"origin": "first-party CocoaPDF project fixtures",
 			"network_fetches": 0,
 			"third_party_content_added": False,
+		},
+		"fixture_isolation": {
+			"combined_pdf": False,
+			"catalog_scoped_features": [
+				"StructTreeRoot",
+				"ParentTree",
+				"AcroForm",
+				"Outlines",
+			],
+			"reason": (
+				"Page concatenation would alter document-global evidence and "
+				"weaken failure attribution."
+			),
 		},
 		"lifecycle": (
 			{

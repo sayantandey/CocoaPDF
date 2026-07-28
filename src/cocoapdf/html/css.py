@@ -23,5 +23,6 @@ mark { background: #fff59d; }
 .cocoapdf-form { display: grid; gap: 0.65rem; margin: 1rem 0; }
 .cocoapdf-form-field { display: grid; grid-template-columns: minmax(8rem, max-content) 1fr; column-gap: 0.5rem; }
 .cocoapdf-form-field-name { font-weight: 600; }
+.cocoapdf-form-field-value-evidenced { align-items: center; box-sizing: border-box; display: inline-flex; padding: 0 0.25rem; }
 .cocoapdf-equation { overflow-x: auto; margin: 1rem 0; }
 """.strip()

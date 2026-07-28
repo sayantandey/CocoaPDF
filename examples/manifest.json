@@ -25,8 +25,8 @@
               "sha256": "d82c113d8e7b4c998d5750f5ff0bb0bb5b4b9bd0e3782e17ae451fa94a9d255b"
             },
             "output.html": {
-              "bytes": 27555,
-              "sha256": "b8f23e7bfed2c015c0352ff52bf1205feb37dbddfaef1f64efe66c60a09ecb54"
+              "bytes": 27683,
+              "sha256": "ce8417263be75d789faa8f0224566bdbe5d20bb4b6a20a7111f5a9176920adc1"
             },
             "output.json": {
               "bytes": 2089272,
@@ -73,8 +73,8 @@
               "sha256": "d82c113d8e7b4c998d5750f5ff0bb0bb5b4b9bd0e3782e17ae451fa94a9d255b"
             },
             "output.html": {
-              "bytes": 2501,
-              "sha256": "9042590f9885e1f2a1ab79298354787972e28e264ad8065f24281bec7159a2da"
+              "bytes": 2629,
+              "sha256": "dff1ae716320832e25290e9061dad0d2aafe73e6a033af63d970160281713767"
             },
             "output.json": {
               "bytes": 30291,
@@ -117,8 +117,8 @@
         {
           "files": {
             "assertions.json": {
-              "bytes": 2166,
-              "sha256": "1d46a6cb23b3d32b1fb5c0b1c0cabea96a23cd5de38b8eb9d598f4143332dace"
+              "bytes": 3057,
+              "sha256": "8372819d8f9bbeb5a42d14dacbccbdba1a131709999793a71ab4411ff0c56c84"
             },
             "assets/vector-a60ea913b6a0a8ba.svg": {
               "bytes": 3326,
@@ -129,12 +129,12 @@
               "sha256": "d82c113d8e7b4c998d5750f5ff0bb0bb5b4b9bd0e3782e17ae451fa94a9d255b"
             },
             "output.html": {
-              "bytes": 3660,
-              "sha256": "49100c09597f59c03e9b4fd3f4eb6a80ab57b929fc77af70e04d64ee9d2db190"
+              "bytes": 4176,
+              "sha256": "f77a021271bb348ea844334527d809251ab1bd722f94413fc388586d9910ac30"
             },
             "output.json": {
-              "bytes": 88560,
-              "sha256": "7eeb8fd2a1327bfebe5a5002e10fca4ba62891b599a99bcc683e1b0c00a7eed2"
+              "bytes": 91712,
+              "sha256": "9b73f5991d2b0dfbf42207e9cee324a99935787bcb9906dd9dc28beaf14dcb5e"
             },
             "output.md": {
               "bytes": 1015,
@@ -152,8 +152,8 @@
         {
           "files": {
             "assertions.json": {
-              "bytes": 2729,
-              "sha256": "61b32e81e6a38dc1bd1f875e2e2cbf488fc7b9cf3b8d3dfabf97351bd645217d"
+              "bytes": 3620,
+              "sha256": "8e95e32e16749f7283f8d57dd4290e4a2df2fb4ca81677027d0a15a9535b8adc"
             },
             "assets/vector-a60ea913b6a0a8ba.svg": {
               "bytes": 3326,
@@ -164,12 +164,12 @@
               "sha256": "179d6e7aeced8baa4f7edc6730aa0e6136f18b93679700e9d4f9791f111996d3"
             },
             "output.html": {
-              "bytes": 2945,
-              "sha256": "5d317ffe698502b5aec409cf7e5f989dab10adfb5d08e44e9311263ef5b44fad"
+              "bytes": 3461,
+              "sha256": "d13e1d2604778b7c4e464f13aa707a528af55c127caa39eedc4716327f9a5701"
             },
             "output.json": {
-              "bytes": 73757,
-              "sha256": "d0a4c00c4dc876a281d8b6a34d9698b11e127fd1689c0f831aac3dc19d480dd2"
+              "bytes": 76841,
+              "sha256": "6e37d854cc4b1ddfd13efae52882cb7d4b484ad83558d8b3e331aeea2624e545"
             },
             "output.md": {
               "bytes": 822,
@@ -188,9 +188,9 @@
       "description": "Page-range outline/AcroForm scope, valid heading anchors, dot-leader finance recovery, and two-sided diagram-versus-form/table fidelity.",
       "id": "scope_and_adversarial",
       "input": {
-        "bytes": 3715,
+        "bytes": 4189,
         "deterministic": true,
-        "sha256": "0a697b6632d7ebe49f862c3b9e89273ca97b5a50771913332ce3c9ba53406e3e"
+        "sha256": "ac3c2b4cb08751c636aae3e8ca561328e09996e3e0c1470b55830039c9b54872"
       },
       "provenance": {
         "font_programs_embedded": false,
@@ -204,8 +204,18 @@
       }
     }
   ],
+  "fixture_isolation": {
+    "catalog_scoped_features": [
+      "StructTreeRoot",
+      "ParentTree",
+      "AcroForm",
+      "Outlines"
+    ],
+    "combined_pdf": false,
+    "reason": "Page concatenation would alter document-global evidence and weaken failure attribution."
+  },
   "generator": "validation/pr_visual/build.py",
-  "generator_sha256": "d4215ad8cace9397f7f0161ad0732305561ebf7cdb08cc95233419ccea95ecca",
+  "generator_sha256": "8a814c58de678c9556ae0d5e7919dc56933b61d260b57c1deccc787531e88f50",
   "head_commit": null,
   "license": {
     "file": "LICENSE.txt",

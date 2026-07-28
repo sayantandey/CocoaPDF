@@ -72,7 +72,7 @@ endobj
 << /Type /Pages /Kids [5 0 R 6 0 R] /Count 2 >>
 endobj
 8 0 obj
-<< /Fields [10 0 R 11 0 R] /NeedAppearances false >>
+<< /Fields [10 0 R 11 0 R] /NeedAppearances false /DR << /Font << /F1 1 0 R >> >> >>
 endobj
 9 0 obj
 << /Type /Outlines /First 12 0 R /Last 13 0 R /Count 2 >>
@@ -81,7 +81,7 @@ endobj
 << /Type /Annot /Subtype /Widget /FT /Tx /T (FirstField) /V (Alpha) /Rect [200 630 360 655] /P 5 0 R >>
 endobj
 11 0 obj
-<< /Type /Annot /Subtype /Widget /FT /Tx /T (SecondField) /V (Beta) /Rect [200 535 360 560] /P 6 0 R >>
+<< /Type /Annot /Subtype /Widget /FT /Tx /T (SecondField) /V (Beta) /Rect [200 535 360 560] /P 6 0 R /DA (/F1 18 Tf 0.18 0.25 0.42 rg) /Q 0 /MK << /BG [0.91 0.93 0.98] /BC [0.65 0.70 0.78] >> /BS << /W 1 /S /S >> /AP << /N 15 0 R >> >>
 endobj
 12 0 obj
 << /Title (First Page) /Parent 9 0 R /Next 13 0 R /Dest [5 0 R /XYZ null null null] >>
@@ -92,8 +92,19 @@ endobj
 14 0 obj
 << /Type /Catalog /Pages 7 0 R /AcroForm 8 0 R /Outlines 9 0 R >>
 endobj
+15 0 obj
+<< /Type /XObject /Subtype /Form /FormType 1 /BBox [0 0 160 25] /Resources << /Font << /F1 1 0 R >> >> /Length 138 >>
+stream
+q
+0.91 0.93 0.98 rg 0 0 160 25 re f
+0.65 0.70 0.78 RG 1 w 0.5 0.5 159 24 re S
+0.18 0.25 0.42 rg
+BT /F1 18 Tf 1 0 0 1 4 5 Tm (Beta) Tj ET
+Q
+endstream
+endobj
 xref
-0 15
+0 16
 0000000000 65535 f 
 0000000015 00000 n 
 0000000112 00000 n 
@@ -103,14 +114,15 @@ xref
 0000002456 00000 n 
 0000002609 00000 n 
 0000002672 00000 n 
-0000002740 00000 n 
-0000002813 00000 n 
-0000002933 00000 n 
-0000003053 00000 n 
-0000003156 00000 n 
-0000003266 00000 n 
+0000002772 00000 n 
+0000002845 00000 n 
+0000002965 00000 n 
+0000003217 00000 n 
+0000003320 00000 n 
+0000003430 00000 n 
+0000003512 00000 n 
 trailer
-<< /Size 15 /Root 14 0 R >>
+<< /Size 16 /Root 14 0 R >>
 startxref
-3348
+3802
 %%EOF
