@@ -477,13 +477,15 @@ class ArchitectureAndImageTests(unittest.TestCase):
 		self.assertEqual(len(vectors), 1)
 		self.assertEqual(result.markdown.count("<img "), 1)
 		self.assertIn("System Architecture", result.markdown)
-		self.assertNotIn("Node Alpha", result.markdown)
-		self.assertNotIn("Existing controller", result.markdown)
+		self.assertNotRegex(result.markdown, r"(?m)^Node Alpha$")
+		self.assertNotRegex(result.markdown, r"(?m)^Existing controller$")
 		self.assertIn(b"Node Alpha", vectors[0][1])
 		self.assertIn(b"Existing controller", vectors[0][1])
 		self.assertGreaterEqual(vectors[0][1].count(b"<path "), 3)
 		image = result.report["images_detail"][0]
 		self.assertGreater(image["placed_height"], 500.0)
+		self.assertIn("Node Alpha", image["alt"])
+		self.assertIn("Existing controller", image["alt"])
 		self.assertFalse(result.report["image_text_extraction_attempted"])
 		self.assertFalse(result.report["ocr_used"])
 		image_node = next(
@@ -491,7 +493,108 @@ class ArchitectureAndImageTests(unittest.TestCase):
 			for node in result.semantic.walk()
 			if node.kind == "image" and node.attrs.get("kind") == "vector"
 		)
+		self.assertTrue(image_node.sources[0].glyph_ids)
 		self.assertEqual(image_node.evidence[0].kind, "pdf_vector_artwork")
+
+	def test_staggered_labeled_outline_panels_remain_one_vector_figure(self):
+		def outline(x0, y0, x1, y1):
+			return [
+				line_op(x0, y0, x1, y0, 1),
+				line_op(x1, y0, x1, y1, 1),
+				line_op(x1, y1, x0, y1, 1),
+				line_op(x0, y1, x0, y0, 1),
+			]
+
+		parts = [text_op(72, 510, "Diagram sequence", "F2", 11)]
+		labels = ("Parse", "Decode", "Layout", "Reconcile", "Render")
+		for index, (x0, label) in enumerate(
+			zip((45.0, 155.0, 265.0, 375.0, 485.0), labels)
+		):
+			y0 = 455.0 - (index % 2) * 34.0
+			parts.extend(outline(x0, y0, x0 + 82.0, y0 + 24.0))
+			parts.append(text_op(x0 + 8.0, y0 + 8.0, label, "F1", 8))
+		result = convert(
+			make_pdf([b"\n".join(parts)]),
+			ConvertOptions(assets_dir="assets", image_markup="auto"),
+		)
+		vectors = [
+			(name, data)
+			for name, data in result.assets.items()
+			if name.startswith("vector-")
+		]
+		self.assertEqual(len(vectors), 1)
+		self.assertEqual(result.markdown.count("<img "), 1)
+		self.assertNotRegex(result.markdown, r"(?m)^Parse Layout Render$")
+		self.assertNotRegex(result.markdown, r"(?m)^Decode Reconcile$")
+		for label in labels:
+			self.assertIn(label.encode("ascii"), vectors[0][1])
+		self.assertGreaterEqual(vectors[0][1].count(b"<line "), 16)
+		image = result.report["images_detail"][0]
+		self.assertEqual(image["kind"], "vector")
+		self.assertGreater(image["placed_width"], 450.0)
+		self.assertGreater(image["placed_height"], 40.0)
+		self.assertIn("Parse", image["alt"])
+		image_node = next(
+			node
+			for node in result.semantic.walk()
+			if node.kind == "image" and node.attrs.get("kind") == "vector"
+		)
+		self.assertGreaterEqual(
+			len(image_node.sources[0].glyph_ids),
+			sum(len(label) for label in labels),
+		)
+		self.assertNotIn(
+			"FORM_APPEARANCE_CONTROLS",
+			{warning.code for warning in result.warnings},
+		)
+
+	def test_aligned_labeled_outline_fields_are_not_vectorized(self):
+		def outline(x0, y0, x1, y1):
+			return [
+				line_op(x0, y0, x1, y0, 1),
+				line_op(x1, y0, x1, y1, 1),
+				line_op(x1, y1, x0, y1, 1),
+				line_op(x0, y1, x0, y0, 1),
+			]
+
+		parts = []
+		for index in range(5):
+			y0 = 680.0 - index * 48.0
+			parts.extend(outline(220.0, y0, 410.0, y0 + 26.0))
+			parts.append(text_op(72, y0 + 8.0, "Field %d:" % (index + 1), "F1", 9))
+			parts.append(text_op(230, y0 + 8.0, "Value %d" % (index + 1), "F1", 9))
+		result = convert(
+			make_pdf([b"\n".join(parts)]),
+			ConvertOptions(assets_dir="assets", image_markup="auto"),
+		)
+		self.assertFalse(
+			any(name.startswith("vector-") for name in result.assets)
+		)
+		self.assertIn("Field 1:", result.markdown)
+		self.assertIn("Value 5", result.markdown)
+
+	def test_table_lattice_is_not_reclassified_as_outline_artwork(self):
+		parts = []
+		for y in (560.0, 610.0, 660.0, 710.0):
+			parts.append(line_op(120.0, y, 480.0, y, 1))
+		for x in (120.0, 240.0, 360.0, 480.0):
+			parts.append(line_op(x, 560.0, x, 710.0, 1))
+		for row, y in enumerate((675.0, 625.0, 575.0)):
+			for column, x in enumerate((135.0, 255.0, 375.0)):
+				parts.append(
+					text_op(x, y, "R%dC%d" % (row + 1, column + 1), "F1", 9)
+				)
+		result = convert(
+			make_pdf([b"\n".join(parts)]),
+			ConvertOptions(assets_dir="assets", image_markup="auto"),
+		)
+		self.assertFalse(
+			any(name.startswith("vector-") for name in result.assets)
+		)
+		self.assertIn("<table>", result.markdown)
+		for row in range(1, 4):
+			for column in range(1, 4):
+				self.assertIn("R%dC%d" % (row, column), result.markdown)
 
 	def test_outline_only_display_formula_is_preserved_as_external_svg(self):
 		curve = (

@@ -16,6 +16,15 @@ class VectorFigure:
 	data: bytes
 	line_ids: Tuple[int, ...]
 	seq: int
+	alt: str = ""
+	glyph_ids: Tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class _OutlinedPanel:
+	bbox: Tuple[float, float, float, float]
+	segments: Tuple[Any, ...]
+	seq: int
 
 
 def detect_vector_figures(
@@ -25,7 +34,19 @@ def detect_vector_figures(
 ) -> List[VectorFigure]:
 	out: List[VectorFigure] = []
 	claimed: Dict[int, List[Tuple[float, float, float, float]]] = {}
-	for page, box, seq in _composite_diagram_boxes(converter):
+	diagram_boxes = list(_composite_diagram_boxes(converter))
+	diagram_boxes.extend(
+		_outlined_panel_diagram_boxes(converter, lines_by_page, table_boxes)
+	)
+	for page, box, seq in sorted(
+		diagram_boxes,
+		key=lambda item: (item[0], item[1][1], item[1][0], item[2]),
+	):
+		if any(
+			_overlap_ratio(box, previous) >= 0.80
+			for previous in claimed.get(page, [])
+		):
+			continue
 		if any(
 			image.page == page
 			and box[0] <= (image.x0 + image.x1) / 2 <= box[2]
@@ -50,6 +71,8 @@ def detect_vector_figures(
 				data=svg,
 				line_ids=tuple(line_ids),
 				seq=seq,
+				alt=_vector_alt(lines),
+				glyph_ids=_vector_glyph_ids(lines),
 			)
 		)
 		claimed.setdefault(page, []).append(box)
@@ -134,6 +157,8 @@ def detect_vector_figures(
 				data=svg,
 				line_ids=tuple(line_ids),
 				seq=fill.seq,
+				alt=_vector_alt(lines),
+				glyph_ids=_vector_glyph_ids(lines),
 			)
 		)
 		claimed.setdefault(fill.page, []).append(box)
@@ -199,6 +224,310 @@ def _capture_lines(
 			lines.append(line)
 			line_ids.append(id(line))
 	return lines, line_ids
+
+
+def _outlined_panel_diagram_boxes(
+	converter: Any,
+	lines_by_page: Dict[int, List[Any]],
+	table_boxes: Dict[int, List[Tuple[float, float, float, float]]],
+) -> List[Tuple[int, Tuple[float, float, float, float], int]]:
+	"""Find diagram-like constellations made only from labeled outline panels.
+
+	An absence of fills, connectors, or arrowheads is not proof that independent
+	closed rectangles are prose.  Some PDF producers paint a flow or architecture
+	sequence as staggered labeled boxes only.  Preserve those strokes and labels
+	together when the geometry supplies several independent signals:
+
+	* at least four closed, similarly sized, labeled panels;
+	* panels distributed over three or more horizontal axes and multiple rows;
+	* no dominant one/two-column form pattern;
+	* no table lattice overlap; and
+	* almost all text in the captured region belongs to a panel.
+
+	The last conditions deliberately prefer a plain-text false negative over
+	swallowing a form, table, or nearby paragraph into an SVG.
+	"""
+	segments_by_page: Dict[int, List[Any]] = {}
+	for segment in converter.segments:
+		if segment.horizontal or segment.vertical:
+			segments_by_page.setdefault(segment.page, []).append(segment)
+	out: List[Tuple[int, Tuple[float, float, float, float], int]] = []
+	for page, page_segments in segments_by_page.items():
+		panels = [
+			panel
+			for panel in _closed_outline_panels(page_segments)
+			if not any(
+				_overlap_ratio(panel.bbox, table_box) >= 0.45
+				or _contains(panel.bbox, table_box, 2.0)
+				for table_box in table_boxes.get(page, [])
+			)
+		]
+		if len(panels) < 4:
+			continue
+		lines = lines_by_page.get(page, [])
+		for group in _nearby_panel_groups(panels):
+			if len(group) < 4 or _form_column_pattern(group):
+				continue
+			widths = sorted(panel.bbox[2] - panel.bbox[0] for panel in group)
+			heights = sorted(panel.bbox[3] - panel.bbox[1] for panel in group)
+			median_width = widths[len(widths) // 2]
+			median_height = heights[len(heights) // 2]
+			if widths[-1] > widths[0] * 2.25 or heights[-1] > heights[0] * 2.0:
+				continue
+			x_clusters = _position_clusters(
+				[(panel.bbox[0] + panel.bbox[2]) / 2.0 for panel in group],
+				max(12.0, median_width * 0.22),
+			)
+			y_clusters = _position_clusters(
+				[(panel.bbox[1] + panel.bbox[3]) / 2.0 for panel in group],
+				max(6.0, median_height * 0.40),
+			)
+			if len(x_clusters) < 3 or len(y_clusters) < 2:
+				continue
+			panel_texts = [_panel_text(panel.bbox, lines) for panel in group]
+			if sum(bool(text) for text in panel_texts) < math.ceil(len(group) * 0.80):
+				continue
+			if any(text and (len(text) > 48 or not any(char.isalpha() for char in text)) for text in panel_texts):
+				continue
+			box = _union_boxes([panel.bbox for panel in group])
+			page_width, page_height = converter.page_sizes.get(page, (612.0, 792.0))
+			width = box[2] - box[0]
+			height = box[3] - box[1]
+			if width < median_width * 2.75 or height < median_height * 1.40:
+				continue
+			if width * height > page_width * page_height * 0.28:
+				continue
+			if _region_panel_text_ratio(box, group, lines) < 0.82:
+				continue
+			if any(
+				image.page == page
+				and box[0] <= (image.x0 + image.x1) / 2.0 <= box[2]
+				and box[1] <= (image.y0 + image.y1) / 2.0 <= box[3]
+				for image in converter.images
+			):
+				continue
+			padding = max(
+				1.0,
+				max(segment.width for panel in group for segment in panel.segments) / 2.0 + 0.5,
+			)
+			padded = (
+				max(0.0, box[0] - padding),
+				max(0.0, box[1] - padding),
+				min(page_width, box[2] + padding),
+				min(page_height, box[3] + padding),
+			)
+			out.append((page, padded, min(panel.seq for panel in group)))
+	return out
+
+
+def _closed_outline_panels(segments: Sequence[Any]) -> List[_OutlinedPanel]:
+	tolerance = 2.5
+	horizontal = sorted(
+		(
+			(
+				min(segment.x0, segment.x1),
+				max(segment.x0, segment.x1),
+				(segment.y0 + segment.y1) / 2.0,
+				segment,
+			)
+			for segment in segments
+			if segment.horizontal and 36.0 <= segment.length <= 320.0
+		),
+		key=lambda item: (item[2], item[0], item[1], item[3].seq),
+	)
+	vertical = [
+		segment
+		for segment in segments
+		if segment.vertical and 8.0 <= segment.length <= 96.0
+	]
+	vertical_index: Dict[int, List[Any]] = {}
+	for segment in vertical:
+		x = (segment.x0 + segment.x1) / 2.0
+		vertical_index.setdefault(int(math.floor(x / tolerance)), []).append(segment)
+	found: Dict[Tuple[int, int, int, int], _OutlinedPanel] = {}
+	for index, first_info in enumerate(horizontal):
+		first_x0, first_x1, first_y, first = first_info
+		for second_x0, second_x1, second_y, second in horizontal[index + 1 :]:
+			height = second_y - first_y
+			if height > 96.0:
+				break
+			if height < 8.0:
+				continue
+			if (
+				abs(first_x0 - second_x0) > tolerance
+				or abs(first_x1 - second_x1) > tolerance
+			):
+				continue
+			x0 = (first_x0 + second_x0) / 2.0
+			x1 = (first_x1 + second_x1) / 2.0
+			left = _matching_vertical_edge(
+				vertical_index,
+				x0,
+				first_y,
+				second_y,
+				tolerance,
+			)
+			right = _matching_vertical_edge(
+				vertical_index,
+				x1,
+				first_y,
+				second_y,
+				tolerance,
+			)
+			if left is None or right is None or left is right:
+				continue
+			bbox = (x0, first_y, x1, second_y)
+			key = tuple(int(round(value * 2.0)) for value in bbox)
+			panel_segments = (first, second, left, right)
+			candidate = _OutlinedPanel(
+				bbox=bbox,
+				segments=panel_segments,
+				seq=min(segment.seq for segment in panel_segments),
+			)
+			previous = found.get(key)
+			if previous is None or candidate.seq < previous.seq:
+				found[key] = candidate
+	return sorted(found.values(), key=lambda panel: (panel.bbox[1], panel.bbox[0], panel.seq))
+
+
+def _matching_vertical_edge(
+	segments_by_x: Dict[int, List[Any]],
+	x: float,
+	y0: float,
+	y1: float,
+	tolerance: float,
+) -> Any:
+	candidates = []
+	key = int(math.floor(x / tolerance))
+	segments = [
+		segment
+		for bucket in range(key - 1, key + 2)
+		for segment in segments_by_x.get(bucket, [])
+	]
+	for segment in segments:
+		segment_x = (segment.x0 + segment.x1) / 2.0
+		segment_y0, segment_y1 = sorted((segment.y0, segment.y1))
+		if abs(segment_x - x) > tolerance:
+			continue
+		if segment_y0 > y0 + tolerance or segment_y1 < y1 - tolerance:
+			continue
+		candidates.append(
+			(
+				abs(segment_x - x)
+				+ abs(segment_y0 - y0)
+				+ abs(segment_y1 - y1),
+				segment.seq,
+				segment,
+			)
+		)
+	return min(candidates, default=(0.0, 0, None))[2]
+
+
+def _nearby_panel_groups(panels: Sequence[_OutlinedPanel]) -> List[List[_OutlinedPanel]]:
+	if not panels:
+		return []
+	widths = sorted(panel.bbox[2] - panel.bbox[0] for panel in panels)
+	heights = sorted(panel.bbox[3] - panel.bbox[1] for panel in panels)
+	median_width = widths[len(widths) // 2]
+	median_height = heights[len(heights) // 2]
+	max_gap = max(24.0, min(72.0, median_width * 0.58 + median_height * 0.18))
+	remaining = set(range(len(panels)))
+	groups: List[List[_OutlinedPanel]] = []
+	while remaining:
+		seed = min(remaining)
+		remaining.remove(seed)
+		member_indexes = {seed}
+		frontier = [seed]
+		while frontier:
+			current = frontier.pop()
+			neighbors = [
+				index
+				for index in sorted(remaining)
+				if _boxes_distance(panels[current].bbox, panels[index].bbox) <= max_gap
+			]
+			for index in neighbors:
+				remaining.remove(index)
+				member_indexes.add(index)
+				frontier.append(index)
+		groups.append(
+			sorted(
+				(panels[index] for index in member_indexes),
+				key=lambda panel: (panel.bbox[1], panel.bbox[0], panel.seq),
+			)
+		)
+	return groups
+
+
+def _form_column_pattern(panels: Sequence[_OutlinedPanel]) -> bool:
+	widths = sorted(max(1.0, panel.bbox[2] - panel.bbox[0]) for panel in panels)
+	median_width = widths[len(widths) // 2]
+	clusters = _position_clusters(
+		[panel.bbox[0] for panel in panels],
+		max(12.0, min(30.0, median_width * 0.18)),
+	)
+	sizes = sorted((len(cluster) for cluster in clusters), reverse=True)
+	count = max(1, len(panels))
+	if sizes and sizes[0] / count >= 0.60:
+		return True
+	return (
+		len(sizes) >= 2
+		and sizes[1] >= max(2, math.ceil(count * 0.25))
+		and sum(sizes[:2]) / count >= 0.85
+	)
+
+
+def _position_clusters(values: Sequence[float], tolerance: float) -> List[List[float]]:
+	clusters: List[List[float]] = []
+	for value in sorted(values):
+		for cluster in clusters:
+			if abs(value - sum(cluster) / len(cluster)) <= tolerance:
+				cluster.append(value)
+				break
+		else:
+			clusters.append([value])
+	return clusters
+
+
+def _panel_text(
+	box: Tuple[float, float, float, float],
+	lines: Sequence[Any],
+) -> str:
+	chars = [
+		char
+		for line in lines
+		for char in line.chars
+		if char.text.strip()
+		and box[0] - 2.0 <= (char.x0 + char.x1) / 2.0 <= box[2] + 2.0
+		and box[1] - 2.0 <= (char.y0 + char.y1) / 2.0 <= box[3] + 2.0
+	]
+	return "".join(char.text for char in sorted(chars, key=lambda char: (char.y0, char.x0, char.seq))).strip()
+
+
+def _region_panel_text_ratio(
+	box: Tuple[float, float, float, float],
+	panels: Sequence[_OutlinedPanel],
+	lines: Sequence[Any],
+) -> float:
+	region_chars = [
+		char
+		for line in lines
+		for char in line.chars
+		if char.text.strip()
+		and box[0] <= (char.x0 + char.x1) / 2.0 <= box[2]
+		and box[1] <= (char.y0 + char.y1) / 2.0 <= box[3]
+	]
+	if not region_chars:
+		return 0.0
+	inside = sum(
+		1
+		for char in region_chars
+		if any(
+			panel.bbox[0] - 2.0 <= (char.x0 + char.x1) / 2.0 <= panel.bbox[2] + 2.0
+			and panel.bbox[1] - 2.0 <= (char.y0 + char.y1) / 2.0 <= panel.bbox[3] + 2.0
+			for panel in panels
+		)
+	)
+	return inside / len(region_chars)
 
 
 def _composite_diagram_boxes(
@@ -535,6 +864,30 @@ def _line_char_runs(line: Any) -> List[List[Any]]:
 	return runs
 
 
+def _vector_alt(lines: Sequence[Any]) -> str:
+	labels: List[str] = []
+	for line in sorted(lines, key=lambda item: (item.y0, item.x0, item.seq)):
+		for run in _line_char_runs(line):
+			text = "".join(
+				char.text
+				for char in sorted(run, key=lambda item: (item.x0, item.seq))
+			).strip()
+			if text and text not in labels:
+				labels.append(text)
+	alt = " · ".join(labels)
+	if len(alt) <= 240:
+		return alt
+	return alt[:237].rstrip() + "..."
+
+
+def _vector_glyph_ids(lines: Sequence[Any]) -> Tuple[int, ...]:
+	return tuple(sorted({
+		int(char.seq)
+		for line in lines
+		for char in line.chars
+	}))
+
+
 def _source_viewport_box(fill: Any) -> Tuple[float, float, float, float]:
 	"""Recover a tightly clipped vector viewport around an inset background."""
 	paint = (fill.x0, fill.y0, fill.x1, fill.y1)
@@ -607,6 +960,8 @@ def _group_adjacent_panels(
 				data=svg,
 				line_ids=tuple(sorted(set(left.line_ids + right.line_ids))),
 				seq=min(left.seq, right.seq),
+				alt=_vector_alt(lines),
+				glyph_ids=_vector_glyph_ids(lines),
 			)
 		)
 		i += 2

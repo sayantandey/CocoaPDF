@@ -15,8 +15,8 @@ SecondField: Beta
 
 **Diagram boxes below are not form controls.**
 
-Parse Layout Render
-
-Decode Reconcile
+<figure class="cocoapdf-figure cocoapdf-align-center">
+<img src="assets/vector-a60ea913b6a0a8ba.svg" alt="Parse · Layout · Render · Decode · Reconcile" style="width: 524.000pt; height: 60.000pt; max-width: 100%; object-fit: contain; display: block; margin-left: auto; margin-right: auto;" />
+</figure>
 
 **SecondField:** Beta

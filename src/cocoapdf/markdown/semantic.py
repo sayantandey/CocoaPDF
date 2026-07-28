@@ -138,7 +138,11 @@ def _render_inline(node: SemanticNode) -> str:
             return "<%s>" % href
         return "[%s](%s)" % (body, _escape_destination(href)) if href else body
     if node.kind == "cross_reference":
-        target = re.sub(r"[^A-Za-z0-9_.:-]", "-", str(node.attrs.get("target_anchor") or node.attrs.get("target_id", "")))
+        target = re.sub(
+            r"[^A-Za-z0-9_.:-]",
+            "-",
+            str(node.attrs.get("target_anchor") or node.attrs.get("target_id") or ""),
+        )
         return "[%s](#%s)" % (body, target) if target else body
     if node.kind == "footnote_ref":
         return "[^%s]" % _safe_label(str(node.attrs.get("label", node.id)))
@@ -284,7 +288,7 @@ def _render_toc(node: SemanticNode) -> str:
 
 def _render_toc_item(node: SemanticNode) -> str:
     level = max(1, int(node.attrs.get("level", 1)))
-    target = str(node.attrs.get("target_anchor") or node.attrs.get("target_id", ""))
+    target = str(node.attrs.get("target_anchor") or node.attrs.get("target_id") or "")
     body = _escape(node.text)
     if target:
         body = "[%s](#%s)" % (body, re.sub(r"[^A-Za-z0-9_.:-]", "-", target))

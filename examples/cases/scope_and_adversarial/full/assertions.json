@@ -20,6 +20,102 @@
     {
       "passed": true,
       "detail": "OCR remains disabled"
+    },
+    {
+      "passed": true,
+      "detail": "page-only outline destinations resolve to unique page headings"
+    },
+    {
+      "passed": true,
+      "detail": "unresolved navigation never emits a literal None anchor"
+    },
+    {
+      "passed": true,
+      "detail": "both full-document AcroForm fields are retained"
+    },
+    {
+      "passed": true,
+      "detail": "the finance grid remains a structural table"
+    },
+    {
+      "passed": true,
+      "detail": "five outlined diagram panels are retained as one vector figure"
+    },
+    {
+      "passed": true,
+      "detail": "all native diagram labels remain inside the vector figure"
+    },
+    {
+      "passed": true,
+      "detail": "the SVG retains the outlined-panel stroke geometry"
+    },
+    {
+      "passed": true,
+      "detail": "diagram labels are not flattened into false prose lines"
+    },
+    {
+      "passed": true,
+      "detail": "Markdown and HTML both reference the generated diagram asset"
+    },
+    {
+      "passed": true,
+      "detail": "semantic JSON records one vector image node"
+    },
+    {
+      "passed": true,
+      "detail": "the vector figure retains page-2 provenance"
+    },
+    {
+      "passed": true,
+      "detail": "the vector figure remains traceable to its source glyphs"
+    },
+    {
+      "passed": true,
+      "detail": "diagram labels provide deterministic alternative text"
+    },
+    {
+      "passed": true,
+      "detail": "the vector figure records PDF-native artwork evidence"
+    },
+    {
+      "passed": true,
+      "detail": "report geometry shows one page-spanning, multi-row diagram"
+    },
+    {
+      "passed": true,
+      "detail": "diagram preservation does not invoke image-text extraction"
+    },
+    {
+      "passed": true,
+      "detail": "SecondField has one page-scoped semantic field"
+    },
+    {
+      "passed": true,
+      "detail": "SecondField retains explicit PDF widget appearance evidence"
+    },
+    {
+      "passed": true,
+      "detail": "SecondField preserves its explicitly large text size"
+    },
+    {
+      "passed": true,
+      "detail": "SecondField preserves its dark blue-gray text color"
+    },
+    {
+      "passed": true,
+      "detail": "SecondField preserves its pale blue-gray background"
+    },
+    {
+      "passed": true,
+      "detail": "SecondField appearance remains traceable to independent PDF-native evidence"
+    },
+    {
+      "passed": true,
+      "detail": "HTML renders only the evidenced field with its size and colors"
+    },
+    {
+      "passed": true,
+      "detail": "documentary form output never creates an active browser control"
     }
   ]
 }

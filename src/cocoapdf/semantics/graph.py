@@ -313,6 +313,7 @@ def _figure_node(factory: NodeFactory, converter: Any, event: Any, attrs: Dict[s
     object_refs = tuple(value for value in (getattr(image, "object_ref", None), getattr(image, "link_object_ref", None), image.name) if value)
     image_source = SourceRef(
         page=image.page,
+        glyph_ids=tuple(getattr(image, "glyph_ids", ()) or ()),
         mcids=tuple(getattr(image, "mcids", ()) or ()),
         object_refs=object_refs,
         bbox=(image.x0, image.y0, image.x1, image.y1),

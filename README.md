@@ -153,10 +153,18 @@ Every accepted semantic element can retain evidence linking it back to its sourc
 
 ## Capability demo
 
-[Open the rendered, side-by-side capability demo](https://raw.githack.com/sayantandey/CocoaPDF/main/examples/review.html)
-or [browse its committed inputs and exact outputs](examples/README.md). The three
-complex source PDFs, fixture prose, and assets are first-party project material
-under the bundled MIT license; no downloaded content, OCR, AI, or ML is used.
+[Browse this revision's committed inputs and exact outputs](examples/README.md).
+On `main`, [open the rendered, side-by-side capability demo](https://raw.githack.com/sayantandey/CocoaPDF/main/examples/review.html).
+Same-repository pull requests receive a commit-pinned rendered-demo link in
+their description, so reviewing a child branch never silently opens `main`.
+For security, fork pull requests expose the generated review artifact but not
+a one-click third-party rendering of contributor-controlled HTML.
+
+The three complex source PDFs, fixture prose, and assets are first-party project
+material under the bundled MIT license; no downloaded content, OCR, AI, or ML
+is used. They remain separate because Tagged-PDF structure trees, AcroForm
+fields, and outlines are document-catalog semantics: concatenating their pages
+would change the evidence being tested rather than merely combine examples.
 
 The committed `examples/` tree is distinct from temporary pull-request review
 artifacts. CI regenerates it from the same case definitions and fails if any

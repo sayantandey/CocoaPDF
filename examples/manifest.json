@@ -25,20 +25,20 @@
               "sha256": "d82c113d8e7b4c998d5750f5ff0bb0bb5b4b9bd0e3782e17ae451fa94a9d255b"
             },
             "output.html": {
-              "bytes": 27279,
-              "sha256": "7b2f03fd9088213140b4745fa0d88795490947a9524faf99d5a6f46bd2cb1b23"
+              "bytes": 27683,
+              "sha256": "ce8417263be75d789faa8f0224566bdbe5d20bb4b6a20a7111f5a9176920adc1"
             },
             "output.json": {
-              "bytes": 2080924,
-              "sha256": "8d3baef8dedb69e6e89b8fbb976f344108ec21f72a3d952d055e8281266fc70a"
+              "bytes": 2089272,
+              "sha256": "3ba72c06c9e0323808cf1efa80ec02e00dbda837c8a03fc95bb929853e81272d"
             },
             "output.md": {
-              "bytes": 20064,
-              "sha256": "c4f68a52afa3539d08ec9730b7f7c1e4f15c36c1ac6f19899da3849600260955"
+              "bytes": 20178,
+              "sha256": "b8821b37921002f6621840d1c97d6968659b066cfa05bb1a73d1fa84debb2609"
             },
             "output.report.summary.json": {
-              "bytes": 9143,
-              "sha256": "71a6da94229dfe2df9cfb0ba03c9a1322fa387eb4c678b6468ea3a933e36b9ae"
+              "bytes": 9295,
+              "sha256": "af184bf00ac82648677dca642484bd98e0f814b623177f304d8a48ebe35fe7a9"
             }
           },
           "name": "full",
@@ -73,8 +73,8 @@
               "sha256": "d82c113d8e7b4c998d5750f5ff0bb0bb5b4b9bd0e3782e17ae451fa94a9d255b"
             },
             "output.html": {
-              "bytes": 2339,
-              "sha256": "b85d29364a2f898d2490fa71c8b9d5a2d01b15cfebd138319d1af901e3e384f2"
+              "bytes": 2629,
+              "sha256": "dff1ae716320832e25290e9061dad0d2aafe73e6a033af63d970160281713767"
             },
             "output.json": {
               "bytes": 30291,
@@ -117,28 +117,32 @@
         {
           "files": {
             "assertions.json": {
-              "bytes": 447,
-              "sha256": "fb13e84706128e132c38c5dd73cb42d8274383adeb0639783b20cc9b0b2c304c"
+              "bytes": 3057,
+              "sha256": "8372819d8f9bbeb5a42d14dacbccbdba1a131709999793a71ab4411ff0c56c84"
+            },
+            "assets/vector-a60ea913b6a0a8ba.svg": {
+              "bytes": 3326,
+              "sha256": "a60ea913b6a0a8bad9fed7d74a6877169569170294465edd74215f13c5b968f7"
             },
             "command.json": {
               "bytes": 309,
               "sha256": "d82c113d8e7b4c998d5750f5ff0bb0bb5b4b9bd0e3782e17ae451fa94a9d255b"
             },
             "output.html": {
-              "bytes": 3208,
-              "sha256": "fc40bb68321d90b39ba80fe53f79b7362625121c9c37706e4cb477dd7349d20b"
+              "bytes": 4176,
+              "sha256": "f77a021271bb348ea844334527d809251ab1bd722f94413fc388586d9910ac30"
             },
             "output.json": {
-              "bytes": 84822,
-              "sha256": "2eba1268ff0d82011553b0fb2acfd24cbeb961941d0578749a7e42c6c074f322"
+              "bytes": 91712,
+              "sha256": "9b73f5991d2b0dfbf42207e9cee324a99935787bcb9906dd9dc28beaf14dcb5e"
             },
             "output.md": {
-              "bytes": 716,
-              "sha256": "8b251163e19990610425fa05d8bb493467fe3439c510ca39582a82df799e7390"
+              "bytes": 1015,
+              "sha256": "f1d230d02b1024e249e19fd10534c50d14c7a6ce14335afaebc4d8980d847ff5"
             },
             "output.report.summary.json": {
-              "bytes": 1580,
-              "sha256": "6699ef9ad69cb1f078608b48f30c3ae4dde9893af4a3121423efbf46a7befcec"
+              "bytes": 2647,
+              "sha256": "441f3f9f20480a06785b930f6e32c599dd1f239765e9e718843523dcb471c817"
             }
           },
           "name": "full",
@@ -148,28 +152,32 @@
         {
           "files": {
             "assertions.json": {
-              "bytes": 1433,
-              "sha256": "91140935b66d91c0b439ef7301403d81ea83eae69d1246a362d6e24eb46998c8"
+              "bytes": 3620,
+              "sha256": "8e95e32e16749f7283f8d57dd4290e4a2df2fb4ca81677027d0a15a9535b8adc"
+            },
+            "assets/vector-a60ea913b6a0a8ba.svg": {
+              "bytes": 3326,
+              "sha256": "a60ea913b6a0a8bad9fed7d74a6877169569170294465edd74215f13c5b968f7"
             },
             "command.json": {
               "bytes": 332,
               "sha256": "179d6e7aeced8baa4f7edc6730aa0e6136f18b93679700e9d4f9791f111996d3"
             },
             "output.html": {
-              "bytes": 2526,
-              "sha256": "1d511d6dfa8465a99b4a77c5c7b1f8befdbc178ff63c4dfbb27eff1e34685842"
+              "bytes": 3461,
+              "sha256": "d13e1d2604778b7c4e464f13aa707a528af55c127caa39eedc4716327f9a5701"
             },
             "output.json": {
-              "bytes": 70261,
-              "sha256": "30aee40b2d36be8c95c317661d3bc831c7f197786c4a7894bfb008be85637818"
+              "bytes": 76841,
+              "sha256": "6e37d854cc4b1ddfd13efae52882cb7d4b484ad83558d8b3e331aeea2624e545"
             },
             "output.md": {
-              "bytes": 554,
-              "sha256": "38058450917cf47dc178349d20299d69a89f4ca99eb52583fe0e97ccd2a374b8"
+              "bytes": 822,
+              "sha256": "01143b441ec530bff0e90903f11414327140b104ca29e78be33ae24067ddd33b"
             },
             "output.report.summary.json": {
-              "bytes": 1549,
-              "sha256": "4ad05489c37095f4282b79b20c0cc0b2c91bdf558a3dd11937f0388a0d261a7d"
+              "bytes": 2616,
+              "sha256": "5485e5279ac36dec7759bc563e8d226eb65313947391529ceda3c6b7dfc941c1"
             }
           },
           "name": "page-2",
@@ -177,12 +185,12 @@
           "passed": true
         }
       ],
-      "description": "Page-range outline/AcroForm scope, dot-leader finance recovery, and diagram-versus-form false-positive resistance.",
+      "description": "Page-range outline/AcroForm scope, valid heading anchors, dot-leader finance recovery, and two-sided diagram-versus-form/table fidelity.",
       "id": "scope_and_adversarial",
       "input": {
-        "bytes": 3715,
+        "bytes": 4189,
         "deterministic": true,
-        "sha256": "0a697b6632d7ebe49f862c3b9e89273ca97b5a50771913332ce3c9ba53406e3e"
+        "sha256": "ac3c2b4cb08751c636aae3e8ca561328e09996e3e0c1470b55830039c9b54872"
       },
       "provenance": {
         "font_programs_embedded": false,
@@ -196,8 +204,18 @@
       }
     }
   ],
+  "fixture_isolation": {
+    "catalog_scoped_features": [
+      "StructTreeRoot",
+      "ParentTree",
+      "AcroForm",
+      "Outlines"
+    ],
+    "combined_pdf": false,
+    "reason": "Page concatenation would alter document-global evidence and weaken failure attribution."
+  },
   "generator": "validation/pr_visual/build.py",
-  "generator_sha256": "3e7c8fd949c347c47942e8b023747ca08257c63ef724bda2e89c085cf796b7d2",
+  "generator_sha256": "8a814c58de678c9556ae0d5e7919dc56933b61d260b57c1deccc787531e88f50",
   "head_commit": null,
   "license": {
     "file": "LICENSE.txt",

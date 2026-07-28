@@ -16,6 +16,13 @@ represented by the committed demo without writing generated files into it.
    outlines, page-bound AcroForm widgets, a dot-leader financial statement,
    and diagram boxes that must not be hallucinated as form controls.
 
+These are deliberately not concatenated into one PDF. `StructTreeRoot` and its
+parent tree, AcroForm, and outlines are catalog-scoped object graphs, not
+page-local decorations. A page append would either discard those semantics or
+create a partially tagged hybrid whose evidence no longer matches the isolated
+test. The permanent demo presents one corpus, while retaining three inputs is
+what keeps each failure attributable and the source/output comparison honest.
+
 For each input, the runner emits CocoaPDF Markdown, HTML, semantic JSON, report
 JSON, extracted assets, hashes, and explicit contract results. The artifact
 also contains `review.html` for side-by-side input/output inspection and
@@ -42,8 +49,10 @@ permanent `examples/` demo. Artifacts are retained for at most seven days and
 are deleted when the pull request closes or merges.
 
 For same-repository pull requests, the workflow maintains one delimited block
-in the PR description containing the current artifact link and digest. When
-the PR closes, the workflow replaces that block with an explicit deletion
+in the PR description containing the current artifact link and digest. While
+the PR is open, the same block includes an immutable rendered-demo URL pinned
+to the exact head commit; the stable public demo remains explicitly on `main`.
+When the PR closes, the workflow replaces that block with an explicit deletion
 notice, the reviewed head SHA, the cleanup run, and a link to the permanent
 demo. A merged PR therefore never retains a live-looking link to a deleted
 artifact. Fork and automation-token restrictions may prevent description
