@@ -669,6 +669,29 @@ cocoapdf input.pdf \
 
 ---
 
+### Independent HTML projection
+
+Markdown and HTML are sibling projections of the reconciled semantic graph.
+HTML is not produced by converting CocoaPDF's Markdown back into a document.
+The HTML renderer emits native headings, sections, lists and disabled task
+controls, figures and captions, table header scopes and spans, footnote and
+bibliography roles, language and direction attributes, documentary form
+fields, MathML, and responsive/print CSS. Semantic elements also carry stable
+node, confidence, and source-page data attributes for inspection.
+If the rich HTML renderer fails, the emergency path emits only escaped text
+from the semantic graph; it does not fall back to reparsing Markdown.
+
+A closed allowlist retains internally generated HTML-only fragments when the
+typed graph cannot yet represent their complete geometry, including styled
+column and callout containers and printed form appearances. PDF text is still
+escaped, unsafe link schemes are dropped, PDF actions are never executed, and
+AcroForm extraction does not create a submit-capable browser form.
+
+Markdown keeps its established lossless layout reconciliation path. Changes to
+HTML projection therefore cannot rewrite Markdown bytes.
+
+---
+
 ## Python API
 
 ```python

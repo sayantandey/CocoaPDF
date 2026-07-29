@@ -340,6 +340,7 @@ class BlockEvent:
 	lines: List[Line] = field(default_factory=list)
 	attrs: Dict[str, Any] = field(default_factory=dict)
 	legacy_markdown: str = ""
+	semantic: Dict[str, Any] = field(default_factory=dict)
 
 
 class PdfSyntaxError(Exception):
@@ -1205,6 +1206,8 @@ class Converter:
 				"html": "semantic_graph",
 				"json": "semantic_graph",
 			}
+			report["markdown_projection"] = "refused"
+			report["html_projection"] = "direct_semantic_html"
 			report["warnings"] = [warning.__dict__ for warning in self.doc.warnings]
 			result = ConvertResult(
 				markdown="",
@@ -1272,7 +1275,7 @@ class Converter:
 			"html": "semantic_graph",
 			"json": "semantic_graph",
 		}
-		report["output_projection"] = "semantic_graph_with_lossless_layout_reconciliation"
+		report["output_projection"] = "independent_semantic_projections_with_lossless_layout_reconciliation"
 		try:
 			from .semantics.output import render_reconciled_outputs
 
@@ -1280,15 +1283,22 @@ class Converter:
 		except Exception as exc:
 			self.doc.warn("SEMANTIC_OUTPUT_FAILED", str(exc))
 			markdown = layout_markdown
-			from .html.render import render_html
+			from .html.semantic import render_minimal_semantic_html
+			from .semantics.output import _strip_layout_hints
 
-			html = render_html(markdown, report)
+			html = render_minimal_semantic_html(semantic_document)
+			_strip_layout_hints(semantic_document)
 			report["semantic_output_used"] = False
 			report["output_derivation"] = {
 				"markdown": "layout_renderer_fallback",
-				"html": "markdown_html_renderer_fallback",
+				"html": "minimal_semantic_html_fallback",
 				"json": "semantic_graph",
 			}
+			report["markdown_projection"] = "layout_renderer_fallback"
+			report["html_projection"] = "minimal_semantic_html_fallback"
+			report["output_projection"] = (
+				"layout_markdown_and_minimal_semantic_html_fallback"
+			)
 		from .reporting.report import attach_semantic_document
 
 		attach_semantic_document(report, semantic_document, require_provenance=True)
@@ -2670,6 +2680,12 @@ class MarkdownRenderer:
 					caption_event.attrs["merged_into_table"] = True
 					page_events[0].attrs["cross_page_caption"] = caption
 					page_events[0].legacy_markdown = page_blocks[0]
+					from .semantics.records import semantic_block_record
+
+					page_events[0].semantic = semantic_block_record(
+						"table",
+						page_blocks[0],
+					)
 			if blocks and page_blocks and not self.conv.options.page_breaks:
 				continued_table = merge_gfm_table_blocks(blocks[-1], page_blocks[0])
 				if continued_table is not None:
@@ -2729,6 +2745,8 @@ class MarkdownRenderer:
 		lines: Optional[Sequence[Line]] = None,
 		attrs: Optional[Dict[str, Any]] = None,
 	) -> Tuple[float, str]:
+		from .semantics.records import semantic_block_record
+
 		event = BlockEvent(
 			page=page,
 			rank=float(rank),
@@ -2736,6 +2754,7 @@ class MarkdownRenderer:
 			lines=list(lines or []),
 			attrs=dict(attrs or {}),
 			legacy_markdown=legacy_markdown,
+			semantic=semantic_block_record(kind, legacy_markdown),
 		)
 		self.block_events_by_page.setdefault(page, []).append(event)
 		return (event.rank, legacy_markdown)

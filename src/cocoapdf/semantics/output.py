@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Iterable, List, Tuple
 
-from ..html.render import render_html
 from ..html.semantic import render_semantic_html
 from ..ir.semantic import SemanticDocument, SemanticNode
 from ..markdown.semantic import render_semantic_markdown
@@ -14,25 +13,44 @@ def render_reconciled_outputs(
     document: SemanticDocument,
     report: Dict[str, Any],
 ) -> Tuple[str, str]:
-    """Render one semantic graph without sacrificing lossless layout blocks.
+    """Render independent Markdown and HTML projections of one semantic graph.
 
-    Verified tagged structure is authoritative and is rendered directly. For
-    untagged PDFs, the mature geometry renderer remains the lossless projection;
-    semantic nodes replace only blocks they actually enrich (notes, references,
-    cross-references, or rotated tables), while PDF-native outline and AcroForm
-    nodes are inserted as new documentary content.
+    Verified tagged structure is authoritative and is rendered directly.  For
+    untagged PDFs, the mature geometry renderer remains the lossless Markdown
+    projection; semantic nodes replace only blocks they actually enrich.  HTML
+    is always rendered directly from the typed semantic document.  A small,
+    closed set of verified generated fragments preserves HTML-only geometry
+    such as MathML, printed controls, and styled column/callout containers.
     """
+    report["html_projection"] = "direct_semantic_html"
     tagged = document.metadata.get("tagged_pdf")
     if isinstance(tagged, dict) and tagged.get("present"):
+        report["markdown_projection"] = "direct_verified_tagged_semantics"
+        for node in document.walk():
+            if node.kind == "table" and any(
+                candidate.attrs.get("tagged_node_id")
+                for candidate in node.walk()
+            ):
+                node.attrs.pop("_layout_html", None)
         markdown = render_semantic_markdown(document)
         html = render_semantic_html(document)
         _strip_layout_hints(document)
         return markdown, html
 
     enriched_layout = _overlay_changed_blocks(layout_markdown, document)
+    report["markdown_projection"] = "lossless_layout_reconciliation"
     enriched_layout = _remove_reconciled_footnote_anchors(enriched_layout, document)
     toc_nodes = _outline_toc_nodes(document, enriched_layout)
     form_nodes = _acroform_nodes(document)
+    emitted_toc_ids = {node.id for node in toc_nodes}
+    for node in document.children:
+        if (
+            node.kind == "toc"
+            and node.attrs.get("source") == "pdf_outline"
+            and "_layout_markdown" not in node.attrs
+            and node.id not in emitted_toc_ids
+        ):
+            node.attrs["_html_suppressed"] = True
 
     markdown_parts: List[str] = []
     if toc_nodes:
@@ -44,11 +62,7 @@ def render_reconciled_outputs(
     markdown = "\n\n".join(part.strip() for part in markdown_parts if part.strip())
     markdown += "\n" if markdown else ""
 
-    html = render_html(enriched_layout, report)
-    if toc_nodes:
-        html = _insert_after_body(html, _render_html_nodes(toc_nodes, document))
-    if form_nodes:
-        html = _insert_before_body_end(html, _render_html_nodes(form_nodes, document))
+    html = render_semantic_html(document)
     _strip_layout_hints(document)
     return markdown, html
 
@@ -145,29 +159,9 @@ def _render_markdown_nodes(nodes: Iterable[SemanticNode], source: SemanticDocume
     return render_semantic_markdown(fragment)
 
 
-def _render_html_nodes(nodes: Iterable[SemanticNode], source: SemanticDocument) -> str:
-    fragment = SemanticDocument(
-        children=list(nodes),
-        metadata=dict(source.metadata),
-        warnings=[],
-        version=source.version,
-    )
-    return render_semantic_html(fragment, full_document=False)
-
-
-def _insert_after_body(html: str, fragment: str) -> str:
-    if not fragment.strip():
-        return html
-    return html.replace("<body>\n", "<body>\n%s\n" % fragment.strip(), 1)
-
-
-def _insert_before_body_end(html: str, fragment: str) -> str:
-    if not fragment.strip():
-        return html
-    return html.replace("\n</body>", "\n%s\n</body>" % fragment.strip(), 1)
-
-
 def _strip_layout_hints(document: SemanticDocument) -> None:
     for node in document.walk():
         node.attrs.pop("_layout_markdown", None)
         node.attrs.pop("_layout_kind", None)
+        node.attrs.pop("_layout_html", None)
+        node.attrs.pop("_html_suppressed", None)

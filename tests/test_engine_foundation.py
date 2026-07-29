@@ -1201,8 +1201,10 @@ class FoundationDiagnosticTests(unittest.TestCase):
 				text_op(365, 615, "42.75", "F1", 10),
 			]
 		)
-		markdown = convert(make_pdf([b"\n".join(parts)]), ConvertOptions()).markdown
-		self.assertIn("| --- | :---: | ---: |", markdown)
+		result = convert(make_pdf([b"\n".join(parts)]), ConvertOptions())
+		self.assertIn("| --- | :---: | ---: |", result.markdown)
+		self.assertIn('style="text-align: center;"', result.html)
+		self.assertIn('style="text-align: right;"', result.html)
 
 	def test_aligned_prose_without_numeric_column_evidence_stays_prose(self):
 		stream = b"\n".join(

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-import html as html_module
 import re
 from typing import Any, Dict, List, Optional
 
 from .css import DEFAULT_CSS
-from .sanitize import escape_text, safe_asset_href, safe_href
+from .sanitize import (
+	escape_text,
+	is_safe_generated_html,
+	safe_asset_href,
+	safe_href,
+)
 
 
 def render_html(markdown: str, report: Optional[Dict[str, Any]] = None) -> str:
@@ -89,7 +93,7 @@ def _render_block(block: str, slug_counts: Optional[Dict[str, int]] = None) -> s
 		lines = stripped.splitlines()
 		code = "\n".join(lines[1:-1])
 		return "<pre><code>%s</code></pre>" % escape_text(code)
-	if _looks_like_safe_generated_html(stripped):
+	if is_safe_generated_html(stripped):
 		return stripped
 	if re.match(r"^!\[[^\]]*\]\([^()]+\)$", stripped):
 		return _render_image(stripped)
@@ -211,123 +215,9 @@ def _render_list_siblings(nodes: List[Dict[str, Any]]) -> str:
 	return "\n".join(parts)
 
 
-def _looks_like_safe_generated_html(block: str) -> bool:
-	# Only pass through HTML shapes emitted by CocoaPDF itself. This keeps the
-	# Markdown-to-HTML preview from escaping table/callout fallbacks without
-	# opening a general raw-HTML passthrough for arbitrary PDF text.
-	if re.match(r"^<table>[\s\S]*</table>$", block):
-		return not re.search(r"<script|on\w+=|javascript:", block, re.I)
-	if re.match(r"^<div style=\"border: 1px solid #[0-9a-fA-F]{6}; background: #[0-9a-fA-F]{6}; padding: 12px;\">[\s\S]*</div>$", block):
-		return not re.search(r"<script|on\w+=|javascript:", block, re.I)
-	if re.match(
-		r'^<div class="cocoapdf-columns" style="columns: 2; column-gap: 2rem; '
-		r'border-left: [1-9][0-9]*px solid #[0-9a-fA-F]{6}; padding-left: [0-9.]+rem;">[\s\S]*</div>$',
-		block,
-	):
-		if re.search(r"<script|<style|<iframe|on\w+\s*=|javascript:", block, re.I):
-			return False
-		tags = {tag.lower() for tag in re.findall(r"</?([A-Za-z][A-Za-z0-9]*)", block)}
-		if not tags <= {"div", "p", "strong", "em", "code", "del", "u", "sup", "sub", "mark", "a", "br"}:
-			return False
-		return all(safe_href(html_module.unescape(href)) is not None for href in re.findall(r'<a[^>]+href="([^"]+)"', block))
-	if re.match(
-		r'^<div class="cocoapdf-form-appearance" data-cocoapdf-kind="printed">[\s\S]*</div>$',
-		block,
-	):
-		if re.search(r"<script|<style|<iframe|on\w+\s*=|javascript:|formaction=|name=", block, re.I):
-			return False
-		tags = {tag.lower() for tag in re.findall(r"</?([A-Za-z][A-Za-z0-9]*)", block)}
-		if not tags <= {"div", "label", "input", "select", "option"}:
-			return False
-		inputs = re.findall(r"<input\b[^>]*?/>", block)
-		if not inputs or any(
-			re.fullmatch(r'<input type="text" value="[^"]*" disabled />', item) is None
-			and re.fullmatch(r'<input type="checkbox"(?: checked)? disabled />', item) is None
-			for item in inputs
-		):
-			return False
-		selects = re.findall(r"<select\b[\s\S]*?</select>", block)
-		return all(
-			re.fullmatch(
-				r"<select disabled>\s*<option selected>[^<]*</option>\s*</select>",
-				item,
-			) is not None
-			for item in selects
-		)
-	if re.match(r"^<p align=\"(?:center|right)\">[\s\S]*</p>$", block):
-		return not re.search(r"<script|on\w+=|javascript:", block, re.I)
-	if re.match(r"^<p style=\"text-indent: [0-9.]+em;\">[\s\S]*</p>$", block):
-		return not re.search(r"<script|on\w+=|javascript:", block, re.I)
-	if re.match(r'^<p dir="rtl">[\s\S]*</p>$', block):
-		if re.search(r"<script|<style|on\w+\s*=|javascript:", block, re.I):
-			return False
-		tags = {tag.lower() for tag in re.findall(r"</?([A-Za-z][A-Za-z0-9]*)", block)}
-		if not tags <= {"p", "strong", "em", "code", "del", "u", "sup", "sub", "mark", "a", "br"}:
-			return False
-		return all(safe_href(html_module.unescape(href)) is not None for href in re.findall(r'<a[^>]+href="([^"]+)"', block))
-	if re.match(r'^<math display="block">[\s\S]*</math>$', block):
-		if re.search(r"<script|<style|on\w+\s*=|javascript:", block, re.I):
-			return False
-		tags = {tag.lower() for tag in re.findall(r"</?([A-Za-z][A-Za-z0-9]*)", block)}
-		return tags <= {"math", "mrow", "mi", "mn", "mo", "msup", "msub", "msubsup", "mfrac", "msqrt"}
-	if re.match(r"^<img src=\"[^\"]+\" alt=\"[^\"]*\" width=\"[0-9]+\" height=\"[0-9]+\"(?: style=\"[^\"]*\")? />$", block):
-		return not re.search(r"<script|on\w+=|javascript:", block, re.I)
-	if re.match(r"^<a id=\"[A-Za-z0-9._~:-]+\"></a>$", block):
-		return True
-	if re.match(r"^<!-- page \d+(?:: [A-Za-z0-9 ()?_-]+)? -->$", block):
-		return True
-	if _looks_like_safe_generated_figure(block):
-		return True
-	return False
-
-
-def _looks_like_safe_generated_figure(block: str) -> bool:
-	if not re.match(
-		r'^<figure class="cocoapdf-figure '
-		r'cocoapdf-align-(?:left|center|right)">[\s\S]*</figure>$',
-		block,
-	):
-		return False
-	if re.search(
-		r"<script|<style|<iframe|<object|<embed|on\w+\s*=|javascript:",
-		block,
-		re.I,
-	):
-		return False
-	tags = {
-		tag.lower()
-		for tag in re.findall(r"</?([A-Za-z][A-Za-z0-9]*)", block)
-	}
-	if not tags <= {"figure", "img", "a", "figcaption"}:
-		return False
-	for source in re.findall(r'<img[^>]+src="([^"]+)"', block):
-		if not _is_safe_generated_asset_source(html_module.unescape(source)):
-			return False
-	for href in re.findall(r'<a[^>]+href="([^"]+)"', block):
-		if safe_href(html_module.unescape(href)) is None:
-			return False
-	for style in re.findall(r'<img[^>]+style="([^"]+)"', block):
-		if not re.fullmatch(
-			r"width: [0-9.]+pt; height: [0-9.]+pt; "
-			r"max-width: 100%; object-fit: contain;"
-			r"(?: display: block; margin-left: auto;(?: margin-right: auto;)?)?",
-			style,
-		):
-			return False
-	return True
-
-
-def _is_safe_generated_asset_source(source: str) -> bool:
-	if safe_asset_href(source) is not None:
-		return True
-	if not re.fullmatch(
-		r"[A-Za-z]:[/\\][^\x00-\x1f\x7f<>\"|?*]+\.(?:png|jpe?g|gif|webp|svg)",
-		source,
-		re.I,
-	):
-		return False
-	parts = [part for part in re.split(r"[/\\]+", source[3:]) if part]
-	return bool(parts) and all(part not in (".", "..") for part in parts)
+# Kept as a private compatibility alias for callers that imported the helper
+# before it became part of the semantic-output boundary.
+_looks_like_safe_generated_html = is_safe_generated_html
 
 
 def render_inline_fragment(markdown: str) -> str:

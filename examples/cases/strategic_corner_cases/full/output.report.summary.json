@@ -56,6 +56,7 @@
   "description": "Deterministic PDF-to-Markdown/HTML conversion for structured text-layer PDFs. No OCR. No AI.",
   "encrypted": false,
   "fills": 337,
+  "html_projection": "direct_semantic_html",
   "image_text_extraction_attempted": false,
   "images": 6,
   "images_detail": [
@@ -288,6 +289,7 @@
       ]
     }
   ],
+  "markdown_projection": "lossless_layout_reconciliation",
   "mode_per_page": [
     "geometric",
     "geometric",
@@ -304,7 +306,7 @@
     "json": "semantic_graph",
     "markdown": "semantic_graph"
   },
-  "output_projection": "semantic_graph_with_lossless_layout_reconciliation",
+  "output_projection": "independent_semantic_projections_with_lossless_layout_reconciliation",
   "pages": 8,
   "parser_mode": "xref",
   "processed_pages": [
@@ -355,7 +357,7 @@
     "toc_item",
     "underline"
   ],
-  "semantic_node_count": 1103,
+  "semantic_node_count": 1150,
   "semantic_output_used": true,
   "semantic_schema": "cocoapdf.semantic-document/v2",
   "semantic_valid": true,

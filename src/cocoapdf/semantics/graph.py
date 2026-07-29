@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..ir.evidence import Evidence
@@ -8,6 +9,11 @@ from ..ir.semantic import NodeFactory, SemanticDocument, SemanticNode, SourceRef
 from .forms import extract_acroform
 from .navigation import extract_outline, outline_to_toc, reconstruct_visible_toc
 from .notes import enrich_notes_references_crossrefs
+from .records import (
+    canonical_list_records,
+    canonical_quote_records,
+    gfm_table_alignments,
+)
 from .source import inline_nodes_from_tokens, line_identifier, region_index, sources_from_lines
 from .tables import build_table_node, merge_continued_tables
 
@@ -20,15 +26,33 @@ def build_semantic_graph(converter: Any, renderer: Any, events_by_page: Dict[int
         "title": _metadata_title(converter.doc) or "CocoaPDF Document",
         "producer": _metadata_value(converter.doc, "Producer"),
         "creator": _metadata_value(converter.doc, "Creator"),
+        "language": _catalog_language(converter.doc) or None,
         "source": "pdf_operators_and_structure",
-        "output_policy": "markdown_first_html_fallback",
+        "output_policy": "independent_semantic_projections",
+        "markdown_projection": "lossless_layout_reconciliation",
+        "html_projection": "semantic_html_with_lossless_generated_fragments",
         "ocr_used": False,
         "page_selection_active": converter.options.pages is not None,
         "processed_pages": sorted(converter.processed_pages),
     }, version="2")
     for page in sorted(events_by_page):
         page_nodes: List[SemanticNode] = []
-        for event in sorted(events_by_page[page], key=lambda item: item.rank):
+        page_events = sorted(events_by_page[page], key=lambda item: item.rank)
+        event_index = 0
+        while event_index < len(page_events):
+            event = page_events[event_index]
+            if event.kind == "list":
+                grouped = [event]
+                event_index += 1
+                while (
+                    event_index < len(page_events)
+                    and page_events[event_index].kind == "list"
+                ):
+                    grouped.append(page_events[event_index])
+                    event_index += 1
+                event = _combine_list_events(grouped)
+            else:
+                event_index += 1
             node = _event_node(factory, converter, renderer, event, regions_by_line, region_by_id)
             if node is not None:
                 page_nodes.append(node)
@@ -64,6 +88,39 @@ def build_semantic_graph(converter: Any, renderer: Any, events_by_page: Dict[int
     return document
 
 
+def _combine_list_events(events: Sequence[Any]) -> Any:
+    first = events[0]
+    attrs = dict(first.attrs)
+    if any(event.attrs.get("visual_markers") for event in events):
+        attrs["visual_markers"] = True
+    combined_markdown = "\n".join(
+        event.legacy_markdown.rstrip("\n") for event in events
+    )
+    list_records: List[Dict[str, Any]] = []
+    for event in events:
+        semantic = _event_semantic(event)
+        records = semantic.get("list_records")
+        if not isinstance(records, list):
+            records = canonical_list_records(event.legacy_markdown)
+        list_records.extend(
+            dict(record) for record in records if isinstance(record, dict)
+        )
+    return SimpleNamespace(
+        page=first.page,
+        rank=first.rank,
+        kind="list",
+        lines=[line for event in events for line in event.lines],
+        attrs=attrs,
+        legacy_markdown=combined_markdown,
+        semantic={"list_records": list_records},
+    )
+
+
+def _event_semantic(event: Any) -> Dict[str, Any]:
+    semantic = getattr(event, "semantic", {})
+    return semantic if isinstance(semantic, dict) else {}
+
+
 def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any, regions_by_line: Dict[str, Tuple[str, ...]], region_by_id: Dict[str, Any]) -> Optional[SemanticNode]:
     if event.attrs.get("merged_into_table"):
         return None
@@ -75,6 +132,15 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
     attrs.update({"page": event.page, "bbox": bbox, "region_ids": region_ids, "region_kinds": region_kinds})
     attrs["_layout_markdown"] = event.legacy_markdown
     attrs["_layout_kind"] = event.kind
+    semantic = _event_semantic(event)
+    generated_html = semantic.get("generated_html")
+    if not isinstance(generated_html, str):
+        # Compatibility for callers constructing pre-v2 BlockEvent-like
+        # objects directly. Production events always carry semantic records.
+        generated_html = event.legacy_markdown
+    lossless_html = _lossless_html_for_event(event.kind, generated_html)
+    if lossless_html:
+        attrs["_layout_html"] = lossless_html
     writing_modes = [getattr(line, "writing_mode", "horizontal") for line in event.lines]
     if writing_modes:
         attrs["writing_mode"] = max(set(writing_modes), key=writing_modes.count)
@@ -101,8 +167,16 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
     if kind == "list":
         return _list_node(factory, renderer, event, attrs, sources, evidence, confidence)
     if kind == "quote":
-        children = [factory.make("paragraph", children=_paragraph_inlines(factory, renderer, [line]), confidence=0.94, sources=sources_from_lines([line], regions_by_line)) for line in event.lines]
-        return factory.make("quote", children=children, attrs=attrs, confidence=confidence, evidence=evidence, sources=sources)
+        return _quote_node(
+            factory,
+            renderer,
+            event,
+            attrs,
+            sources,
+            evidence,
+            confidence,
+            regions_by_line,
+        )
     if kind == "code_block":
         from ..core import line_text_tokens, plain_text
         text = str(event.attrs.get("code") or "\n".join(plain_text(line_text_tokens(line)) for line in event.lines))
@@ -113,20 +187,51 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
         node = build_table_node(factory, converter, renderer, event, regions_by_line)
         node.attrs["_layout_markdown"] = event.legacy_markdown
         node.attrs["_layout_kind"] = event.kind
+        alignments = semantic.get("table_alignments")
+        if not isinstance(alignments, list):
+            alignments = gfm_table_alignments(event.legacy_markdown)
+        alignments = [
+            str(value) if str(value) in {"", "left", "center", "right"} else ""
+            for value in alignments
+        ]
+        if alignments:
+            node.attrs["column_alignments"] = alignments
+            for row in node.children:
+                if row.kind != "table_row":
+                    continue
+                for cell in row.children:
+                    if cell.kind != "table_cell":
+                        continue
+                    try:
+                        column = int(cell.attrs.get("col", 0))
+                        colspan = max(1, int(cell.attrs.get("colspan", 1)))
+                    except (TypeError, ValueError, OverflowError):
+                        continue
+                    covered = alignments[column : column + colspan]
+                    if covered and len(set(covered)) == 1 and covered[0]:
+                        cell.attrs["alignment"] = covered[0]
+            node.evidence.append(
+                Evidence(
+                    "layout_table_column_alignment",
+                    0.96,
+                    page=event.page,
+                    data={"alignments": alignments},
+                )
+            )
+        if lossless_html:
+            node.attrs["_layout_html"] = lossless_html
         return node
     if kind == "figure":
         return _figure_node(factory, converter, event, attrs, sources, evidence, confidence, regions_by_line)
     if kind in {"callout", "equation"}:
         children = [factory.make("paragraph", children=_paragraph_inlines(factory, renderer, event.lines), confidence=confidence, sources=sources)] if event.lines else []
-        return factory.make(kind, children=children, text="" if children else _strip_generated_html(event.legacy_markdown), attrs=attrs, confidence=confidence, evidence=evidence, sources=sources or [SourceRef(page=event.page)])
+        return factory.make(kind, children=children, text="" if children else _strip_generated_html(generated_html), attrs=attrs, confidence=confidence, evidence=evidence, sources=sources or [SourceRef(page=event.page)])
     if kind == "columns":
         children = [factory.make("paragraph", children=_paragraph_inlines(factory, renderer, [line]), attrs={"writing_mode": line.writing_mode}, confidence=0.90, sources=sources_from_lines([line], regions_by_line)) for line in event.lines]
         return factory.make("section", children=children, attrs=dict(attrs, layout="columns"), confidence=0.90, evidence=evidence, sources=sources)
     if kind == "form_appearance":
         return factory.make("form", children=[factory.make("paragraph", children=_paragraph_inlines(factory, renderer, event.lines), confidence=0.78, sources=sources)], attrs=dict(attrs, source="printed_appearance", interactive=False), confidence=0.78, evidence=evidence, sources=sources)
-    if kind == "equation":
-        return factory.make("equation", text=_strip_generated_html(event.legacy_markdown), attrs=attrs, confidence=confidence, evidence=evidence, sources=sources)
-    return factory.make("unknown", text=_strip_generated_html(event.legacy_markdown), attrs=attrs, confidence=min(confidence, 0.55), evidence=evidence, sources=sources or [SourceRef(page=event.page)])
+    return factory.make("unknown", text=plain_event_text or _strip_generated_html(generated_html), attrs=attrs, confidence=min(confidence, 0.55), evidence=evidence, sources=sources or [SourceRef(page=event.page)])
 
 
 def _paragraph_inlines(factory: NodeFactory, renderer: Any, lines: Sequence[Any]) -> List[SemanticNode]:
@@ -143,13 +248,355 @@ def _paragraph_inlines(factory: NodeFactory, renderer: Any, lines: Sequence[Any]
                 _delete_trailing_hyphen(tokens)
             if not mode:
                 separator = renderer._paragraph_separator(previous_line, line, list(lines))
-                tokens.append({"text": separator, "style": (False,) * 8, "link": None, "synthetic_space": True, "page": line.page, "glyph_ids": (), "mcids": (), "bbox": None})
+                tokens.append({"text": separator, "style": (False,) * 8, "link": None, "synthetic_space": True, "hard_break": "\n" in separator, "page": line.page, "glyph_ids": (), "mcids": (), "bbox": None})
         tokens.extend(current)
     return inline_nodes_from_tokens(factory, tokens)
 
 
+def _quote_node(
+    factory: NodeFactory,
+    renderer: Any,
+    event: Any,
+    attrs: Dict[str, Any],
+    sources: List[SourceRef],
+    evidence: List[Evidence],
+    confidence: float,
+    regions_by_line: Dict[str, Tuple[str, ...]],
+) -> SemanticNode:
+    """Materialize native quote children from the analyzer's quote record.
+
+    Quote bars are graphics rather than text in several supported producer
+    dialects. The layout analyzer has already reconciled those bars with list
+    markers, nesting depth, and fenced code into format-neutral event records.
+    Consume those closed records into typed nodes here; HTML is rendered
+    directly from the semantic graph and never from the document Markdown.
+    """
+    records = _canonical_quote_records(event)
+    children = _quote_children(
+        factory,
+        renderer,
+        event,
+        records,
+        1,
+        regions_by_line,
+    )
+    if not children:
+        children = [
+            factory.make(
+                "paragraph",
+                children=_paragraph_inlines(factory, renderer, [line]),
+                confidence=0.94,
+                sources=sources_from_lines([line], regions_by_line),
+            )
+            for line in event.lines
+        ]
+    return factory.make(
+        "quote",
+        children=children,
+        attrs=attrs,
+        confidence=confidence,
+        evidence=evidence,
+        sources=sources,
+    )
+
+
+def _canonical_quote_records(event: Any) -> List[Dict[str, Any]]:
+    records: List[Dict[str, Any]] = []
+    source_index = 0
+    semantic = _event_semantic(event)
+    raw_records = semantic.get("quote_records")
+    if not isinstance(raw_records, list):
+        raw_records = canonical_quote_records(event.legacy_markdown)
+    for raw_record in raw_records:
+        if not isinstance(raw_record, dict):
+            return []
+        try:
+            depth = int(raw_record["depth"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return []
+        content = str(raw_record.get("content", ""))
+        stripped = content.strip()
+        is_fence = bool(
+            raw_record.get("fence")
+            or re.match(r"^(`{3,}|~{3,})", stripped)
+        )
+        source_line = None
+        if stripped and not is_fence and source_index < len(event.lines):
+            source_line = event.lines[source_index]
+            source_index += 1
+        records.append(
+            {
+                "depth": depth,
+                "content": content,
+                "source_line": source_line,
+                "fence": is_fence,
+            }
+        )
+    return records
+
+
+def _quote_children(
+    factory: NodeFactory,
+    renderer: Any,
+    event: Any,
+    records: Sequence[Dict[str, Any]],
+    depth: int,
+    regions_by_line: Dict[str, Tuple[str, ...]],
+) -> List[SemanticNode]:
+    children: List[SemanticNode] = []
+    index = 0
+    marker_re = re.compile(
+        r"^( *)(-|\d+\.|[A-Za-z]+\.)(?:\s+\[([ xX])\])?\s+(.+)$"
+    )
+    while index < len(records):
+        record = records[index]
+        record_depth = int(record["depth"])
+        content = str(record["content"])
+        stripped = content.strip()
+        if record_depth < depth or not stripped:
+            index += 1
+            continue
+        if record_depth > depth:
+            end = index
+            while end < len(records) and int(records[end]["depth"]) > depth:
+                end += 1
+            nested_records = records[index:end]
+            nested_children = _quote_children(
+                factory,
+                renderer,
+                event,
+                nested_records,
+                depth + 1,
+                regions_by_line,
+            )
+            nested_lines = [
+                item["source_line"]
+                for item in nested_records
+                if item.get("source_line") is not None
+            ]
+            children.append(
+                factory.make(
+                    "quote",
+                    children=nested_children,
+                    attrs={"level": depth + 1, "page": event.page},
+                    confidence=0.96,
+                    evidence=[
+                        Evidence(
+                            "canonical_quote_depth",
+                            0.97,
+                            page=event.page,
+                            data={"depth": depth + 1},
+                        )
+                    ],
+                    sources=sources_from_lines(
+                        nested_lines,
+                        regions_by_line,
+                    )
+                    or [SourceRef(page=event.page)],
+                )
+            )
+            index = end
+            continue
+        if record.get("fence"):
+            delimiter_match = re.match(r"^(`{3,}|~{3,})(.*)$", stripped)
+            delimiter = delimiter_match.group(1) if delimiter_match else "```"
+            info = delimiter_match.group(2).strip() if delimiter_match else ""
+            end = index + 1
+            code_records: List[Dict[str, Any]] = []
+            while end < len(records):
+                candidate = records[end]
+                if (
+                    int(candidate["depth"]) == depth
+                    and str(candidate["content"]).strip().startswith(delimiter)
+                ):
+                    end += 1
+                    break
+                code_records.append(candidate)
+                end += 1
+            code_lines = [
+                item["source_line"]
+                for item in code_records
+                if item.get("source_line") is not None
+            ]
+            children.append(
+                factory.make(
+                    "code_block",
+                    text="\n".join(str(item["content"]) for item in code_records),
+                    attrs={"info": info, "inside_quote": True, "page": event.page},
+                    confidence=0.97,
+                    evidence=[
+                        Evidence(
+                            "canonical_quote_fence",
+                            0.98,
+                            page=event.page,
+                        )
+                    ],
+                    sources=sources_from_lines(code_lines, regions_by_line)
+                    or [SourceRef(page=event.page)],
+                )
+            )
+            index = end
+            continue
+        if marker_re.match(content.expandtabs(4)):
+            end = index
+            list_records: List[Dict[str, Any]] = []
+            while (
+                end < len(records)
+                and int(records[end]["depth"]) == depth
+                and marker_re.match(
+                    str(records[end]["content"]).expandtabs(4)
+                )
+            ):
+                list_records.append(records[end])
+                end += 1
+            list_lines = [
+                item["source_line"]
+                for item in list_records
+                if item.get("source_line") is not None
+            ]
+            list_sources = sources_from_lines(list_lines, regions_by_line)
+            list_event = SimpleNamespace(
+                page=event.page,
+                lines=list_lines,
+                legacy_markdown="\n".join(
+                    str(item["content"]) for item in list_records
+                ),
+                semantic={
+                    "list_records": canonical_list_records(
+                        "\n".join(
+                            str(item["content"]) for item in list_records
+                        )
+                    )
+                },
+            )
+            list_node = _canonical_list_node(
+                factory,
+                renderer,
+                list_event,
+                {"inside_quote": True, "page": event.page},
+                list_sources or [SourceRef(page=event.page)],
+                [
+                    Evidence(
+                        "canonical_quote_list",
+                        0.97,
+                        page=event.page,
+                    )
+                ],
+                0.96,
+            )
+            if list_node is not None:
+                children.append(list_node)
+                index = end
+                continue
+        if re.fullmatch(r"(?:-{3,}|\*{3,}|_{3,})", stripped):
+            source_line = record.get("source_line")
+            children.append(
+                factory.make(
+                    "thematic_break",
+                    attrs={"inside_quote": True, "page": event.page},
+                    confidence=0.96,
+                    evidence=[
+                        Evidence(
+                            "canonical_quote_thematic_break",
+                            0.97,
+                            page=event.page,
+                        )
+                    ],
+                    sources=sources_from_lines(
+                        [source_line] if source_line is not None else [],
+                        regions_by_line,
+                    )
+                    or [SourceRef(page=event.page)],
+                )
+            )
+            index += 1
+            continue
+
+        end = index
+        paragraph_records: List[Dict[str, Any]] = []
+        while end < len(records):
+            candidate = records[end]
+            candidate_content = str(candidate["content"])
+            candidate_stripped = candidate_content.strip()
+            if (
+                int(candidate["depth"]) != depth
+                or not candidate_stripped
+                or candidate.get("fence")
+                or marker_re.match(candidate_content.expandtabs(4))
+                or re.fullmatch(
+                    r"(?:-{3,}|\*{3,}|_{3,})",
+                    candidate_stripped,
+                )
+            ):
+                break
+            paragraph_records.append(candidate)
+            end += 1
+        paragraph_lines = [
+            item["source_line"]
+            for item in paragraph_records
+            if item.get("source_line") is not None
+        ]
+        paragraph_sources = sources_from_lines(
+            paragraph_lines,
+            regions_by_line,
+        )
+        if paragraph_lines:
+            inline_children = _paragraph_inlines(
+                factory,
+                renderer,
+                paragraph_lines,
+            )
+        else:
+            fallback_text = " ".join(
+                _canonical_list_text(str(item["content"]).strip())
+                for item in paragraph_records
+            ).strip()
+            inline_children = (
+                [
+                    factory.make(
+                        "text",
+                        text=fallback_text,
+                        confidence=0.75,
+                        sources=[],
+                    )
+                ]
+                if fallback_text
+                else []
+            )
+        children.append(
+            factory.make(
+                "paragraph",
+                children=inline_children,
+                attrs={"inside_quote": True, "page": event.page},
+                confidence=0.95,
+                evidence=[
+                    Evidence(
+                        "canonical_quote_paragraph",
+                        0.96,
+                        page=event.page,
+                    )
+                ],
+                sources=paragraph_sources or [SourceRef(page=event.page)],
+            )
+        )
+        index = max(end, index + 1)
+    return children
+
+
 def _list_node(factory: NodeFactory, renderer: Any, event: Any, attrs: Dict[str, Any], sources: List[SourceRef], evidence: List[Evidence], confidence: float) -> SemanticNode:
     from ..core import line_text_tokens, list_marker, plain_text
+
+    canonical = _canonical_list_node(
+        factory,
+        renderer,
+        event,
+        attrs,
+        sources,
+        evidence,
+        confidence,
+    )
+    if canonical is not None:
+        return canonical
 
     entries: List[Dict[str, Any]] = []
     current: Optional[Dict[str, Any]] = None
@@ -180,11 +627,13 @@ def _list_node(factory: NodeFactory, renderer: Any, event: Any, attrs: Dict[str,
         elif current is not None:
             previous = current["lines"][-1]
             current["lines"].append(line)
+            separator = renderer._paragraph_separator(previous, line, current["lines"])
             current["tokens"].append({
-                "text": renderer._paragraph_separator(previous, line, current["lines"]),
+                "text": separator,
                 "style": (False,) * 8,
                 "link": None,
                 "synthetic_space": True,
+                "hard_break": "\n" in separator,
                 "page": line.page,
                 "glyph_ids": (),
                 "mcids": (),
@@ -271,6 +720,261 @@ def _list_node(factory: NodeFactory, renderer: Any, event: Any, attrs: Dict[str,
     )
 
 
+def _canonical_list_node(
+    factory: NodeFactory,
+    renderer: Any,
+    event: Any,
+    attrs: Dict[str, Any],
+    sources: List[SourceRef],
+    evidence: List[Evidence],
+    confidence: float,
+) -> Optional[SemanticNode]:
+    """Build a typed nested list from the analyzer's canonical list record.
+
+    The layout analyzer has already reconciled explicit glyph markers, drawn
+    bullets, hanging indents, and continuation lines when it creates a list
+    event.  Consuming that closed record here prevents a second, weaker marker
+    inference pass from flattening nested lists or losing task state.
+    """
+    entries: List[Dict[str, Any]] = []
+    stack: List[Dict[str, Any]] = []
+    line_cursor = 0
+    semantic = _event_semantic(event)
+    records = semantic.get("list_records")
+    if not isinstance(records, list):
+        records = canonical_list_records(event.legacy_markdown)
+    for record in records:
+        if not isinstance(record, dict):
+            return None
+        source_line = (
+            event.lines[line_cursor]
+            if line_cursor < len(event.lines)
+            else None
+        )
+        line_cursor += int(source_line is not None)
+        if record.get("kind") == "continuation":
+            if not entries:
+                return None
+            entries[-1]["content_lines"].append(
+                str(record.get("content", "")).strip()
+            )
+            if source_line is not None:
+                entries[-1]["lines"].append(source_line)
+            continue
+        if record.get("kind") != "item":
+            return None
+        try:
+            indent = max(0, int(record.get("indent", 0)))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        ordered = bool(record.get("ordered"))
+        marker = record.get("marker", "-" if not ordered else 1)
+        entry: Dict[str, Any] = {
+            "indent": indent,
+            "ordered": ordered,
+            "marker": marker,
+            "task": bool(record.get("task")),
+            "checked": bool(record.get("checked")),
+            "content_lines": [str(record.get("content", "")).strip()],
+            "lines": [source_line] if source_line is not None else [],
+            "children": [],
+            "parented": False,
+        }
+        while stack and indent <= int(stack[-1]["indent"]):
+            stack.pop()
+        if stack:
+            stack[-1]["children"].append(entry)
+            entry["parented"] = True
+        stack.append(entry)
+        entries.append(entry)
+
+    roots = [entry for entry in entries if not entry["parented"]]
+    if not roots:
+        return None
+
+    def item_inlines(entry: Dict[str, Any]) -> List[SemanticNode]:
+        from ..core import line_text_tokens, list_marker, plain_text
+
+        tokens: List[Dict[str, Any]] = []
+        for index, line in enumerate(entry["lines"]):
+            current = line_text_tokens(line)
+            if index == 0:
+                physical = list_marker(plain_text(current).strip())
+                if physical is not None:
+                    current = _strip_marker_tokens(current, int(physical[1]))
+            if index and tokens:
+                separator = renderer._paragraph_separator(
+                    entry["lines"][index - 1],
+                    line,
+                    entry["lines"],
+                )
+                tokens.append(
+                    {
+                        "text": separator,
+                        "style": (False,) * 8,
+                        "link": None,
+                        "synthetic_space": True,
+                        "hard_break": "\n" in separator,
+                        "page": line.page,
+                        "glyph_ids": (),
+                        "mcids": (),
+                        "bbox": None,
+                    }
+                )
+            tokens.extend(current)
+        if tokens:
+            return inline_nodes_from_tokens(factory, tokens)
+        text = " ".join(str(value) for value in entry["content_lines"]).strip()
+        return [
+            factory.make(
+                "text",
+                text=_canonical_list_text(text),
+                confidence=0.80,
+                sources=[],
+            )
+        ] if text else []
+
+    def build_lists(
+        siblings: Sequence[Dict[str, Any]],
+        level: int,
+        root: bool,
+    ) -> List[SemanticNode]:
+        lists: List[SemanticNode] = []
+        marker_styles = _canonical_marker_styles(siblings)
+        index = 0
+        while index < len(siblings):
+            signature = (
+                bool(siblings[index]["ordered"]),
+                marker_styles[index],
+            )
+            group: List[Dict[str, Any]] = []
+            while index < len(siblings):
+                candidate = siblings[index]
+                candidate_signature = (
+                    bool(candidate["ordered"]),
+                    marker_styles[index],
+                )
+                if candidate_signature != signature:
+                    break
+                group.append(candidate)
+                index += 1
+            item_nodes: List[SemanticNode] = []
+            for entry in group:
+                entry_sources = sources_from_lines(entry["lines"])
+                item_attrs = {"marker": entry["marker"]}
+                if entry["task"]:
+                    item_attrs.update(
+                        {"task": True, "checked": bool(entry["checked"])}
+                    )
+                item = factory.make(
+                    "item",
+                    children=item_inlines(entry),
+                    attrs=item_attrs,
+                    confidence=0.96,
+                    evidence=[
+                        Evidence(
+                            "canonical_list_item",
+                            0.96,
+                            page=event.page,
+                            data={"indent": entry["indent"]},
+                        )
+                    ],
+                    sources=entry_sources or [SourceRef(page=event.page)],
+                )
+                item.children.extend(
+                    build_lists(entry["children"], level + 1, False)
+                )
+                item_nodes.append(item)
+            list_sources = merge_sources(
+                source
+                for item in item_nodes
+                for source in item.sources
+            )
+            list_attrs: Dict[str, Any] = {
+                **(attrs if root and not lists else {}),
+                "ordered": signature[0],
+                "start": _numeric_start(group[0]["marker"]),
+                "marker_style": signature[1],
+                "tight": True,
+                "level": level,
+            }
+            lists.append(
+                factory.make(
+                    "list",
+                    children=item_nodes,
+                    attrs=list_attrs,
+                    confidence=confidence,
+                    evidence=list(evidence)
+                    + [
+                        Evidence(
+                            "canonical_layout_list_structure",
+                            0.97,
+                            page=event.page,
+                        )
+                    ],
+                    sources=list_sources or list(sources),
+                )
+            )
+        return lists
+
+    top_lists = build_lists(roots, 0, True)
+    if len(top_lists) == 1:
+        return top_lists[0]
+    return factory.make(
+        "section",
+        children=top_lists,
+        attrs={**attrs, "semantic_group": "list_sequence"},
+        confidence=min(node.confidence for node in top_lists),
+        evidence=[
+            Evidence("canonical_list_family_sequence", 0.96, page=event.page)
+        ],
+        sources=merge_sources(sources),
+    )
+
+
+def _canonical_marker_style(marker: Any) -> str:
+    if isinstance(marker, int) and not isinstance(marker, bool):
+        return "decimal"
+    value = str(marker)
+    if len(value) > 1 and re.fullmatch(r"[ivxlcdmIVXLCDM]+", value):
+        return "upper-roman" if value.isupper() else "lower-roman"
+    if re.fullmatch(r"[A-Za-z]", value):
+        return "upper-alpha" if value.isupper() else "lower-alpha"
+    return "disc"
+
+
+def _canonical_marker_styles(
+    siblings: Sequence[Dict[str, Any]],
+) -> List[str]:
+    styles = [
+        _canonical_marker_style(entry["marker"])
+        for entry in siblings
+    ]
+    for index, entry in enumerate(siblings):
+        marker = str(entry["marker"])
+        if (
+            not entry["ordered"]
+            or not re.fullmatch(r"[ivxlcdmIVXLCDM]", marker)
+        ):
+            continue
+        roman_style = "upper-roman" if marker.isupper() else "lower-roman"
+        previous_is_roman = index > 0 and styles[index - 1] == roman_style
+        next_is_roman = (
+            index + 1 < len(styles)
+            and styles[index + 1] == roman_style
+        )
+        if previous_is_roman or next_is_roman:
+            styles[index] = roman_style
+    return styles
+
+
+def _canonical_list_text(text: str) -> str:
+    value = re.sub(r"\\([\\`*_[\]{}()#+.!|<>~-])", r"\1", text)
+    value = re.sub(r"(`+)(.*?)\1", r"\2", value)
+    value = re.sub(r"(\*\*\*|\*\*|\*|~~)(.*?)\1", r"\2", value)
+    return re.sub(r"<[^>]+>", "", value)
+
+
 def _strip_marker_tokens(tokens: Sequence[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
     remaining = max(0, count)
     out: List[Dict[str, Any]] = []
@@ -309,7 +1013,7 @@ def _figure_node(factory: NodeFactory, converter: Any, event: Any, attrs: Dict[s
     if image is None:
         return factory.make("figure", attrs=attrs, confidence=confidence, evidence=evidence, sources=sources)
     page_width = converter.page_sizes.get(image.page, (612.0, 792.0))[0]
-    from ..core import image_alignment
+    from ..core import image_alignment, image_source as render_image_source
     object_refs = tuple(value for value in (getattr(image, "object_ref", None), getattr(image, "link_object_ref", None), image.name) if value)
     image_source = SourceRef(
         page=image.page,
@@ -326,7 +1030,7 @@ def _figure_node(factory: NodeFactory, converter: Any, event: Any, attrs: Dict[s
     image_node = factory.make(
         "image",
         attrs={
-            "src": image.name,
+            "src": render_image_source(image, converter.options),
             "alt": image.alt or "",
             "kind": image.kind,
             "intrinsic_width": image.intrinsic_width,
@@ -444,6 +1148,22 @@ def _strip_generated_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text).strip()
 
 
+def _lossless_html_for_event(kind: str, markup: str) -> str:
+    """Retain only closed, internally generated HTML-specific constructs.
+
+    Ordinary paragraphs, headings, lists, and figures are projected from typed
+    semantic nodes.  These layout constructs currently carry
+    browser semantics or geometry that cannot be represented losslessly in the
+    generic node attributes alone, so their already-escaped generated fragment
+    remains an explicitly verified fallback.
+    """
+    if kind not in {"columns", "form_appearance", "callout", "equation", "table"}:
+        return ""
+    from ..html.sanitize import is_safe_generated_html
+
+    return markup if is_safe_generated_html(markup.strip()) else ""
+
+
 def _node_text(node: SemanticNode) -> str:
     return node.text or "".join(_node_text(child) for child in node.children)
 
@@ -460,3 +1180,13 @@ def _metadata_value(document: Any, key: str) -> str:
         from ..core import decode_pdf_text
         return decode_pdf_text(value)
     return str(value) if isinstance(value, str) else ""
+
+
+def _catalog_language(document: Any) -> str:
+    catalog = document.catalog()
+    value = document.resolve(catalog.get("Lang")) if isinstance(catalog, dict) else None
+    if isinstance(value, bytes):
+        from ..core import decode_pdf_text
+
+        return decode_pdf_text(value).strip()
+    return value.strip() if isinstance(value, str) else ""

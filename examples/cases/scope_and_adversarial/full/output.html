@@ -2,41 +2,71 @@
 <html>
 <head>
 <meta charset="utf-8" />
-<title>CocoaPDF output</title>
-<style>body { font-family: system-ui, sans-serif; line-height: 1.5; max-width: 72rem; margin: 2rem auto; padding: 0 1rem; }
-table { border-collapse: collapse; margin: 1rem 0; }
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data: file:; style-src &#x27;unsafe-inline&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; object-src &#x27;none&#x27;" />
+<meta name="referrer" content="no-referrer" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="generator" content="CocoaPDF" />
+<title>CocoaPDF Document</title>
+<style>body { font-family: system-ui, sans-serif; line-height: 1.5; margin: 0; color: #1f2328; background: #fff; }
+.cocoapdf-document { max-width: 72rem; margin: 2rem auto; padding: 0 1rem; }
+table { border-collapse: collapse; margin: 1rem 0; max-width: 100%; }
+.cocoapdf-table-container { max-width: 100%; overflow-x: auto; }
+.cocoapdf-table-container:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
 th, td { border: 1px solid #999; padding: 0.25rem 0.5rem; }
+caption { text-align: start; font-weight: 600; margin-bottom: 0.35rem; }
+caption.cocoapdf-caption-bottom { caption-side: bottom; margin-top: 0.35rem; margin-bottom: 0; }
 blockquote { border-left: 0.25rem solid #bbb; margin-left: 0; padding-left: 1rem; color: #333; }
 pre { background: #f5f5f5; padding: 0.75rem; overflow-x: auto; }
 mark { background: #fff59d; }
 .cocoapdf-figure { margin-top: 1rem; margin-bottom: 1rem; max-width: 100%; }
-.cocoapdf-figure img { display: block; }
+.cocoapdf-figure img { display: block; object-fit: contain; }
 .cocoapdf-align-left { margin-left: 0; margin-right: auto; text-align: left; }
 .cocoapdf-align-center { margin-left: auto; margin-right: auto; text-align: center; }
 .cocoapdf-align-right { margin-left: auto; margin-right: 0; text-align: right; }
 .cocoapdf-figure figcaption { margin-top: 0.35rem; font-style: italic; color: #444; }
-.cocoapdf-columns { margin: 1rem 0; }
+.cocoapdf-columns { columns: 2; column-gap: 2rem; margin: 1rem 0; }
+.cocoapdf-columns > * { break-inside: avoid-column; }
 .cocoapdf-form-appearance { display: grid; gap: 0.55rem; margin: 1rem 0; }
 .cocoapdf-form-appearance label { display: block; }
 
 .cocoapdf-page-break { break-before: page; border: 0; border-top: 1px dashed #bbb; }
 .cocoapdf-toc ol { list-style-position: inside; }
 .cocoapdf-toc ol ol { margin-left: 1.5rem; }
+.cocoapdf-toc-page { float: inline-end; font-variant-numeric: tabular-nums; }
 .cocoapdf-table-note { font-size: 0.9em; font-style: italic; }
 .cocoapdf-cross-reference { text-decoration: none; }
+.cocoapdf-callout, .cocoapdf-sidebar, .cocoapdf-annotation { margin: 1rem 0; }
+.cocoapdf-callout { border-left: 0.25rem solid #6b8fb3; padding-left: 1rem; }
+.cocoapdf-sidebar, .cocoapdf-annotation { border: 1px solid #c8ccd1; padding: 0.75rem; }
 .cocoapdf-form { display: grid; gap: 0.65rem; margin: 1rem 0; }
 .cocoapdf-form-field { display: grid; grid-template-columns: minmax(8rem, max-content) 1fr; column-gap: 0.5rem; }
 .cocoapdf-form-field-name { font-weight: 600; }
 .cocoapdf-form-field-value-evidenced { align-items: center; box-sizing: border-box; display: inline-flex; padding: 0 0.25rem; }
-.cocoapdf-equation { overflow-x: auto; margin: 1rem 0; }</style>
+.cocoapdf-equation { overflow-x: auto; margin: 1rem 0; }
+li > input[type="checkbox"][disabled] { margin-inline-end: 0.35rem; }
+[role="doc-footnote"] { font-size: 0.92em; border-top: 1px solid #ddd; margin-top: 0.75rem; padding-top: 0.5rem; }
+@media (max-width: 48rem) {
+  .cocoapdf-columns { columns: auto; }
+  .cocoapdf-form-field { grid-template-columns: 1fr; }
+  .cocoapdf-document img { height: auto !important; }
+}
+@media print {
+  body { color: #000; }
+  .cocoapdf-document { max-width: none; margin: 0; padding: 0; }
+  .cocoapdf-table-container { overflow: visible; }
+  thead { display: table-header-group; }
+  tr, figure, blockquote, pre { break-inside: avoid; }
+  a { color: inherit; text-decoration: none; }
+}</style>
 </head>
 <body>
-<nav class="cocoapdf-toc" aria-label="Table of contents" data-cocoapdf-node="node-51" data-confidence="0.9900"><ol><li data-cocoapdf-node="node-49" data-confidence="0.9900"><a href="#page-scope-review">First Page</a></li><li data-cocoapdf-node="node-50" data-confidence="0.9900"><a href="#selected-evidence-page">Selected Evidence</a></li></ol></nav>
-<h2 id="page-scope-review">Page Scope Review</h2>
-<p>First page body and first field.</p>
-<p>FirstField: Alpha</p>
-<h2 id="selected-evidence-page">Selected Evidence Page</h2>
-<table>
+<main class="cocoapdf-document">
+<nav class="cocoapdf-toc" aria-label="Table of contents" data-cocoapdf-node="node-51" data-confidence="0.9900" data-source-pages="1 2"><ol><li data-cocoapdf-node="node-49" data-confidence="0.9900" data-source-pages="1"><a href="#page-scope-review">First Page</a> <span class="cocoapdf-toc-page">1</span></li><li data-cocoapdf-node="node-50" data-confidence="0.9900" data-source-pages="2"><a href="#selected-evidence-page">Selected Evidence</a> <span class="cocoapdf-toc-page">2</span></li></ol></nav>
+<h2 id="page-scope-review" data-cocoapdf-node="node-3" data-confidence="0.9000" data-source-pages="1">Page Scope Review</h2>
+<p data-cocoapdf-node="node-5" data-confidence="0.9600" data-source-pages="1">First page body and first field.</p>
+<p data-cocoapdf-node="node-7" data-confidence="0.9600" data-source-pages="1">FirstField: Alpha</p>
+<h2 id="selected-evidence-page" data-cocoapdf-node="node-10" data-confidence="0.9000" data-source-pages="2">Selected Evidence Page</h2>
+<div class="cocoapdf-table-container" role="region" tabindex="0" aria-label="Table"><table data-cocoapdf-node="node-38" data-confidence="0.9200" data-source-pages="2">
 <thead>
 <tr><th scope="col"></th><th scope="col">2024</th><th scope="col">2023</th><th scope="col">2022</th></tr>
 </thead>
@@ -45,12 +75,11 @@ mark { background: #fff59d; }
 <tr><th scope="row">Expense</th><td>($ 40)</td><td>($ 35)</td><td>($ 30)</td></tr>
 <tr><th scope="row">Net income</th><td>$ 60</td><td>$ 55</td><td>$ 50</td></tr>
 </tbody>
-</table>
-<p>SecondField: Beta</p>
-<p><strong>Diagram boxes below are not form controls.</strong></p>
-<figure class="cocoapdf-figure cocoapdf-align-center">
-<img src="assets/vector-a60ea913b6a0a8ba.svg" alt="Parse · Layout · Render · Decode · Reconcile" style="width: 524.000pt; height: 60.000pt; max-width: 100%; object-fit: contain; display: block; margin-left: auto; margin-right: auto;" />
-</figure>
-<form class="cocoapdf-form" data-cocoapdf-node="node-54" data-confidence="0.9900"><div class="cocoapdf-form-field" data-field-type="text" data-name="FirstField" data-cocoapdf-node="node-52" data-confidence="0.9900"><span class="cocoapdf-form-field-name">FirstField:</span> <span class="cocoapdf-form-field-value">Alpha</span></div><div class="cocoapdf-form-field" data-field-type="text" data-name="SecondField" data-cocoapdf-node="node-53" data-confidence="0.9900"><span class="cocoapdf-form-field-name">SecondField:</span> <span class="cocoapdf-form-field-value cocoapdf-form-field-value-evidenced" data-appearance-source="appearance_characteristics,default_appearance,normal_appearance_stream,quadding,widget_rect" style="color: rgb(46, 64, 107); background-color: rgb(232, 237, 250); font-size: 18.000pt; inline-size: 160.000pt; max-inline-size: 100%; min-block-size: 25.000pt; border: 1.000pt solid rgb(166, 178, 199); justify-content: flex-start">Beta</span></div></form>
+</table></div>
+<p data-cocoapdf-node="node-40" data-confidence="0.9600" data-source-pages="2">SecondField: Beta</p>
+<p data-cocoapdf-node="node-43" data-confidence="0.9600" data-source-pages="2"><strong data-cocoapdf-node="node-42" data-source-pages="2">Diagram boxes below are not form controls.</strong></p>
+<figure class="cocoapdf-figure cocoapdf-align-center" data-cocoapdf-node="node-45" data-confidence="0.9500" data-source-pages="2"><img src="assets/vector-a60ea913b6a0a8ba.svg" alt="Parse · Layout · Render · Decode · Reconcile" style="width: 524.000pt; height: 60.000pt; max-width: 100%; object-fit: contain" data-cocoapdf-node="node-44" data-confidence="0.9600" data-source-pages="2" /></figure>
+<section class="cocoapdf-form" role="group" aria-label="PDF form fields" data-cocoapdf-node="node-54" data-confidence="0.9900" data-source-pages="1 2"><div class="cocoapdf-form-field" data-field-type="text" data-name="FirstField" data-cocoapdf-node="node-52" data-confidence="0.9900" data-source-pages="1"><span class="cocoapdf-form-field-name">FirstField:</span> <span class="cocoapdf-form-field-value">Alpha</span></div><div class="cocoapdf-form-field" data-field-type="text" data-name="SecondField" data-cocoapdf-node="node-53" data-confidence="0.9900" data-source-pages="2"><span class="cocoapdf-form-field-name">SecondField:</span> <span class="cocoapdf-form-field-value cocoapdf-form-field-value-evidenced" data-appearance-source="appearance_characteristics,default_appearance,normal_appearance_stream,quadding,widget_rect" style="color: rgb(46, 64, 107); background-color: rgb(232, 237, 250); font-size: 18.000pt; inline-size: 160.000pt; max-inline-size: 100%; min-block-size: 25.000pt; border: 1.000pt solid rgb(166, 178, 199); justify-content: flex-start">Beta</span></div></section>
+</main>
 </body>
 </html>

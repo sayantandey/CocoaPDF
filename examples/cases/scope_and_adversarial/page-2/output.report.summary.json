@@ -13,6 +13,7 @@
   "description": "Deterministic PDF-to-Markdown/HTML conversion for structured text-layer PDFs. No OCR. No AI.",
   "encrypted": false,
   "fills": 0,
+  "html_projection": "direct_semantic_html",
   "image_text_extraction_attempted": false,
   "images": 1,
   "images_detail": [
@@ -55,6 +56,7 @@
       ]
     }
   ],
+  "markdown_projection": "lossless_layout_reconciliation",
   "mode_per_page": [
     "not_selected",
     "geometric"
@@ -65,7 +67,7 @@
     "json": "semantic_graph",
     "markdown": "semantic_graph"
   },
-  "output_projection": "semantic_graph_with_lossless_layout_reconciliation",
+  "output_projection": "independent_semantic_projections_with_lossless_layout_reconciliation",
   "pages": 2,
   "parser_mode": "xref",
   "processed_pages": [
