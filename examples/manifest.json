@@ -215,7 +215,7 @@
     "reason": "Page concatenation would alter document-global evidence and weaken failure attribution."
   },
   "generator": "validation/pr_visual/build.py",
-  "generator_sha256": "8a814c58de678c9556ae0d5e7919dc56933b61d260b57c1deccc787531e88f50",
+  "generator_sha256": "f748b24868fb64fdf312187947574d299fd0d57d30c0ab8c91fcdb1a50e9335a",
   "head_commit": null,
   "license": {
     "file": "LICENSE.txt",

@@ -21,7 +21,6 @@ STRATEGIC_SOURCE = ROOT / "tests" / "strategic_corner_cases_v1_4.md"
 PULL_REQUEST_PROFILE = "pull-request"
 PERMANENT_PROFILE = "permanent"
 VALID_PROFILES = (PULL_REQUEST_PROFILE, PERMANENT_PROFILE)
-MAIN_RENDER_BASE_URL = "https://raw.githack.com/sayantandey/CocoaPDF/main/examples"
 
 
 def _source_imports() -> None:
@@ -729,7 +728,7 @@ def _write_review_files(
 ) -> None:
 	permanent = profile == PERMANENT_PROFILE
 	title = (
-		"CocoaPDF permanent capability demo"
+		"CocoaPDF conversion examples"
 		if permanent
 		else "CocoaPDF pull-request visual review"
 	)
@@ -751,15 +750,12 @@ def _write_review_files(
 				"This directory is the committed, reproducible capability demo. "
 				"Pull-request review artifacts are generated separately and are never written here.",
 				"",
-				"[Open the rendered main-branch side-by-side demo](%s/review.html). GitHub displays "
-				"committed HTML files as source code; this third-party browser preview "
-				"renders the same files from `main` without a project website. Same-repository "
-				"pull requests receive a separate commit-pinned rendered link in their description."
-				% MAIN_RENDER_BASE_URL,
+				"[Browse this revision's side-by-side PDF-to-HTML demo](review.html). GitHub displays "
+				"committed HTML files as source code; same-repository pull requests receive an "
+				"exact commit-pinned rendered link in their description.",
 				"",
-				"Relative row links resolve against the revision being viewed. External rendered-HTML "
-				"links are explicitly labeled as `main`; a same-repository PR description supplies "
-				"the exact commit-pinned rendered demo.",
+				"All links below are revision-relative, so browsing a branch or commit never "
+				"silently opens output from `main`.",
 				"",
 				"Full semantic JSON is committed. Report summaries omit only duplicate semantic graphs "
 				"and glyph-heavy internals; the temporary PR artifact retains every full report.",
@@ -786,27 +782,24 @@ def _write_review_files(
 				if permanent
 				else "output.report.json"
 			)
-			html_link = (
-				"%s/%s/output.html" % (MAIN_RENDER_BASE_URL, base)
-				if permanent
-				else "%s/output.html" % base
-			)
-			html_label = (
-				"%s rendered HTML on main" % name
-				if permanent
-				else "%s HTML" % name
+			label_prefix = (
+				""
+				if name == "full"
+				else "%s " % name.replace("-", " ").title()
 			)
 			output_links.append(
-				"[%s Markdown](%s/output.md), [%s](%s), "
-				"[%s semantic JSON](%s/output.json), [%s report](%s/%s)"
+				"[%sMarkdown](%s/output.md)<br/>"
+				"[%sHTML](%s/output.html)<br/>"
+				"[%sSemantic JSON](%s/output.json)<br/>"
+				"[%sReport](%s/%s)"
 				% (
-					name,
+					label_prefix,
 					base,
-					html_label,
-					html_link,
-					name,
+					label_prefix,
 					base,
-					name,
+					label_prefix,
+					base,
+					label_prefix,
 					base,
 					report_name,
 				)
@@ -817,7 +810,7 @@ def _write_review_files(
 				case_id,
 				description.replace("|", r"\|"),
 				input_link,
-				"<br>".join(output_links),
+				"<br/>".join(output_links),
 			)
 		)
 		primary = case["conversions"][0]

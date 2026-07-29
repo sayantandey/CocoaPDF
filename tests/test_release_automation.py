@@ -150,17 +150,20 @@ class BuildAutomationTests(unittest.TestCase):
 		self.assertTrue((examples / "review.html").is_file())
 		self.assertFalse((examples / "robots.txt").exists())
 		self.assertFalse((examples / "sitemap.xml").exists())
+		examples_readme = (examples / "README.md").read_text(encoding="utf-8")
+		self.assertTrue(examples_readme.startswith("# CocoaPDF conversion examples\n"))
 		self.assertIn(
-			"https://raw.githack.com/sayantandey/CocoaPDF/main/examples/review.html",
-			(examples / "README.md").read_text(encoding="utf-8"),
+			"[Browse this revision's side-by-side PDF-to-HTML demo](review.html)",
+			examples_readme,
 		)
+		self.assertNotIn("raw.githack.com", examples_readme)
+		self.assertNotIn("rendered HTML on main", examples_readme)
 		self.assertIn(
-			"rendered main-branch side-by-side demo",
-			(examples / "README.md").read_text(encoding="utf-8"),
-		)
-		self.assertIn(
-			"rendered HTML on main",
-			(examples / "README.md").read_text(encoding="utf-8"),
+			"[Markdown](cases/strategic_corner_cases/full/output.md)<br/>"
+			"[HTML](cases/strategic_corner_cases/full/output.html)<br/>"
+			"[Semantic JSON](cases/strategic_corner_cases/full/output.json)<br/>"
+			"[Report](cases/strategic_corner_cases/full/output.report.summary.json)",
+			examples_readme,
 		)
 		for index_name in ("README.md", "review.html"):
 			text = (examples / index_name).read_text(encoding="utf-8")
