@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+import re
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 from ..ir.evidence import Evidence
@@ -211,10 +213,18 @@ def _apply_tagged_prior(geometric: SemanticNode, tagged: SemanticNode, score: fl
     if isinstance(structure, dict):
         geometric.attrs["structure_attributes"] = structure
         _apply_table_attributes(geometric, structure)
+        _apply_layout_attributes(geometric, structure)
         numbering = structure.get("ListNumbering")
         if numbering and geometric.kind == "list":
-            geometric.attrs["list_numbering"] = str(numbering)
-            geometric.attrs["ordered"] = str(numbering).lower() not in {"none", "disc", "circle", "square"}
+            normalized = str(numbering).lstrip("/")
+            geometric.attrs["list_numbering"] = normalized
+            geometric.attrs["marker_style"] = _list_marker_style(normalized)
+            geometric.attrs["ordered"] = normalized.lower() not in {
+                "none",
+                "disc",
+                "circle",
+                "square",
+            }
     if tagged.text and tagged.attrs.get("actual_text"):
         replacement = SemanticNode(
             id=geometric.id + "-actual-text",
@@ -264,6 +274,73 @@ def _apply_table_attributes(node: SemanticNode, attributes: Dict[str, Any]) -> N
                 except (TypeError, ValueError):
                     continue
             node.attrs[target] = value
+
+
+def _apply_layout_attributes(
+    node: SemanticNode,
+    attributes: Dict[str, Any],
+) -> None:
+    alignment = str(attributes.get("TextAlign") or "").lstrip("/").lower()
+    alignment_map = {
+        "start": "start",
+        "center": "center",
+        "end": "end",
+        "justify": "justify",
+        "left": "left",
+        "right": "right",
+    }
+    if alignment in alignment_map:
+        node.attrs["alignment"] = alignment_map[alignment]
+
+    writing_mode = str(
+        attributes.get("WritingMode") or ""
+    ).lstrip("/").lower()
+    if writing_mode == "rltb":
+        node.attrs["direction"] = "rtl"
+        node.attrs["writing_mode"] = "horizontal"
+    elif writing_mode == "lrtb":
+        node.attrs["direction"] = "ltr"
+        node.attrs["writing_mode"] = "horizontal"
+    elif writing_mode == "tbrl":
+        node.attrs["writing_mode"] = "vertical-rl"
+    elif writing_mode == "tblr":
+        node.attrs["writing_mode"] = "vertical-lr"
+
+    for source, target in (
+        ("TextIndent", "text_indent_pt"),
+        ("StartIndent", "start_indent_pt"),
+        ("EndIndent", "end_indent_pt"),
+        ("SpaceBefore", "space_before_pt"),
+        ("SpaceAfter", "space_after_pt"),
+    ):
+        value = _finite_number(attributes.get(source))
+        if value is not None:
+            node.attrs[target] = value
+
+
+def _finite_number(raw: Any) -> float | None:
+    if isinstance(raw, bool):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _list_marker_style(numbering: Any) -> str:
+    value = str(numbering or "").lstrip("/").lower()
+    return {
+        "decimal": "decimal",
+        "upperroman": "upper-roman",
+        "lowerroman": "lower-roman",
+        "upperalpha": "upper-alpha",
+        "loweralpha": "lower-alpha",
+        "disc": "disc",
+        "circle": "circle",
+        "square": "square",
+        "none": "none",
+    }.get(value, "")
 
 
 def _remove_nodes(nodes: Sequence[SemanticNode], ids: set[str]) -> List[SemanticNode]:
@@ -381,7 +458,12 @@ def _tagged_list_node(
                 children.append(materialized)
         items.append(SemanticNode(
             id="tagged-%s-item" % tagged_item.id, kind="item", children=children,
-            attrs={"label": label or None, "tagged_node_id": tagged_item.id}, confidence=0.995,
+            attrs={
+                "label": label or None,
+                "marker": _normalized_list_label(label) if label else None,
+                "tagged_node_id": tagged_item.id,
+            },
+            confidence=0.995,
             evidence=[Evidence("tagged_list_item", 0.995)], sources=sources,
         ))
     attributes = tagged.attrs.get("structure_attributes") if isinstance(tagged.attrs.get("structure_attributes"), dict) else {}
@@ -390,11 +472,18 @@ def _tagged_list_node(
     if not numbering:
         nonempty_labels = [label for label in labels if label]
         ordered = bool(nonempty_labels and len(nonempty_labels) == len(labels) and all(_ordered_label(label) for label in nonempty_labels))
-    start = _label_start(labels[0]) if ordered and labels else 1
+    start = _label_start(labels[0], numbering) if ordered and labels else 1
     sources = _recursive_sources(tagged)
+    marker_style = _list_marker_style(numbering)
     return SemanticNode(
         id="tagged-%s" % tagged.id, kind="list", children=items,
-        attrs={"ordered": ordered, "start": start, "list_numbering": numbering or None, "tagged_node_id": tagged.id},
+        attrs={
+            "ordered": ordered,
+            "start": start,
+            "list_numbering": numbering or None,
+            "marker_style": marker_style,
+            "tagged_node_id": tagged.id,
+        },
         confidence=0.995, evidence=[Evidence("tagged_list_structure", 0.995)], sources=sources,
     )
 
@@ -582,11 +671,27 @@ def _tagged_table_node(tagged: SemanticNode) -> SemanticNode | None:
                 id="tagged-%s-text" % tagged_cell.id, kind="text", text=text, confidence=0.995,
                 evidence=[Evidence("tagged_table_cell_text", 0.995)], sources=sources,
             )
-            cells.append(SemanticNode(
+            cell = SemanticNode(
                 id="tagged-%s-cell" % tagged_cell.id, kind="table_cell", children=[text_node] if text else [],
-                attrs={"row": row_index, "col": column, "rowspan": rowspan, "colspan": colspan, "role": role, "bbox": bbox, "headers": attributes.get("Headers"), "scope": attributes.get("Scope")},
+                attrs={
+                    "row": row_index,
+                    "col": column,
+                    "rowspan": rowspan,
+                    "colspan": colspan,
+                    "role": role,
+                    "bbox": bbox,
+                    "headers": attributes.get("Headers"),
+                    "scope": attributes.get("Scope"),
+                    **(
+                        {"header_id": tagged_cell.attrs["structure_id"]}
+                        if tagged_cell.attrs.get("structure_id")
+                        else {}
+                    ),
+                },
                 confidence=0.995, evidence=[Evidence("tagged_table_cell", 0.995)], sources=sources,
-            ))
+            )
+            _apply_layout_attributes(cell, attributes)
+            cells.append(cell)
             column += colspan
         if row_index == header_rows and all_header:
             header_rows += 1
@@ -605,11 +710,19 @@ def _tagged_table_node(tagged: SemanticNode) -> SemanticNode | None:
             confidence=0.995, evidence=[Evidence("tagged_table_caption", 0.995)], sources=_recursive_sources(caption_tag),
         ))
     complex_table = any(int(cell.attrs.get("rowspan", 1)) > 1 or int(cell.attrs.get("colspan", 1)) > 1 for row in rows for cell in row.children)
-    return SemanticNode(
+    table = SemanticNode(
         id="tagged-%s" % tagged.id, kind="table", children=children,
         attrs={"header_rows": header_rows, "row_count": len(rows), "column_count": max((sum(int(cell.attrs.get("colspan", 1)) for cell in row.children) for row in rows), default=0), "output_mode": "html" if complex_table else "gfm", "tagged_node_id": tagged.id},
         confidence=0.995, evidence=[Evidence("tagged_table_structure", 0.995)], sources=_recursive_sources(tagged),
     )
+    table_attributes = (
+        tagged.attrs.get("structure_attributes")
+        if isinstance(tagged.attrs.get("structure_attributes"), dict)
+        else {}
+    )
+    _apply_table_attributes(table, table_attributes)
+    _apply_layout_attributes(table, table_attributes)
+    return table
 
 
 def _tagged_toc_node(tagged: SemanticNode) -> SemanticNode | None:
@@ -673,14 +786,69 @@ def _direct_descendants(node: SemanticNode, kind: str, stop_kinds: set[str]) -> 
 
 
 def _ordered_label(label: str) -> bool:
-    import re
-    return bool(re.fullmatch(r"(?:\(?\d+[.)\]]?|[A-Za-z][.)]|[ivxlcdmIVXLCDM]+[.)])", label.strip()))
+    marker = _normalized_list_label(label)
+    return bool(
+        re.fullmatch(
+            r"(?:[+-]?\d+|[A-Za-z]|[ivxlcdmIVXLCDM]+)",
+            marker,
+        )
+    )
 
 
-def _label_start(label: str) -> int:
-    import re
-    match = re.search(r"\d+", label or "")
-    return max(1, int(match.group(0))) if match else 1
+def _normalized_list_label(label: str) -> str:
+    value = str(label or "").strip()
+    value = re.sub(r"^[\[(]\s*", "", value)
+    value = re.sub(r"\s*[\]).]+$", "", value)
+    return value.strip()
+
+
+def _label_start(label: str, numbering: str = "") -> int:
+    marker = _normalized_list_label(label)
+    if re.fullmatch(r"[+-]?\d+", marker):
+        return int(marker)
+    style = _list_marker_style(numbering)
+    if style in {"upper-roman", "lower-roman"} or (
+        not style
+        and len(marker) > 1
+        and re.fullmatch(r"[ivxlcdmIVXLCDM]+", marker)
+    ):
+        return _roman_label_value(marker) or 1
+    if style in {"upper-alpha", "lower-alpha"} or re.fullmatch(
+        r"[A-Za-z]",
+        marker,
+    ):
+        return _alpha_label_value(marker) or 1
+    return 1
+
+
+def _alpha_label_value(marker: str) -> int:
+    if not re.fullmatch(r"[A-Za-z]+", marker):
+        return 0
+    value = 0
+    for character in marker.lower():
+        value = value * 26 + ord(character) - ord("a") + 1
+    return value
+
+
+def _roman_label_value(marker: str) -> int:
+    if not re.fullmatch(r"[ivxlcdmIVXLCDM]+", marker):
+        return 0
+    values = {
+        "i": 1,
+        "v": 5,
+        "x": 10,
+        "l": 50,
+        "c": 100,
+        "d": 500,
+        "m": 1000,
+    }
+    total = 0
+    previous = 0
+    for character in reversed(marker.lower()):
+        value = values[character]
+        total += -value if value < previous else value
+        previous = max(previous, value)
+    return total
 
 
 def _positive_int(value: Any, default: int) -> int:

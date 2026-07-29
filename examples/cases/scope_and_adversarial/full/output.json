@@ -5,8 +5,11 @@
     "title": "CocoaPDF Document",
     "producer": "",
     "creator": "",
+    "language": null,
     "source": "pdf_operators_and_structure",
-    "output_policy": "markdown_first_html_fallback",
+    "output_policy": "independent_semantic_projections",
+    "markdown_projection": "lossless_layout_reconciliation",
+    "html_projection": "semantic_html_with_lossless_generated_fragments",
     "ocr_used": false,
     "page_selection_active": false,
     "processed_pages": [
@@ -3209,7 +3212,7 @@
           "kind": "image",
           "text": "",
           "attrs": {
-            "src": "vector-a60ea913b6a0a8ba.svg",
+            "src": "assets/vector-a60ea913b6a0a8ba.svg",
             "alt": "Parse \u00b7 Layout \u00b7 Render \u00b7 Decode \u00b7 Reconcile",
             "kind": "vector",
             "intrinsic_width": 524,

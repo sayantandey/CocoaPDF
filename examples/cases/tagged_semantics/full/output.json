@@ -5,8 +5,11 @@
     "title": "CocoaPDF Document",
     "producer": "",
     "creator": "",
+    "language": "en-US",
     "source": "pdf_operators_and_structure",
-    "output_policy": "markdown_first_html_fallback",
+    "output_policy": "independent_semantic_projections",
+    "markdown_projection": "lossless_layout_reconciliation",
+    "html_projection": "semantic_html_with_lossless_generated_fragments",
     "ocr_used": false,
     "page_selection_active": false,
     "processed_pages": [
@@ -203,7 +206,7 @@
       "warnings": []
     },
     {
-      "id": "node-3",
+      "id": "node-7",
       "kind": "list",
       "text": "",
       "attrs": {
@@ -224,6 +227,7 @@
         "writing_mode": "horizontal",
         "bottom_zone": false,
         "start": 1,
+        "marker_style": "decimal",
         "tight": true,
         "level": 0,
         "tag_role": "L",
@@ -238,7 +242,7 @@
       },
       "children": [
         {
-          "id": "node-5",
+          "id": "node-4",
           "kind": "item",
           "text": "",
           "attrs": {
@@ -250,7 +254,7 @@
           },
           "children": [
             {
-              "id": "node-4",
+              "id": "node-3",
               "kind": "text",
               "text": "First tagged item",
               "attrs": {
@@ -314,12 +318,12 @@
           "confidence": 1.0,
           "evidence": [
             {
-              "kind": "list_marker_and_indent",
-              "confidence": 0.95,
+              "kind": "canonical_list_item",
+              "confidence": 0.96,
               "detail": "",
               "page": 1,
               "data": {
-                "indent": 72.0
+                "indent": 0
               }
             },
             {
@@ -376,7 +380,7 @@
           "warnings": []
         },
         {
-          "id": "node-7",
+          "id": "node-6",
           "kind": "item",
           "text": "",
           "attrs": {
@@ -388,7 +392,7 @@
           },
           "children": [
             {
-              "id": "node-6",
+              "id": "node-5",
               "kind": "text",
               "text": "Second tagged item",
               "attrs": {
@@ -453,12 +457,12 @@
           "confidence": 1.0,
           "evidence": [
             {
-              "kind": "list_marker_and_indent",
-              "confidence": 0.95,
+              "kind": "canonical_list_item",
+              "confidence": 0.96,
               "detail": "",
               "page": 1,
               "data": {
-                "indent": 72.0
+                "indent": 0
               }
             },
             {
@@ -530,6 +534,13 @@
           }
         },
         {
+          "kind": "canonical_layout_list_structure",
+          "confidence": 0.97,
+          "detail": "",
+          "page": 1,
+          "data": {}
+        },
+        {
           "kind": "tag_geometry_reconciled",
           "confidence": 1.0,
           "detail": "list->list",
@@ -583,9 +594,7 @@
             61,
             62
           ],
-          "region_ids": [
-            "p1-body-1"
-          ],
+          "region_ids": [],
           "mcids": [
             1,
             2,

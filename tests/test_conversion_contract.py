@@ -5,6 +5,7 @@ import re
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from html.parser import HTMLParser
 from pathlib import Path
 
 from cocoapdf import ConvertOptions, convert_file
@@ -12,6 +13,83 @@ from cocoapdf._textio import canonical_newlines, write_utf8_lf
 from cocoapdf.cli import main as cli_main
 from cocoapdf.core import convert
 from cocoapdf.synthetic import image_xobject_rgb, line_op, make_pdf, text_op
+
+
+class _RenderedHtmlAudit(HTMLParser):
+	_VOID = {
+		"area", "base", "br", "col", "embed", "hr", "img", "input",
+		"link", "meta", "param", "source", "track", "wbr",
+	}
+	_TABLE_PARENTS = {
+		"caption": {"table"},
+		"thead": {"table"},
+		"tbody": {"table"},
+		"tfoot": {"table"},
+		"tr": {"table", "thead", "tbody", "tfoot"},
+		"th": {"tr"},
+		"td": {"tr"},
+	}
+	_P_FORBIDDEN = {
+		"article", "aside", "blockquote", "div", "figure", "form", "h1",
+		"h2", "h3", "h4", "h5", "h6", "hr", "main", "nav", "ol",
+		"p", "pre", "section", "table", "ul",
+	}
+
+	def __init__(self):
+		super().__init__(convert_charrefs=True)
+		self.stack = []
+		self.errors = []
+		self.ids = set()
+		self.duplicate_ids = set()
+		self.references = set()
+		self.main_count = 0
+
+	def handle_starttag(self, tag, attrs):
+		tag = tag.lower()
+		parent = self.stack[-1] if self.stack else ""
+		attribute_map = {}
+		for name, value in attrs:
+			name = name.lower()
+			if name in attribute_map:
+				self.errors.append("duplicate attribute %s on <%s>" % (name, tag))
+			attribute_map[name] = value or ""
+		identifier = attribute_map.get("id")
+		if identifier:
+			if identifier in self.ids:
+				self.duplicate_ids.add(identifier)
+			self.ids.add(identifier)
+		for name in ("aria-labelledby", "headers"):
+			self.references.update(attribute_map.get(name, "").split())
+		href = attribute_map.get("href", "")
+		if href.startswith("#") and len(href) > 1:
+			self.references.add(href[1:])
+		parents = self._TABLE_PARENTS.get(tag)
+		if parents is not None and parent not in parents:
+			self.errors.append("<%s> cannot be inside <%s>" % (tag, parent))
+		if tag == "li" and parent not in {"ol", "ul"}:
+			self.errors.append("<li> cannot be inside <%s>" % parent)
+		if tag == "a" and "a" in self.stack:
+			self.errors.append("nested <a>")
+		if "p" in self.stack and tag in self._P_FORBIDDEN:
+			self.errors.append("<%s> nested in <p>" % tag)
+		if tag == "main":
+			self.main_count += 1
+		if tag not in self._VOID:
+			self.stack.append(tag)
+
+	def handle_startendtag(self, tag, attrs):
+		self.handle_starttag(tag, attrs)
+		if tag.lower() not in self._VOID and self.stack:
+			self.stack.pop()
+
+	def handle_endtag(self, tag):
+		tag = tag.lower()
+		if tag in self._VOID:
+			return
+		if not self.stack or self.stack[-1] != tag:
+			self.errors.append("misnested closing </%s>" % tag)
+			return
+		self.stack.pop()
 
 
 class OutputDeterminismTests(unittest.TestCase):
@@ -37,6 +115,7 @@ class V14FixtureTests(unittest.TestCase):
 		cls.asset_tmp = tempfile.TemporaryDirectory()
 		cls.result = convert_file(cls.pdf_path, ConvertOptions(assets_dir=cls.asset_tmp.name))
 		cls.markdown = cls.result.markdown
+		cls.html = cls.result.html
 
 	@classmethod
 	def tearDownClass(cls):
@@ -48,6 +127,55 @@ class V14FixtureTests(unittest.TestCase):
 		sentinels = sorted(set(re.findall(r"SENTINEL-[A-Z0-9-]+", self.source)))
 		missing = [sentinel for sentinel in sentinels if sentinel not in self.markdown]
 		self.assertEqual(missing, [])
+
+	def test_all_source_sentinels_survive_independent_html_projection(self):
+		sentinels = sorted(set(re.findall(r"SENTINEL-[A-Z0-9-]+", self.source)))
+		missing = [sentinel for sentinel in sentinels if sentinel not in self.html]
+		self.assertEqual(missing, [])
+		self.assertTrue(
+			self.result.report["semantic_valid"],
+			self.result.report["semantic_errors"],
+		)
+
+	def test_html_document_is_passive_and_self_contained(self):
+		self.assertIn(
+			'http-equiv="Content-Security-Policy"',
+			self.html,
+		)
+		self.assertNotRegex(
+			self.html,
+			r'img-src[^"]*(?:https?:)',
+		)
+		self.assertFalse(
+			re.search(
+				r"<\s*(?:script|iframe|object|embed|form)\b",
+				self.html,
+				re.I,
+			)
+		)
+		self.assertFalse(
+			re.search(
+				r'(?:href|src)\s*=\s*["\']\s*'
+				r'(?:javascript|vbscript|file|data:text)',
+				self.html,
+				re.I,
+			)
+		)
+		for tag in re.findall(r"<input\b[^>]*>", self.html, re.I):
+			self.assertRegex(tag, r"\bdisabled\b")
+		for tag in re.findall(r"<img\b[^>]*>", self.html, re.I):
+			self.assertRegex(tag, r'\balt="[^"]*"')
+			self.assertNotRegex(tag, r'\bsrc="https?://')
+
+	def test_html_document_is_well_nested_and_references_existing_ids(self):
+		audit = _RenderedHtmlAudit()
+		audit.feed(self.html)
+		audit.close()
+		self.assertEqual(audit.stack, [])
+		self.assertEqual(audit.errors, [])
+		self.assertEqual(audit.duplicate_ids, set())
+		self.assertEqual(audit.main_count, 1)
+		self.assertEqual(audit.references - audit.ids, set())
 
 	def test_no_control_characters_are_emitted(self):
 		controls = [
@@ -235,6 +363,26 @@ class V14FixtureTests(unittest.TestCase):
 			self.assertIn(fragment, self.markdown)
 		self.assertIn("• Singleton bullet-looking prose line.", self.markdown)
 		self.assertNotIn("- This is dialogue with an em dash.", self.markdown)
+		quote_html = self.result.html[
+			self.result.html.index("SENTINEL-QUOTE-001"):
+			self.result.html.index("9. Code Blocks")
+		]
+		self.assertRegex(
+			quote_html,
+			r"(?s)<ul\b.*quoted bullet alpha.*</ul>.*"
+			r"<ol\b.*quoted ordered alpha.*</ol>",
+		)
+		self.assertGreaterEqual(quote_html.count("<blockquote"), 3)
+		self.assertIn("<pre", quote_html)
+		self.assertIn("<code>def quoted_code(x):", quote_html)
+		marker_html = self.result.html[
+			self.result.html.index("SENTINEL-LIST-004"):
+			self.result.html.index("SENTINEL-LIST-005")
+		]
+		self.assertIn('<ol type="a"', marker_html)
+		self.assertIn('<ol type="i" start="4"', marker_html)
+		self.assertEqual(marker_html.count('<ol type="i"'), 1)
+		self.assertIn("second roman item source</li>", marker_html)
 
 	def test_complex_tables_and_formula_matrix_remain_structural(self):
 		for fragment in (
@@ -332,6 +480,13 @@ class ArchitectureAndImageTests(unittest.TestCase):
 		self.assertIn("width: 120.000pt", result.markdown)
 		self.assertIn("height: 60.000pt", result.markdown)
 		self.assertIn("margin-left: auto; margin-right: auto;", result.markdown)
+		self.assertIn(
+			'class="cocoapdf-figure cocoapdf-align-center"',
+			result.html,
+		)
+		self.assertRegex(result.html, r'<img src="assets/img-[0-9a-f]+\.png"')
+		self.assertIn("width: 120.000pt", result.html)
+		self.assertIn("height: 60.000pt", result.html)
 		self.assertEqual(len(result.assets), 1)
 		self.assertEqual(result.report["images_detail"][0]["placed_width"], 120.0)
 
@@ -680,10 +835,14 @@ class HeadingAndTableBoundaryTests(unittest.TestCase):
 		self.assertNotIn('<p align="center">Language-model comparison</p>', markdown)
 		self.assertEqual(markdown.count("| Component | Choice |"), 1)
 		self.assertEqual(markdown.count("| Candidate | Role |"), 1)
-		self.assertIn('<h3 id="pilot-software">Pilot software</h3>', result.html)
-		self.assertIn(
-			'<h3 id="language-model-comparison">Language-model comparison</h3>',
+		self.assertRegex(
 			result.html,
+			r'<h3 id="pilot-software"[^>]*>Pilot software</h3>',
+		)
+		self.assertRegex(
+			result.html,
+			r'<h3 id="language-model-comparison"[^>]*>'
+			r'Language-model comparison</h3>',
 		)
 
 	def test_explicit_table_label_remains_a_caption_even_when_bold(self):

@@ -201,12 +201,12 @@ def _render_list(node: SemanticNode) -> str:
 
 
 def _render_table(node: SemanticNode) -> str:
-    rows = [child for child in node.children if child.kind == "table_row"]
+    rows, header_rows = _semantic_table_rows(node)
     captions = [child for child in node.children if child.kind == "caption"]
     notes = [child for child in node.children if child.kind == "table_note"]
     if not rows:
         return ""
-    complex_table = node.attrs.get("output_mode") == "html" or int(node.attrs.get("header_rows", 0)) not in {0, 1} or any(
+    complex_table = node.attrs.get("output_mode") == "html" or header_rows not in {0, 1} or any(
         int(cell.attrs.get("rowspan", 1)) != 1
         or int(cell.attrs.get("colspan", 1)) != 1
         or int(cell.attrs.get("rotation", 0)) % 360
@@ -220,7 +220,6 @@ def _render_table(node: SemanticNode) -> str:
     if not width:
         return ""
     grid = [row + [""] * (width - len(row)) for row in grid]
-    header_rows = int(node.attrs.get("header_rows", 0))
     if header_rows == 0:
         grid.insert(0, ["" for _ in range(width)])
     out = ["| " + " | ".join(grid[0]) + " |", "| " + " | ".join("---" for _ in range(width)) + " |"]
@@ -240,10 +239,9 @@ def _simple_table_cell_child(node: SemanticNode) -> bool:
 
 
 def _render_table_html(node: SemanticNode) -> str:
-    rows = [child for child in node.children if child.kind == "table_row"]
+    rows, header_rows = _semantic_table_rows(node)
     caption = next((child for child in node.children if child.kind == "caption"), None)
     notes = [child for child in node.children if child.kind == "table_note"]
-    header_rows = int(node.attrs.get("header_rows", 0))
     out = ["<table>"]
     if caption:
         out.append("<caption>%s</caption>" % _render_inlines(caption))
@@ -275,6 +273,44 @@ def _render_table_html(node: SemanticNode) -> str:
     out.append("</table>")
     out.extend('<p class="cocoapdf-table-note">%s</p>' % _render_inlines(note) for note in notes)
     return "\n".join(out)
+
+
+def _semantic_table_rows(
+    node: SemanticNode,
+) -> tuple[List[SemanticNode], int]:
+    def rows_under(container: SemanticNode) -> List[SemanticNode]:
+        rows: List[SemanticNode] = []
+        for child in container.children:
+            if child.kind == "table_row":
+                rows.append(child)
+            elif child.kind in {"table_head", "table_body"}:
+                rows.extend(rows_under(child))
+        return rows
+
+    head_rows: List[SemanticNode] = []
+    body_rows: List[SemanticNode] = []
+    loose_rows: List[SemanticNode] = []
+    has_sections = False
+    for child in node.children:
+        if child.kind == "table_head":
+            has_sections = True
+            head_rows.extend(rows_under(child))
+        elif child.kind == "table_body":
+            has_sections = True
+            body_rows.extend(rows_under(child))
+        elif child.kind == "table_row":
+            loose_rows.append(child)
+    if has_sections:
+        rows = head_rows + body_rows + loose_rows
+        if head_rows:
+            return rows, len(head_rows)
+    else:
+        rows = loose_rows
+    try:
+        header_rows = int(node.attrs.get("header_rows", 0))
+    except (TypeError, ValueError, OverflowError):
+        header_rows = 0
+    return rows, min(len(rows), max(0, header_rows))
 
 
 def _render_figure(node: SemanticNode) -> str:

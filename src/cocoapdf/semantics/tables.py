@@ -102,6 +102,10 @@ def merge_continued_tables(nodes: Sequence[SemanticNode]) -> List[SemanticNode]:
         previous.sources = merge_sources(previous.sources + node.sources)
         previous.attrs["row_count"] = len([child for child in previous.children if child.kind == "table_row"])
         previous.attrs["source_pages"] = previous.source_pages()
+        # A retained generated fragment describes only one physical page.
+        # After semantic rows are merged it is necessarily incomplete, so the
+        # HTML projection must use the complete typed table instead.
+        previous.attrs.pop("_layout_html", None)
         previous.evidence.append(Evidence("multi_page_table_continuation", 0.95, data={"pages": previous.source_pages()}))
         previous.confidence = min(previous.confidence, node.confidence, 0.95)
     return out

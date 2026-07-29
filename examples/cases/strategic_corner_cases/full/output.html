@@ -2,278 +2,208 @@
 <html>
 <head>
 <meta charset="utf-8" />
-<title>CocoaPDF output</title>
-<style>body { font-family: system-ui, sans-serif; line-height: 1.5; max-width: 72rem; margin: 2rem auto; padding: 0 1rem; }
-table { border-collapse: collapse; margin: 1rem 0; }
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data: file:; style-src &#x27;unsafe-inline&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; object-src &#x27;none&#x27;" />
+<meta name="referrer" content="no-referrer" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="generator" content="CocoaPDF" />
+<title>CocoaPDF Strategic Corner Cases V1–V4</title>
+<style>body { font-family: system-ui, sans-serif; line-height: 1.5; margin: 0; color: #1f2328; background: #fff; }
+.cocoapdf-document { max-width: 72rem; margin: 2rem auto; padding: 0 1rem; }
+table { border-collapse: collapse; margin: 1rem 0; max-width: 100%; }
+.cocoapdf-table-container { max-width: 100%; overflow-x: auto; }
+.cocoapdf-table-container:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
 th, td { border: 1px solid #999; padding: 0.25rem 0.5rem; }
+caption { text-align: start; font-weight: 600; margin-bottom: 0.35rem; }
+caption.cocoapdf-caption-bottom { caption-side: bottom; margin-top: 0.35rem; margin-bottom: 0; }
 blockquote { border-left: 0.25rem solid #bbb; margin-left: 0; padding-left: 1rem; color: #333; }
 pre { background: #f5f5f5; padding: 0.75rem; overflow-x: auto; }
 mark { background: #fff59d; }
 .cocoapdf-figure { margin-top: 1rem; margin-bottom: 1rem; max-width: 100%; }
-.cocoapdf-figure img { display: block; }
+.cocoapdf-figure img { display: block; object-fit: contain; }
 .cocoapdf-align-left { margin-left: 0; margin-right: auto; text-align: left; }
 .cocoapdf-align-center { margin-left: auto; margin-right: auto; text-align: center; }
 .cocoapdf-align-right { margin-left: auto; margin-right: 0; text-align: right; }
 .cocoapdf-figure figcaption { margin-top: 0.35rem; font-style: italic; color: #444; }
-.cocoapdf-columns { margin: 1rem 0; }
+.cocoapdf-columns { columns: 2; column-gap: 2rem; margin: 1rem 0; }
+.cocoapdf-columns > * { break-inside: avoid-column; }
 .cocoapdf-form-appearance { display: grid; gap: 0.55rem; margin: 1rem 0; }
 .cocoapdf-form-appearance label { display: block; }
 
 .cocoapdf-page-break { break-before: page; border: 0; border-top: 1px dashed #bbb; }
 .cocoapdf-toc ol { list-style-position: inside; }
 .cocoapdf-toc ol ol { margin-left: 1.5rem; }
+.cocoapdf-toc-page { float: inline-end; font-variant-numeric: tabular-nums; }
 .cocoapdf-table-note { font-size: 0.9em; font-style: italic; }
 .cocoapdf-cross-reference { text-decoration: none; }
+.cocoapdf-callout, .cocoapdf-sidebar, .cocoapdf-annotation { margin: 1rem 0; }
+.cocoapdf-callout { border-left: 0.25rem solid #6b8fb3; padding-left: 1rem; }
+.cocoapdf-sidebar, .cocoapdf-annotation { border: 1px solid #c8ccd1; padding: 0.75rem; }
 .cocoapdf-form { display: grid; gap: 0.65rem; margin: 1rem 0; }
 .cocoapdf-form-field { display: grid; grid-template-columns: minmax(8rem, max-content) 1fr; column-gap: 0.5rem; }
 .cocoapdf-form-field-name { font-weight: 600; }
 .cocoapdf-form-field-value-evidenced { align-items: center; box-sizing: border-box; display: inline-flex; padding: 0 0.25rem; }
-.cocoapdf-equation { overflow-x: auto; margin: 1rem 0; }</style>
+.cocoapdf-equation { overflow-x: auto; margin: 1rem 0; }
+li > input[type="checkbox"][disabled] { margin-inline-end: 0.35rem; }
+[role="doc-footnote"] { font-size: 0.92em; border-top: 1px solid #ddd; margin-top: 0.75rem; padding-top: 0.5rem; }
+@media (max-width: 48rem) {
+  .cocoapdf-columns { columns: auto; }
+  .cocoapdf-form-field { grid-template-columns: 1fr; }
+  .cocoapdf-document img { height: auto !important; }
+}
+@media print {
+  body { color: #000; }
+  .cocoapdf-document { max-width: none; margin: 0; padding: 0; }
+  .cocoapdf-table-container { overflow: visible; }
+  thead { display: table-header-group; }
+  tr, figure, blockquote, pre { break-inside: avoid; }
+  a { color: inherit; text-decoration: none; }
+}</style>
 </head>
 <body>
-<h1 id="cocoapdf-strategic-corner-cases-v1-v4">CocoaPDF Strategic Corner Cases V1–V4</h1>
-<p><strong>Fixture contract:</strong> this document intentionally combines common, adversarial, and future-scope cases. It is not a prose document; it is a deterministic test surface. Each section contains visible sentinel labels so conversion failures can be localized.</p>
-<p><strong>Canonical package name:</strong> CocoaPDF. The legacy <code>pdf2md</code> name may appear only as an import/CLI compatibility alias.</p>
-<p>[[TOC source sentinel: a generated PDF may or may not create a real PDF outline/bookmark tree.]]</p>
-<a id="header-n7"></a>
-<hr />
-<h2 id="1-plain-text-paragraphs-spacing-and-line-joining">1. Plain Text, Paragraphs, Spacing, and Line Joining</h2>
-<p>SENTINEL-TEXT-001: A simple paragraph should survive as one Markdown paragraph with normal spaces, punctuation, and sentence boundaries.</p>
-<p>SENTINEL-TEXT-002: This paragraph contains deliberately irregular spacing, a non-breaking space between Cocoa PDF, a narrow no-break space in 12 345, and a thin space around A B. Normalize only where the converter policy explicitly allows it.</p>
-<p>SENTINEL-TEXT-003: Soft line wrapping should be joined into one paragraph when the PDF visual line breaks are only layout artifacts. This sentence is intentionally long so that many PDF generators wrap it across several visual lines while the expected Markdown remains one paragraph.</p>
-<p>SENTINEL-TEXT-004: Hard line breaks follow:  <br />
-first hard line  <br />
-second hard line  <br />
+<main class="cocoapdf-document">
+
+<h1 id="cocoapdf-strategic-corner-cases-v1-v4" data-cocoapdf-node="node-5" data-confidence="0.9200" data-source-pages="1"><u data-cocoapdf-node="node-3" data-source-pages="1"><strong data-cocoapdf-node="node-2" data-source-pages="1">CocoaPDF Strategic Corner Cases V1–V4</strong></u> </h1>
+<p data-cocoapdf-node="node-10" data-confidence="0.9600" data-source-pages="1"><strong data-cocoapdf-node="node-7" data-source-pages="1">Fixture contract:</strong> this document intentionally combines common, adversarial, and future-scope cases. It is not a prose document; it is a deterministic test surface. Each section contains visible sentinel labels so conversion failures can be localized.</p>
+<p data-cocoapdf-node="node-18" data-confidence="0.9600" data-source-pages="1"><strong data-cocoapdf-node="node-12" data-source-pages="1">Canonical package name:</strong> CocoaPDF. The legacy <code data-cocoapdf-node="node-15" data-source-pages="1">pdf2md</code> name may appear only as an import/CLI compatibility alias.</p>
+<p data-cocoapdf-node="node-20" data-confidence="0.9600" data-source-pages="1">[[TOC source sentinel: a generated PDF may or may not create a real PDF outline/bookmark tree.]]</p>
+<a id="header-n7" data-cocoapdf-node="node-21" data-confidence="1.0000" data-source-pages="1"></a>
+<hr data-cocoapdf-node="node-22" data-confidence="0.9000" data-source-pages="1" />
+<h2 id="1-plain-text-paragraphs-spacing-and-line-joining" data-cocoapdf-node="node-27" data-confidence="0.9200" data-source-pages="1"><u data-cocoapdf-node="node-25" data-source-pages="1"><strong data-cocoapdf-node="node-24" data-source-pages="1">1. Plain Text, Paragraphs, Spacing, and Line Joining</strong></u> </h2>
+<p data-cocoapdf-node="node-30" data-confidence="0.9600" data-source-pages="1">SENTINEL-TEXT-001: A simple paragraph should survive as one Markdown paragraph with normal spaces, punctuation, and sentence boundaries.</p>
+<p data-cocoapdf-node="node-33" data-confidence="0.9600" data-source-pages="1">SENTINEL-TEXT-002: This paragraph contains deliberately irregular spacing, a non-breaking space between Cocoa PDF, a narrow no-break space in 12 345, and a thin space around A B. Normalize only where the converter policy explicitly allows it.</p>
+<p data-cocoapdf-node="node-37" data-confidence="0.9600" data-source-pages="1">SENTINEL-TEXT-003: Soft line wrapping should be joined into one paragraph when the PDF visual line breaks are only layout artifacts. This sentence is intentionally long so that many PDF generators wrap it across several visual lines while the expected Markdown remains one paragraph.</p>
+<p data-cocoapdf-node="node-45" data-confidence="0.9600" data-source-pages="1">SENTINEL-TEXT-004: Hard line breaks follow:<br />
+first hard line<br />
+second hard line<br />
 third hard line</p>
-<p>SENTINEL-TEXT-005: Hyphenated wrap target words: microservice, cooperate, reentry. Soft hyphen target: invisible soft hyphen.</p>
-<p>SENTINEL-TEXT-006: Literal hyphenation that must not be repaired: state-of-the-art, end-to-end, mother-in-law, twenty-one, non-breaking hyphen A‑B.</p>
-<p>SENTINEL-TEXT-007: Dotted leader line for TOC-like detection: Introduction . . . . . . . . . . . . . . . . . 7</p>
-<hr />
-<h2 id="2-unicode-encodings-symbols-and-normalization">2. Unicode, Encodings, Symbols, and Normalization</h2>
-<p>SENTINEL-UNICODE-001 Greek uppercase: Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π Ρ Σ Τ Υ Φ Χ Ψ Ω.</p>
-<p>SENTINEL-UNICODE-002 Greek lowercase: α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ τ υ φ χ ψ ω; variants: ς ϕ ϑ ϵ.</p>
-<p>SENTINEL-UNICODE-003 Latin diacritics composed: café naïve façade coöperate São Tomé Łódź Ćevapi Ångström smörgåsbord.</p>
-<p>SENTINEL-UNICODE-004 Latin diacritics decomposed: café naïve façade coöperate São Tomé Ångström.</p>
-<p>SENTINEL-UNICODE-005 Ligatures and compatibility: fi fl ffi ffl ff; plain equivalents: fi fl ffi ffl ff; Roman numerals: Ⅰ Ⅱ Ⅲ Ⅳ Ⅴ Ⅹ.</p>
-<p>SENTINEL-UNICODE-006 Math operators: ± × ÷ ≠ ≈ ≡ ≤ ≥ ∑ ∏ √ ∫ ∂ ∇ ∞ ∝ ∈ ∉ ∩ ∪ ⊂ ⊆ ⊕ ⊗ ∴ ∵.</p>
-<p>SENTINEL-UNICODE-007 Arrows: ← ↑ → ↓ ↔ ↕ ⇒ ⇐ ⇔ ↦ ↩ ↪ ⟶ ⟵ ⟷.</p>
-<p>SENTINEL-UNICODE-008 Currency and legal symbols: $ € £ ¥ ₹ ₿ ¢ ₩ ₪ ₽ © ® ™ § ¶ † ‡ №.</p>
-<p>SENTINEL-UNICODE-009 Emoji single code points: 😀 😅 🚀 ☕ 🍫 📄 🧪 ✅ ❌ ⚠️.</p>
-<p>SENTINEL-UNICODE-010 Emoji ZWJ and modifiers: 👩‍💻 🧑🏽‍🔬 👨‍👩‍👧‍👦 🏳️‍🌈 🇮🇳 🇺🇸.</p>
-<p>SENTINEL-UNICODE-011 CJK: 中文测试 日本語テスト 한국어 테스트 漢字かなカナ.</p>
-<p>SENTINEL-UNICODE-012 RTL visible text: עברית שלום עולם. العربية مرحبا بالعالم. Mixed LTR/RTL: ABC עברית 123 العربية XYZ.</p>
-<p>SENTINEL-UNICODE-013 Indic and complex shaping: हिन्दी परीक्षण, বাংলা পরীক্ষা, தமிழ் சோதனை, తెలుగు పరీక్ష, ಕನ್ನಡ ಪರೀಕ್ಷೆ.</p>
-<p>SENTINEL-UNICODE-014 Other scripts: Кириллица тест, Ελληνικά δοκιμή, Հայերեն փորձարկում, ქართული ტესტი, ไทยทดสอบ.</p>
-<p>SENTINEL-UNICODE-015 Invisible/control-like characters named visibly: zero-width joiner [‍], zero-width non-joiner [‌], word joiner [⁠], left-to-right mark [‎], right-to-left mark [‏].</p>
-<hr />
-<h2 id="3-markdown-escaping-and-literal-characters">3. Markdown Escaping and Literal Characters</h2>
-<p>SENTINEL-ESCAPE-001: Literal Markdown metacharacters in prose: backslash \ backtick ` asterisk * underscore _ braces {} brackets [] parentheses () hash # plus + minus - dot . exclamation ! pipe | angle ampersand &amp;.</p>
-<p>SENTINEL-ESCAPE-002: These should remain prose, not syntax: #notheading, -notlist, +notlist, <em>not emphasis</em>, <em>not emphasis</em>, 1.not ordered list.</p>
-<p>SENTINEL-ESCAPE-003: Entity-looking text: © &amp; © should not be double-decoded unexpectedly.</p>
-<p>SENTINEL-ESCAPE-004: Literal HTML-looking text in code: <code>&lt;div class=&quot;x&quot;&gt;not active html&lt;/div&gt;</code>.</p>
-<hr />
-<h2 id="4-heading-hierarchy-and-anchors">4. Heading Hierarchy and Anchors</h2>
-<h1 id="h1-duplicate-title-sentinel">H1 Duplicate Title Sentinel</h1>
-<h2 id="h2-numbered-and-plain">H2 Numbered and Plain</h2>
-<h3 id="h3-1-2-3-numbered-heading">H3 1.2.3 Numbered Heading</h3>
-<h4 id="h4-with-bold-and-italic-inline-source">H4 With Bold and <em>Italic</em> Inline Source</h4>
-<h5 id="h5-all-caps-heading">H5 ALL CAPS HEADING</h5>
-<h6 id="h6-small-heading">H6 Small Heading</h6>
-<h2 id="h2-duplicate-title-sentinel">H2 Duplicate Title Sentinel</h2>
-<h2 id="h2-duplicate-title-sentinel-2">H2 Duplicate Title Sentinel</h2>
-<a id="explicit-anchor-v1-4"></a>
-<p>SENTINEL-ANCHOR-001: The explicit anchor target above should be available for internal link tests when the Markdown/PDF generator preserves anchors.</p>
-<hr />
-<h2 id="5-inline-formatting">5. Inline Formatting</h2>
-<p>SENTINEL-INLINE-001: Plain, <strong>bold</strong>, <em>italic</em>, <strong><em>bold italic</em></strong>, <code>inline_code()</code>, <del>strikethrough</del>, <u>underline via HTML fallback</u>, <mark>highlight via HTML fallback</mark>.</p>
-<p>SENTINEL-INLINE-002: Mixed styles inside one sentence: alpha *<em>bravo </em>charlie<em> delta</em>* echo <code>foxtrot_golf</code> hotel.</p>
-<p>SENTINEL-INLINE-003: Superscript/subscript: H<sub>2</sub>O, CO<sub>2</sub>, x<sup>2</sup> + y<sup>2</sup> = z<sup>2</sup>, E = mc<sup>2</sup>.</p>
-<p>SENTINEL-INLINE-004: Code span with punctuation: <code>a|b*c_d[0](x){y}</code>.</p>
-<p>SENTINEL-INLINE-005: Backtick stress: <code>code span containing ` one backtick</code> and <code>code span containing `` two backticks</code>.</p>
-<p>SENTINEL-INLINE-006: Faux-style text that should stay plain if source PDF does not encode style: BOLDLOOKINGCAPS italic-looking-words code-looking_word.</p>
-<hr />
-<h2 id="6-links-destinations-and-security">6. Links, Destinations, and Security</h2>
-<p>SENTINEL-LINK-001: External link: <a href="https://example.com/cocoapdf?alpha=1&amp;beta=two#frag" rel="noopener noreferrer">CocoaPDF external HTTPS</a>.</p>
-<p>SENTINEL-LINK-002: Mail link: <a href="mailto:maintainer@example.com?subject=CocoaPDF%20fixture" rel="noopener noreferrer">Email maintainer</a>.</p>
-<p>SENTINEL-LINK-003: Telephone link: <a href="tel:+15551234567" rel="noopener noreferrer">Call placeholder</a>.</p>
-<p>SENTINEL-LINK-004: Internal link: <a href="#explicit-anchor-v1-4" rel="noopener noreferrer">Jump to explicit anchor</a>.</p>
-<p>SENTINEL-LINK-005: URL with parentheses: <a href="https://example.com/a_(b)_c" rel="noopener noreferrer">URL parentheses</a>.</p>
-<p>SENTINEL-LINK-006: Bare autolinks: <a href="https://example.org/bare-url" rel="noopener noreferrer">https://example.org/bare-url</a> and <a href="mailto:bare@example.org" rel="noopener noreferrer">mailto:bare@example.org</a>.</p>
-<p>SENTINEL-LINK-SECURITY-001: Unsafe URI must be reported or rendered as plain text, not active: <u>unsafe javascript</u>.</p>
-<p>SENTINEL-LINK-SECURITY-002: Unsafe file URI must be reported or rendered as plain text, not active: <u>unsafe local file</u>.</p>
-<hr />
-<h2 id="7-lists-and-nesting">7. Lists and Nesting</h2>
-<p>SENTINEL-LIST-001 unordered list:</p>
-<ul>
-<li>alpha unordered item</li>
-<li>bravo unordered item with <strong>bold</strong> and <code>code</code></li>
-<li>charlie unordered item that wraps in PDF because it contains a long explanation about list continuation, indentation, and visual line recovery across a layout-generated soft wrap.</li>
-</ul>
-<p>SENTINEL-LIST-002 ordered list:</p>
-<ol>
-<li>first ordered item</li>
-<li>second ordered item</li>
-<li>third ordered item</li>
-</ol>
-<p>SENTINEL-LIST-003 ordered list starting at non-one:</p>
-<ol start="7">
-<li>item seven</li>
-<li>item eight</li>
-<li>item nine</li>
-</ol>
-<p>SENTINEL-LIST-004 letter and roman markers source:</p>
-<ol type="a">
-<li>letter item source</li>
-<li>second letter item source iv. roman item source</li>
-<li>second roman item source</li>
-</ol>
-<p>SENTINEL-LIST-005 nested mixed list:</p>
-<ol>
-<li>parent ordered alpha
-<ul>
-<li>child unordered alpha</li>
-<li>child unordered bravo
-<ol>
-<li>grandchild ordered one</li>
-<li>grandchild ordered two</li>
-</ol></li>
-</ul></li>
-<li>parent ordered bravo
-<ol>
-<li>child ordered one
-<ul>
-<li>deep bullet one</li>
-<li>deep bullet two</li>
-</ul></li>
-<li>child ordered two</li>
-</ol></li>
-</ol>
-<p>SENTINEL-LIST-006 task list source:</p>
-<ul>
-<li><input type="checkbox" disabled checked /> checked task item</li>
-<li><input type="checkbox" disabled /> unchecked task item</li>
-<li><input type="checkbox" disabled checked /> uppercase checked task item</li>
-</ul>
-<p>SENTINEL-LIST-007 singleton bullet that may be prose and should not be hallucinated as list without evidence:</p>
-<p>• Singleton bullet-looking prose line.</p>
-<p>SENTINEL-LIST-008 dash dialogue that should not become a list:  <br />
-— This is dialogue with an em dash.  <br />
+<p data-cocoapdf-node="node-50" data-confidence="0.9600" data-source-pages="1">SENTINEL-TEXT-005: Hyphenated wrap target words: microservice, cooperate, reentry. Soft hyphen target: invisible soft hyphen.</p>
+<p data-cocoapdf-node="node-53" data-confidence="0.9600" data-source-pages="1">SENTINEL-TEXT-006: Literal hyphenation that must not be repaired: state-of-the-art, end-to-end, mother-in-law, twenty-one, non-breaking hyphen A‑B.</p>
+<p data-cocoapdf-node="node-55" data-confidence="0.9600" data-source-pages="1">SENTINEL-TEXT-007: Dotted leader line for TOC-like detection: Introduction . . . . . . . . . . . . . . . . . 7</p>
+<hr data-cocoapdf-node="node-56" data-confidence="0.9000" data-source-pages="1" />
+<h2 id="2-unicode-encodings-symbols-and-normalization" data-cocoapdf-node="node-61" data-confidence="0.9200" data-source-pages="1"><u data-cocoapdf-node="node-59" data-source-pages="1"><strong data-cocoapdf-node="node-58" data-source-pages="1">2. Unicode, Encodings, Symbols, and Normalization</strong></u> </h2>
+<p data-cocoapdf-node="node-63" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-001 Greek uppercase: Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π Ρ Σ Τ Υ Φ Χ Ψ Ω.</p>
+<p data-cocoapdf-node="node-65" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-002 Greek lowercase: α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ τ υ φ χ ψ ω; variants: ς ϕ ϑ ϵ.</p>
+<p data-cocoapdf-node="node-67" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-003 Latin diacritics composed: café naïve façade coöperate São Tomé Łódź Ćevapi Ångström smörgåsbord.</p>
+<p data-cocoapdf-node="node-69" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-004 Latin diacritics decomposed: café naïve façade coöperate São Tomé Ångström.</p>
+<p data-cocoapdf-node="node-71" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-005 Ligatures and compatibility: fi fl ffi ffl ff; plain equivalents: fi fl ffi ffl ff; Roman numerals: Ⅰ Ⅱ Ⅲ Ⅳ Ⅴ Ⅹ.</p>
+<p data-cocoapdf-node="node-73" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-006 Math operators: ± × ÷ ≠ ≈ ≡ ≤ ≥ ∑ ∏ √ ∫ ∂ ∇ ∞ ∝ ∈ ∉ ∩ ∪ ⊂ ⊆ ⊕ ⊗ ∴ ∵.</p>
+<p data-cocoapdf-node="node-75" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-007 Arrows: ← ↑ → ↓ ↔ ↕ ⇒ ⇐ ⇔ ↦ ↩ ↪ ⟶ ⟵ ⟷.</p>
+<p data-cocoapdf-node="node-77" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-008 Currency and legal symbols: $ € £ ¥ ₹ ₿ ¢ ₩ ₪ ₽ © ® ™ § ¶ † ‡ №.</p>
+<p data-cocoapdf-node="node-79" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-009 Emoji single code points: 😀 😅 🚀 ☕ 🍫 📄 🧪 ✅ ❌ ⚠️.</p>
+<p data-cocoapdf-node="node-85" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-010 Emoji ZWJ and modifiers: 👩‍💻 🧑🏽‍🔬 👨‍👩‍👧‍👦 🏳️‍🌈 🇮🇳 🇺🇸.</p>
+<p data-cocoapdf-node="node-87" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-011 CJK: 中文测试 日本語テスト 한국어 테스트 漢字かなカナ.</p>
+<p dir="auto" data-cocoapdf-node="node-95" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-012 RTL visible text: עברית שלום עולם. العربية مرحبا بالعالم. Mixed LTR/RTL: ABC עברית 123 العربية XYZ.</p>
+<p data-cocoapdf-node="node-98" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-013 Indic and complex shaping: हिन्दी परीक्षण, বাংলা পরীক্ষা, தமிழ் சோதனை, తెలుగు పరీక్ష, ಕನ್ನಡ ಪರೀಕ್ಷೆ.</p>
+<p data-cocoapdf-node="node-100" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-014 Other scripts: Кириллица тест, Ελληνικά δοκιμή, Հայերեն փորձարկում, ქართული ტესტი, ไทยทดสอบ.</p>
+<p dir="auto" data-cocoapdf-node="node-103" data-confidence="0.9600" data-source-pages="1">SENTINEL-UNICODE-015 Invisible/control-like characters named visibly: zero-width joiner [‍], zero-width non-joiner [‌], word joiner [⁠], left-to-right mark [‎], right-to-left mark [‏].</p>
+<hr data-cocoapdf-node="node-104" data-confidence="0.9000" data-source-pages="1" />
+<h2 id="3-markdown-escaping-and-literal-characters" data-cocoapdf-node="node-109" data-confidence="0.9200" data-source-pages="1"><u data-cocoapdf-node="node-107" data-source-pages="1"><strong data-cocoapdf-node="node-106" data-source-pages="1">3. Markdown Escaping and Literal Characters</strong></u> </h2>
+<p data-cocoapdf-node="node-112" data-confidence="0.9600" data-source-pages="1">SENTINEL-ESCAPE-001: Literal Markdown metacharacters in prose: backslash \ backtick ` asterisk * underscore _ braces {} brackets [] parentheses () hash # plus + minus - dot . exclamation ! pipe | angle ampersand &amp;.</p>
+<p data-cocoapdf-node="node-121" data-confidence="0.9600" data-source-pages="1">SENTINEL-ESCAPE-002: These should remain prose, not syntax: #notheading, -notlist, +notlist, <em data-cocoapdf-node="node-115" data-source-pages="1">not emphasis</em>, <em data-cocoapdf-node="node-118" data-source-pages="1">not emphasis</em>, 1.not ordered list.</p>
+<p data-cocoapdf-node="node-123" data-confidence="0.9600" data-source-pages="1">SENTINEL-ESCAPE-003: Entity-looking text: © &amp; © should not be double-decoded unexpectedly.</p>
+<p data-cocoapdf-node="node-128" data-confidence="0.9600" data-source-pages="1">SENTINEL-ESCAPE-004: Literal HTML-looking text in code: <code data-cocoapdf-node="node-126" data-source-pages="1">&lt;div class=&quot;x&quot;&gt;not active html&lt;/div&gt;</code>.</p>
+<hr data-cocoapdf-node="node-129" data-confidence="0.9000" data-source-pages="1" />
+<h2 id="4-heading-hierarchy-and-anchors" data-cocoapdf-node="node-134" data-confidence="0.9200" data-source-pages="2"><u data-cocoapdf-node="node-132" data-source-pages="2"><strong data-cocoapdf-node="node-131" data-source-pages="2">4. Heading Hierarchy and Anchors</strong></u> </h2>
+<h1 id="h1-duplicate-title-sentinel" data-cocoapdf-node="node-139" data-confidence="0.9200" data-source-pages="2"><u data-cocoapdf-node="node-137" data-source-pages="2"><strong data-cocoapdf-node="node-136" data-source-pages="2">H1 Duplicate Title Sentinel</strong></u> </h1>
+<h2 id="h2-numbered-and-plain" data-cocoapdf-node="node-144" data-confidence="0.9200" data-source-pages="2"><u data-cocoapdf-node="node-142" data-source-pages="2"><strong data-cocoapdf-node="node-141" data-source-pages="2">H2 Numbered and Plain</strong></u> </h2>
+<h3 id="h3-1-2-3-numbered-heading" data-cocoapdf-node="node-148" data-confidence="0.9200" data-source-pages="2"><strong data-cocoapdf-node="node-146" data-source-pages="2">H3 1.2.3 Numbered Heading</strong> </h3>
+<h4 id="h4-with-bold-and-italic-inline-source" data-cocoapdf-node="node-157" data-confidence="0.9200" data-source-pages="2"><strong data-cocoapdf-node="node-150" data-source-pages="2">H4 With Bold and </strong><strong data-cocoapdf-node="node-153" data-source-pages="2"><em data-cocoapdf-node="node-152" data-source-pages="2">Italic</em></strong><strong data-cocoapdf-node="node-155" data-source-pages="2"> Inline Source</strong> </h4>
+<h5 id="h5-all-caps-heading" data-cocoapdf-node="node-161" data-confidence="0.9200" data-source-pages="2"><strong data-cocoapdf-node="node-159" data-source-pages="2">H5 ALL CAPS HEADING</strong> </h5>
+<h6 id="h6-small-heading" data-cocoapdf-node="node-165" data-confidence="0.9200" data-source-pages="2"><strong data-cocoapdf-node="node-163" data-source-pages="2">H6 Small Heading</strong> </h6>
+<h2 id="h2-duplicate-title-sentinel" data-cocoapdf-node="node-170" data-confidence="0.9200" data-source-pages="2"><u data-cocoapdf-node="node-168" data-source-pages="2"><strong data-cocoapdf-node="node-167" data-source-pages="2">H2 Duplicate Title Sentinel</strong></u> </h2>
+<h2 id="h2-duplicate-title-sentinel-2" data-cocoapdf-node="node-175" data-confidence="0.9200" data-source-pages="2"><u data-cocoapdf-node="node-173" data-source-pages="2"><strong data-cocoapdf-node="node-172" data-source-pages="2">H2 Duplicate Title Sentinel</strong></u> </h2>
+<a id="explicit-anchor-v1-4" data-cocoapdf-node="node-176" data-confidence="1.0000" data-source-pages="2"></a>
+<p data-cocoapdf-node="node-179" data-confidence="0.9600" data-source-pages="2">SENTINEL-ANCHOR-001: The explicit anchor target above should be available for internal link tests when the Markdown/PDF generator preserves anchors.</p>
+<hr data-cocoapdf-node="node-180" data-confidence="0.9000" data-source-pages="2" />
+<h2 id="5-inline-formatting" data-cocoapdf-node="node-185" data-confidence="0.9200" data-source-pages="2"><u data-cocoapdf-node="node-183" data-source-pages="2"><strong data-cocoapdf-node="node-182" data-source-pages="2">5. Inline Formatting</strong></u> </h2>
+<p data-cocoapdf-node="node-218" data-confidence="0.9600" data-source-pages="2">SENTINEL-INLINE-001: Plain, <strong data-cocoapdf-node="node-188" data-source-pages="2">bold</strong>, <em data-cocoapdf-node="node-191" data-source-pages="2">italic</em>, <strong data-cocoapdf-node="node-195" data-source-pages="2"><em data-cocoapdf-node="node-194" data-source-pages="2">bold italic</em></strong>, <code data-cocoapdf-node="node-198" data-source-pages="2">inline_code()</code>, <del data-cocoapdf-node="node-201" data-source-pages="2">strikethrough</del>, <u data-cocoapdf-node="node-204" data-source-pages="2">underline via HTML fallback</u>, <mark data-cocoapdf-node="node-207" data-source-pages="2">highlight</mark> <mark data-cocoapdf-node="node-210" data-source-pages="2">via</mark> <mark data-cocoapdf-node="node-213" data-source-pages="2">HTML</mark> <mark data-cocoapdf-node="node-216" data-source-pages="2">fallback</mark>.</p>
+<p data-cocoapdf-node="node-232" data-confidence="0.9600" data-source-pages="2">SENTINEL-INLINE-002: Mixed styles inside one sentence: alpha <strong data-cocoapdf-node="node-221" data-source-pages="2">bravo </strong><strong data-cocoapdf-node="node-224" data-source-pages="2"><em data-cocoapdf-node="node-223" data-source-pages="2">charlie</em></strong><strong data-cocoapdf-node="node-226" data-source-pages="2"> delta</strong> echo <code data-cocoapdf-node="node-229" data-source-pages="2">foxtrot_golf</code> hotel.</p>
+<p data-cocoapdf-node="node-252" data-confidence="0.9600" data-source-pages="2">SENTINEL-INLINE-003: Superscript/subscript: H<sub data-cocoapdf-node="node-235" data-source-pages="2">2</sub>O, CO<sub data-cocoapdf-node="node-238" data-source-pages="2">2</sub>, x<sup data-cocoapdf-node="node-241" data-source-pages="2">2</sup> + y<sup data-cocoapdf-node="node-244" data-source-pages="2">2</sup> = z<sup data-cocoapdf-node="node-247" data-source-pages="2">2</sup>, E = mc<sup data-cocoapdf-node="node-250" data-source-pages="2">2</sup>.</p>
+<p data-cocoapdf-node="node-257" data-confidence="0.9600" data-source-pages="2">SENTINEL-INLINE-004: Code span with punctuation: <code data-cocoapdf-node="node-255" data-source-pages="2">a|b*c_d[0](x){y}</code>.</p>
+<p data-cocoapdf-node="node-266" data-confidence="0.9600" data-source-pages="2">SENTINEL-INLINE-005: Backtick stress: <code data-cocoapdf-node="node-260" data-source-pages="2">code span containing ` one backtick</code> and <code data-cocoapdf-node="node-264" data-source-pages="2">code span containing `` two backticks</code>.</p>
+<p data-cocoapdf-node="node-269" data-confidence="0.9600" data-source-pages="2">SENTINEL-INLINE-006: Faux-style text that should stay plain if source PDF does not encode style: BOLDLOOKINGCAPS italic-looking-words code-looking_word.</p>
+<hr data-cocoapdf-node="node-270" data-confidence="0.9000" data-source-pages="2" />
+<h2 id="6-links-destinations-and-security" data-cocoapdf-node="node-275" data-confidence="0.9200" data-source-pages="2"><u data-cocoapdf-node="node-273" data-source-pages="2"><strong data-cocoapdf-node="node-272" data-source-pages="2">6. Links, Destinations, and Security</strong></u> </h2>
+<p data-cocoapdf-node="node-281" data-confidence="0.9600" data-source-pages="2">SENTINEL-LINK-001: External link: <a href="https://example.com/cocoapdf?alpha=1&amp;beta=two#frag" data-cocoapdf-node="node-279" data-source-pages="2"><u data-cocoapdf-node="node-278" data-source-pages="2">CocoaPDF external HTTPS</u></a>.</p>
+<p data-cocoapdf-node="node-287" data-confidence="0.9600" data-source-pages="2">SENTINEL-LINK-002: Mail link: <a href="mailto:maintainer@example.com?subject=CocoaPDF%20fixture" data-cocoapdf-node="node-285" data-source-pages="2"><u data-cocoapdf-node="node-284" data-source-pages="2">Email maintainer</u></a>.</p>
+<p data-cocoapdf-node="node-293" data-confidence="0.9600" data-source-pages="2">SENTINEL-LINK-003: Telephone link: <a href="tel:+15551234567" data-cocoapdf-node="node-291" data-source-pages="2"><u data-cocoapdf-node="node-290" data-source-pages="2">Call placeholder</u></a>.</p>
+<p data-cocoapdf-node="node-299" data-confidence="0.9600" data-source-pages="2">SENTINEL-LINK-004: Internal link: <a href="#explicit-anchor-v1-4" data-cocoapdf-node="node-297" data-source-pages="2"><u data-cocoapdf-node="node-296" data-source-pages="2">Jump to explicit anchor</u></a>.</p>
+<p data-cocoapdf-node="node-305" data-confidence="0.9600" data-source-pages="2">SENTINEL-LINK-005: URL with parentheses: <a href="https://example.com/a_(b)_c" data-cocoapdf-node="node-303" data-source-pages="2"><u data-cocoapdf-node="node-302" data-source-pages="2">URL parentheses</u></a>.</p>
+<p data-cocoapdf-node="node-315" data-confidence="0.9600" data-source-pages="2">SENTINEL-LINK-006: Bare autolinks: <a href="https://example.org/bare-url" data-cocoapdf-node="node-309" data-source-pages="2"><u data-cocoapdf-node="node-308" data-source-pages="2">https://example.org/bare-url</u></a> and <a href="mailto:bare@example.org" data-cocoapdf-node="node-313" data-source-pages="2"><u data-cocoapdf-node="node-312" data-source-pages="2">mailto:bare@example.org</u></a>.</p>
+<p data-cocoapdf-node="node-320" data-confidence="0.9600" data-source-pages="2">SENTINEL-LINK-SECURITY-001: Unsafe URI must be reported or rendered as plain text, not active: <u data-cocoapdf-node="node-318" data-source-pages="2">unsafe javascript</u>.</p>
+<p data-cocoapdf-node="node-325" data-confidence="0.9600" data-source-pages="2">SENTINEL-LINK-SECURITY-002: Unsafe file URI must be reported or rendered as plain text, not active: <u data-cocoapdf-node="node-323" data-source-pages="2">unsafe local file</u>.</p>
+<hr data-cocoapdf-node="node-326" data-confidence="0.9000" data-source-pages="2" />
+<h2 id="7-lists-and-nesting" data-cocoapdf-node="node-331" data-confidence="0.9200" data-source-pages="2"><u data-cocoapdf-node="node-329" data-source-pages="2"><strong data-cocoapdf-node="node-328" data-source-pages="2">7. Lists and Nesting</strong></u> </h2>
+<p data-cocoapdf-node="node-333" data-confidence="0.9600" data-source-pages="2">SENTINEL-LIST-001 unordered list:</p>
+<ul style="list-style-type: disc" data-cocoapdf-node="node-346" data-confidence="0.9000" data-source-pages="2"><li data-cocoapdf-node="node-335" data-confidence="0.9600" data-source-pages="2">alpha unordered item</li><li data-cocoapdf-node="node-342" data-confidence="0.9600" data-source-pages="2">bravo unordered item with <strong data-cocoapdf-node="node-338" data-source-pages="2">bold</strong> and <code data-cocoapdf-node="node-341" data-source-pages="2">code</code></li><li data-cocoapdf-node="node-345" data-confidence="0.9600" data-source-pages="2">charlie unordered item that wraps in PDF because it contains a long explanation about list continuation, indentation, and visual line recovery across a layout-generated soft wrap.</li></ul>
+<p data-cocoapdf-node="node-348" data-confidence="0.9600" data-source-pages="2">SENTINEL-LIST-002 ordered list:</p>
+<ol data-cocoapdf-node="node-355" data-confidence="0.9000" data-source-pages="2"><li value="1" data-cocoapdf-node="node-350" data-confidence="0.9600" data-source-pages="2">first ordered item</li><li value="2" data-cocoapdf-node="node-352" data-confidence="0.9600" data-source-pages="2">second ordered item</li><li value="3" data-cocoapdf-node="node-354" data-confidence="0.9600" data-source-pages="2">third ordered item</li></ol>
+<p data-cocoapdf-node="node-357" data-confidence="0.9600" data-source-pages="2">SENTINEL-LIST-003 ordered list starting at non-one:</p>
+<ol start="7" data-cocoapdf-node="node-364" data-confidence="0.9000" data-source-pages="2"><li value="7" data-cocoapdf-node="node-359" data-confidence="0.9600" data-source-pages="2">item seven</li><li value="8" data-cocoapdf-node="node-361" data-confidence="0.9600" data-source-pages="2">item eight</li><li value="9" data-cocoapdf-node="node-363" data-confidence="0.9600" data-source-pages="2">item nine</li></ol>
+<p data-cocoapdf-node="node-366" data-confidence="0.9600" data-source-pages="2">SENTINEL-LIST-004 letter and roman markers source:</p>
+<section data-cocoapdf-node="node-377" data-confidence="0.9000" data-source-pages="3"><ol type="a" data-cocoapdf-node="node-371" data-confidence="0.9000" data-source-pages="3"><li value="1" data-cocoapdf-node="node-368" data-confidence="0.9600" data-source-pages="3">letter item source</li><li value="2" data-cocoapdf-node="node-370" data-confidence="0.9600" data-source-pages="3">second letter item source</li></ol><ol type="i" start="4" data-cocoapdf-node="node-376" data-confidence="0.9000" data-source-pages="3"><li value="4" data-cocoapdf-node="node-373" data-confidence="0.9600" data-source-pages="3">roman item source</li><li value="5" data-cocoapdf-node="node-375" data-confidence="0.9600" data-source-pages="3">second roman item source</li></ol></section>
+<p data-cocoapdf-node="node-379" data-confidence="0.9600" data-source-pages="3">SENTINEL-LIST-005 nested mixed list:</p>
+<ol data-cocoapdf-node="node-404" data-confidence="0.9000" data-source-pages="3"><li value="1" data-cocoapdf-node="node-381" data-confidence="0.9600" data-source-pages="3">parent ordered alpha<ul style="list-style-type: disc" data-cocoapdf-node="node-391" data-confidence="0.9000" data-source-pages="3"><li data-cocoapdf-node="node-383" data-confidence="0.9600" data-source-pages="3">child unordered alpha</li><li data-cocoapdf-node="node-385" data-confidence="0.9600" data-source-pages="3">child unordered bravo<ol data-cocoapdf-node="node-390" data-confidence="0.9000" data-source-pages="3"><li value="1" data-cocoapdf-node="node-387" data-confidence="0.9600" data-source-pages="3">grandchild ordered one</li><li value="2" data-cocoapdf-node="node-389" data-confidence="0.9600" data-source-pages="3">grandchild ordered two</li></ol></li></ul></li><li value="2" data-cocoapdf-node="node-393" data-confidence="0.9600" data-source-pages="3">parent ordered bravo<ol data-cocoapdf-node="node-403" data-confidence="0.9000" data-source-pages="3"><li value="1" data-cocoapdf-node="node-395" data-confidence="0.9600" data-source-pages="3">child ordered one<ul style="list-style-type: disc" data-cocoapdf-node="node-400" data-confidence="0.9000" data-source-pages="3"><li data-cocoapdf-node="node-397" data-confidence="0.9600" data-source-pages="3">deep bullet one</li><li data-cocoapdf-node="node-399" data-confidence="0.9600" data-source-pages="3">deep bullet two</li></ul></li><li value="2" data-cocoapdf-node="node-402" data-confidence="0.9600" data-source-pages="3">child ordered two</li></ol></li></ol>
+<p data-cocoapdf-node="node-406" data-confidence="0.9600" data-source-pages="3">SENTINEL-LIST-006 task list source:</p>
+<ul style="list-style-type: disc" data-cocoapdf-node="node-413" data-confidence="0.9000" data-source-pages="3"><li data-cocoapdf-node="node-408" data-confidence="0.9600" data-source-pages="3"><input type="checkbox" disabled checked aria-label="Checked task: checked task item" /> checked task item</li><li data-cocoapdf-node="node-410" data-confidence="0.9600" data-source-pages="3"><input type="checkbox" disabled aria-label="Unchecked task: unchecked task item" /> unchecked task item</li><li data-cocoapdf-node="node-412" data-confidence="0.9600" data-source-pages="3"><input type="checkbox" disabled checked aria-label="Checked task: uppercase checked task item" /> uppercase checked task item</li></ul>
+<p data-cocoapdf-node="node-415" data-confidence="0.9600" data-source-pages="3">SENTINEL-LIST-007 singleton bullet that may be prose and should not be hallucinated as list without evidence:</p>
+<p data-cocoapdf-node="node-417" data-confidence="0.9600" data-source-pages="3">• Singleton bullet-looking prose line.</p>
+<p data-cocoapdf-node="node-423" data-confidence="0.9600" data-source-pages="3">SENTINEL-LIST-008 dash dialogue that should not become a list:<br />
+— This is dialogue with an em dash.<br />
 — This is another dialogue line.</p>
-<hr />
-<h2 id="8-blockquotes">8. Blockquotes</h2>
-<blockquote>
-<p>SENTINEL-QUOTE-001 simple quote line one.<br />
-simple quote line two with <strong>bold</strong> and <code>code</code>.</p>
-<p>SENTINEL-QUOTE-002 quote with list:</p>
-<ul>
-<li>quoted bullet alpha</li>
-<li>quoted bullet bravo</li>
-</ul>
-<ol>
-<li>quoted ordered alpha</li>
-<li>quoted ordered bravo</li>
-</ol>
-<p>SENTINEL-QUOTE-003 nested quote:</p>
-<blockquote>
-<p>nested level two</p>
-</blockquote>
-<blockquote>
-<blockquote>
-<p>nested level three</p>
-</blockquote>
-</blockquote>
-<p>SENTINEL-QUOTE-004 quote with code:</p>
-<pre><code>def quoted_code(x):
- return x + 1</code></pre>
-</blockquote>
-<hr />
-<h2 id="9-code-blocks">9. Code Blocks</h2>
-<p>SENTINEL-CODE-001 fenced Python:</p>
-<pre><code>def alpha(value: int) -&gt; str:
+<hr data-cocoapdf-node="node-424" data-confidence="0.9000" data-source-pages="3" />
+<h2 id="8-blockquotes" data-cocoapdf-node="node-429" data-confidence="0.9200" data-source-pages="3"><u data-cocoapdf-node="node-427" data-source-pages="3"><strong data-cocoapdf-node="node-426" data-source-pages="3">8. Blockquotes</strong></u> </h2>
+<blockquote data-cocoapdf-node="node-464" data-confidence="0.8800" data-source-pages="3"><p data-cocoapdf-node="node-439" data-confidence="0.9500" data-source-pages="3">SENTINEL-QUOTE-001 simple quote line one. simple quote line two with <strong data-cocoapdf-node="node-434" data-source-pages="3">bold</strong> and <code data-cocoapdf-node="node-437" data-source-pages="3">code</code>.</p><p data-cocoapdf-node="node-441" data-confidence="0.9500" data-source-pages="3">SENTINEL-QUOTE-002 quote with list:</p><ul style="list-style-type: disc" data-cocoapdf-node="node-446" data-confidence="0.9600" data-source-pages="3"><li data-cocoapdf-node="node-443" data-confidence="0.9600" data-source-pages="3">quoted bullet alpha</li><li data-cocoapdf-node="node-445" data-confidence="0.9600" data-source-pages="3">quoted bullet bravo</li></ul><ol data-cocoapdf-node="node-451" data-confidence="0.9600" data-source-pages="3"><li value="1" data-cocoapdf-node="node-448" data-confidence="0.9600" data-source-pages="3">quoted ordered alpha</li><li value="2" data-cocoapdf-node="node-450" data-confidence="0.9600" data-source-pages="3">quoted ordered bravo</li></ol><p data-cocoapdf-node="node-453" data-confidence="0.9500" data-source-pages="3">SENTINEL-QUOTE-003 nested quote:</p><blockquote data-cocoapdf-node="node-456" data-confidence="0.9600" data-source-pages="3"><p data-cocoapdf-node="node-455" data-confidence="0.9500" data-source-pages="3">nested level two</p></blockquote><blockquote data-cocoapdf-node="node-460" data-confidence="0.9600" data-source-pages="3"><blockquote data-cocoapdf-node="node-459" data-confidence="0.9600" data-source-pages="3"><p data-cocoapdf-node="node-458" data-confidence="0.9500" data-source-pages="3">nested level three</p></blockquote></blockquote><p data-cocoapdf-node="node-462" data-confidence="0.9500" data-source-pages="3">SENTINEL-QUOTE-004 quote with code:</p><pre data-cocoapdf-node="node-463" data-confidence="0.9700" data-source-pages="3"><code>def quoted_code(x):
+ return x + 1</code></pre></blockquote>
+<hr data-cocoapdf-node="node-465" data-confidence="0.9000" data-source-pages="3" />
+<h2 id="9-code-blocks" data-cocoapdf-node="node-470" data-confidence="0.9200" data-source-pages="3"><u data-cocoapdf-node="node-468" data-source-pages="3"><strong data-cocoapdf-node="node-467" data-source-pages="3">9. Code Blocks</strong></u> </h2>
+<p data-cocoapdf-node="node-472" data-confidence="0.9600" data-source-pages="3">SENTINEL-CODE-001 fenced Python:</p>
+<pre data-cocoapdf-node="node-473" data-confidence="0.9400" data-source-pages="3"><code>def alpha(value: int) -&gt; str:
 	if value &lt;= 0:
 		return &quot;zero-or-negative&quot;
 	return f&quot;value={value}&quot;</code></pre>
-<p>SENTINEL-CODE-002 blank lines, tabs, trailing-looking spaces:</p>
-<pre><code>line one
+<p data-cocoapdf-node="node-475" data-confidence="0.9600" data-source-pages="3">SENTINEL-CODE-002 blank lines, tabs, trailing-looking spaces:</p>
+<pre data-cocoapdf-node="node-476" data-confidence="0.9400" data-source-pages="3"><code>line one
 
 	line with leading tab
 	line with four spaces
 pipe | backtick ` asterisk * underscore _ brackets [] braces {}</code></pre>
-<p>SENTINEL-CODE-003 long code line:</p>
-<pre><code>abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789__abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRST
+<p data-cocoapdf-node="node-478" data-confidence="0.9600" data-source-pages="3">SENTINEL-CODE-003 long code line:</p>
+<pre data-cocoapdf-node="node-479" data-confidence="0.9400" data-source-pages="4"><code>abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789__abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRST
 UVWXYZ0123456789__END</code></pre>
-<p>SENTINEL-CODE-004 code block containing triple backticks:</p>
-<pre><code>```python
+<p data-cocoapdf-node="node-481" data-confidence="0.9600" data-source-pages="4">SENTINEL-CODE-004 code block containing triple backticks:</p>
+<pre data-cocoapdf-node="node-482" data-confidence="0.9400" data-source-pages="4"><code>```python
 print(&quot;inner fenced block&quot;)
 ```</code></pre>
-<p>SENTINEL-CODE-005 HTML/XML code:</p>
-<pre><code>&lt;section data-case=&quot;v1-4&quot;&gt;&lt;span&gt;escaped &amp; visible&lt;/span&gt;&lt;/section&gt;</code></pre>
-<hr />
-<h2 id="10-horizontal-rules-and-decorative-lines">10. Horizontal Rules and Decorative Lines</h2>
-<p>SENTINEL-RULE-001 rule follows.</p>
-<hr />
-<p>SENTINEL-RULE-002 text after rule. The line above is semantic thematic break, not a table border.</p>
-<h2 id="heading-underline-adversarial-case">Heading underline adversarial case</h2>
-<p>SENTINEL-RULE-003: The underline above may be rendered as Setext heading by Markdown generators; converter must avoid misclassifying unrelated table borders as thematic breaks.</p>
-<hr />
-<h2 id="11-tables-gfm-alignment-escapes-and-borderless-like-patterns">11. Tables — GFM, Alignment, Escapes, and Borderless-Like Patterns</h2>
-<p>SENTINEL-TABLE-001 simple GFM table:</p>
-<table>
-<thead><tr>
-<th>Name</th>
-<th style="text-align: right;">Qty</th>
-<th style="text-align: right;">Price</th>
-</tr></thead>
-<tbody>
-<tr><td>cocoa</td><td style="text-align: right;">3</td><td style="text-align: right;">12.50</td></tr>
-<tr><td>PDF beans</td><td style="text-align: right;">11</td><td style="text-align: right;">99.99</td></tr>
-<tr><td>escaped pipe</td><td style="text-align: right;">1</td><td style="text-align: right;">a | b</td></tr>
-</tbody></table>
-<p>SENTINEL-TABLE-002 alignment table:</p>
-<table>
-<thead><tr>
-<th>Left aligned</th>
-<th style="text-align: center;">Center aligned</th>
-<th style="text-align: right;">Right aligned</th>
-</tr></thead>
-<tbody>
-<tr><td>alpha</td><td style="text-align: center;">bravo</td><td style="text-align: right;">123</td></tr>
-<tr><td>long wrapped cell text that may visually wrap in PDF</td><td style="text-align: center;">centered</td><td style="text-align: right;">456.78</td></tr>
-</tbody></table>
-<p>SENTINEL-TABLE-003 numeric and decimal alignment:</p>
-<table>
-<thead><tr>
-<th>Metric</th>
-<th style="text-align: right;">2024</th>
-<th style="text-align: right;">2025</th>
-<th style="text-align: right;">Δ</th>
-</tr></thead>
-<tbody>
-<tr><td>Revenue</td><td style="text-align: right;">1,234.50</td><td style="text-align: right;">2,345.60</td><td style="text-align: right;">+1,111.10</td></tr>
-<tr><td>Cost</td><td style="text-align: right;">-333.33</td><td style="text-align: right;">-444.44</td><td style="text-align: right;">-111.11</td></tr>
-<tr><td>Ratio</td><td style="text-align: right;">0.125</td><td style="text-align: right;">0.875</td><td style="text-align: right;">+0.750</td></tr>
-</tbody></table>
-<p>SENTINEL-TABLE-004 table-like prose that must not become a table:</p>
-<p>Alpha Bravo Charlie This is aligned prose, not a table, because it lacks repeated row semantics and it is a sentence-like paragraph.</p>
-<p>SENTINEL-TABLE-005 key-value borderless table source:</p>
-<table>
-<thead><tr>
-<th>Field</th>
-<th>Value</th>
-</tr></thead>
-<tbody>
-<tr><td><strong>Project</strong></td><td>CocoaPDF</td></tr>
-<tr><td><strong>Scope</strong></td><td>structured text-layer PDFs</td></tr>
-<tr><td><strong>Mode</strong></td><td>Markdown-first with HTML fallback</td></tr>
-</tbody></table>
-<hr />
-<h2 id="12-complex-html-tables-requiring-html-fallback">12. Complex HTML Tables Requiring HTML Fallback</h2>
-<p>SENTINEL-HTML-TABLE-001 complex table:</p>
-<table>
+<p data-cocoapdf-node="node-484" data-confidence="0.9600" data-source-pages="4">SENTINEL-CODE-005 HTML/XML code:</p>
+<pre data-cocoapdf-node="node-485" data-confidence="0.9400" data-source-pages="4"><code>&lt;section data-case=&quot;v1-4&quot;&gt;&lt;span&gt;escaped &amp; visible&lt;/span&gt;&lt;/section&gt;</code></pre>
+<hr data-cocoapdf-node="node-486" data-confidence="0.9000" data-source-pages="4" />
+<h2 id="10-horizontal-rules-and-decorative-lines" data-cocoapdf-node="node-491" data-confidence="0.9200" data-source-pages="4"><u data-cocoapdf-node="node-489" data-source-pages="4"><strong data-cocoapdf-node="node-488" data-source-pages="4">10. Horizontal Rules and Decorative Lines</strong></u> </h2>
+<p data-cocoapdf-node="node-493" data-confidence="0.9600" data-source-pages="4">SENTINEL-RULE-001 rule follows.</p>
+<hr data-cocoapdf-node="node-494" data-confidence="0.9000" data-source-pages="4" />
+<p data-cocoapdf-node="node-496" data-confidence="0.9600" data-source-pages="4">SENTINEL-RULE-002 text after rule. The line above is semantic thematic break, not a table border.</p>
+<h2 id="heading-underline-adversarial-case" data-cocoapdf-node="node-501" data-confidence="0.9200" data-source-pages="4"><u data-cocoapdf-node="node-499" data-source-pages="4"><strong data-cocoapdf-node="node-498" data-source-pages="4">Heading underline adversarial case</strong></u> </h2>
+<p data-cocoapdf-node="node-504" data-confidence="0.9600" data-source-pages="4">SENTINEL-RULE-003: The underline above may be rendered as Setext heading by Markdown generators; converter must avoid misclassifying unrelated table borders as thematic breaks.</p>
+<hr data-cocoapdf-node="node-505" data-confidence="0.9000" data-source-pages="4" />
+<h2 id="11-tables-gfm-alignment-escapes-and-borderless-like-patterns" data-cocoapdf-node="node-510" data-confidence="0.9200" data-source-pages="4"><u data-cocoapdf-node="node-508" data-source-pages="4"><strong data-cocoapdf-node="node-507" data-source-pages="4">11. Tables — GFM, Alignment, Escapes, and Borderless-Like Patterns</strong></u> </h2>
+<p data-cocoapdf-node="node-512" data-confidence="0.9600" data-source-pages="4">SENTINEL-TABLE-001 simple GFM table:</p>
+<div class="cocoapdf-table-container" role="region" tabindex="0" aria-label="Table"><table data-cocoapdf-node="node-556" data-confidence="0.9600" data-source-pages="4"><thead><tr data-cocoapdf-node="node-525" data-confidence="0.9800" data-source-pages="4"><th scope="col" id="node-516" data-cocoapdf-node="node-516" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-515" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-514" data-source-pages="4">Name</strong></p></th><th scope="col" id="node-520" style="text-align: right;" data-cocoapdf-node="node-520" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-519" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-518" data-source-pages="4">Qty</strong></p></th><th scope="col" id="node-524" style="text-align: right;" data-cocoapdf-node="node-524" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-523" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-522" data-source-pages="4">Price</strong></p></th></tr></thead><tbody><tr data-cocoapdf-node="node-535" data-confidence="0.9800" data-source-pages="4"><td data-cocoapdf-node="node-528" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-527" data-confidence="0.9700" data-source-pages="4">cocoa</p></td><td style="text-align: right;" data-cocoapdf-node="node-531" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-530" data-confidence="0.9700" data-source-pages="4">3</p></td><td style="text-align: right;" data-cocoapdf-node="node-534" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-533" data-confidence="0.9700" data-source-pages="4">12.50</p></td></tr><tr data-cocoapdf-node="node-545" data-confidence="0.9800" data-source-pages="4"><td data-cocoapdf-node="node-538" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-537" data-confidence="0.9700" data-source-pages="4">PDF beans</p></td><td style="text-align: right;" data-cocoapdf-node="node-541" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-540" data-confidence="0.9700" data-source-pages="4">11</p></td><td style="text-align: right;" data-cocoapdf-node="node-544" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-543" data-confidence="0.9700" data-source-pages="4">99.99</p></td></tr><tr data-cocoapdf-node="node-555" data-confidence="0.9800" data-source-pages="4"><td data-cocoapdf-node="node-548" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-547" data-confidence="0.9700" data-source-pages="4">escaped pipe</p></td><td style="text-align: right;" data-cocoapdf-node="node-551" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-550" data-confidence="0.9700" data-source-pages="4">1</p></td><td style="text-align: right;" data-cocoapdf-node="node-554" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-553" data-confidence="0.9700" data-source-pages="4">a | b</p></td></tr></tbody></table></div>
+<p data-cocoapdf-node="node-558" data-confidence="0.9600" data-source-pages="4">SENTINEL-TABLE-002 alignment table:</p>
+<div class="cocoapdf-table-container" role="region" tabindex="0" aria-label="Table"><table data-cocoapdf-node="node-592" data-confidence="0.9600" data-source-pages="4"><thead><tr data-cocoapdf-node="node-571" data-confidence="0.9800" data-source-pages="4"><th scope="col" id="node-562" data-cocoapdf-node="node-562" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-561" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-560" data-source-pages="4">Left aligned</strong></p></th><th scope="col" id="node-566" style="text-align: center;" data-cocoapdf-node="node-566" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-565" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-564" data-source-pages="4">Center aligned</strong></p></th><th scope="col" id="node-570" style="text-align: right;" data-cocoapdf-node="node-570" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-569" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-568" data-source-pages="4">Right aligned</strong></p></th></tr></thead><tbody><tr data-cocoapdf-node="node-581" data-confidence="0.9800" data-source-pages="4"><td data-cocoapdf-node="node-574" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-573" data-confidence="0.9700" data-source-pages="4">alpha</p></td><td style="text-align: center;" data-cocoapdf-node="node-577" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-576" data-confidence="0.9700" data-source-pages="4">bravo</p></td><td style="text-align: right;" data-cocoapdf-node="node-580" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-579" data-confidence="0.9700" data-source-pages="4">123</p></td></tr><tr data-cocoapdf-node="node-591" data-confidence="0.9800" data-source-pages="4"><td data-cocoapdf-node="node-584" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-583" data-confidence="0.9700" data-source-pages="4">long wrapped cell text that may visually wrap in PDF</p></td><td style="text-align: center;" data-cocoapdf-node="node-587" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-586" data-confidence="0.9700" data-source-pages="4">centered</p></td><td style="text-align: right;" data-cocoapdf-node="node-590" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-589" data-confidence="0.9700" data-source-pages="4">456.78</p></td></tr></tbody></table></div>
+<p data-cocoapdf-node="node-594" data-confidence="0.9600" data-source-pages="4">SENTINEL-TABLE-003 numeric and decimal alignment:</p>
+<div class="cocoapdf-table-container" role="region" tabindex="0" aria-label="Table"><table data-cocoapdf-node="node-651" data-confidence="0.9600" data-source-pages="4"><thead><tr data-cocoapdf-node="node-611" data-confidence="0.9800" data-source-pages="4"><th scope="col" id="node-598" data-cocoapdf-node="node-598" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-597" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-596" data-source-pages="4">Metric</strong></p></th><th scope="col" id="node-602" style="text-align: right;" data-cocoapdf-node="node-602" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-601" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-600" data-source-pages="4">2024</strong></p></th><th scope="col" id="node-606" style="text-align: right;" data-cocoapdf-node="node-606" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-605" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-604" data-source-pages="4">2025</strong></p></th><th scope="col" id="node-610" style="text-align: right;" data-cocoapdf-node="node-610" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-609" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-608" data-source-pages="4">Δ</strong></p></th></tr></thead><tbody><tr data-cocoapdf-node="node-624" data-confidence="0.9800" data-source-pages="4"><td data-cocoapdf-node="node-614" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-613" data-confidence="0.9700" data-source-pages="4">Revenue</p></td><td style="text-align: right;" data-cocoapdf-node="node-617" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-616" data-confidence="0.9700" data-source-pages="4">1,234.50</p></td><td style="text-align: right;" data-cocoapdf-node="node-620" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-619" data-confidence="0.9700" data-source-pages="4">2,345.60</p></td><td style="text-align: right;" data-cocoapdf-node="node-623" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-622" data-confidence="0.9700" data-source-pages="4">+1,111.10</p></td></tr><tr data-cocoapdf-node="node-637" data-confidence="0.9800" data-source-pages="4"><td data-cocoapdf-node="node-627" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-626" data-confidence="0.9700" data-source-pages="4">Cost</p></td><td style="text-align: right;" data-cocoapdf-node="node-630" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-629" data-confidence="0.9700" data-source-pages="4">-333.33</p></td><td style="text-align: right;" data-cocoapdf-node="node-633" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-632" data-confidence="0.9700" data-source-pages="4">-444.44</p></td><td style="text-align: right;" data-cocoapdf-node="node-636" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-635" data-confidence="0.9700" data-source-pages="4">-111.11</p></td></tr><tr data-cocoapdf-node="node-650" data-confidence="0.9800" data-source-pages="4"><td data-cocoapdf-node="node-640" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-639" data-confidence="0.9700" data-source-pages="4">Ratio</p></td><td style="text-align: right;" data-cocoapdf-node="node-643" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-642" data-confidence="0.9700" data-source-pages="4">0.125</p></td><td style="text-align: right;" data-cocoapdf-node="node-646" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-645" data-confidence="0.9700" data-source-pages="4">0.875</p></td><td style="text-align: right;" data-cocoapdf-node="node-649" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-648" data-confidence="0.9700" data-source-pages="4">+0.750</p></td></tr></tbody></table></div>
+<p data-cocoapdf-node="node-653" data-confidence="0.9600" data-source-pages="4">SENTINEL-TABLE-004 table-like prose that must not become a table:</p>
+<p data-cocoapdf-node="node-657" data-confidence="0.9600" data-source-pages="4">Alpha Bravo Charlie This is aligned prose, not a table, because it lacks repeated row semantics and it is a sentence-like paragraph.</p>
+<p data-cocoapdf-node="node-659" data-confidence="0.9600" data-source-pages="4">SENTINEL-TABLE-005 key-value borderless table source:</p>
+<div class="cocoapdf-table-container" role="region" tabindex="0" aria-label="Table"><table data-cocoapdf-node="node-693" data-confidence="0.9600" data-source-pages="4"><thead><tr data-cocoapdf-node="node-668" data-confidence="0.9800" data-source-pages="4"><th scope="col" id="node-663" data-cocoapdf-node="node-663" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-662" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-661" data-source-pages="4">Field</strong></p></th><th scope="col" id="node-667" data-cocoapdf-node="node-667" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-666" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-665" data-source-pages="4">Value</strong></p></th></tr></thead><tbody><tr data-cocoapdf-node="node-676" data-confidence="0.9800" data-source-pages="4"><td data-cocoapdf-node="node-672" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-671" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-670" data-source-pages="4">Project</strong></p></td><td data-cocoapdf-node="node-675" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-674" data-confidence="0.9700" data-source-pages="4">CocoaPDF</p></td></tr><tr data-cocoapdf-node="node-684" data-confidence="0.9800" data-source-pages="4"><td data-cocoapdf-node="node-680" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-679" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-678" data-source-pages="4">Scope</strong></p></td><td data-cocoapdf-node="node-683" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-682" data-confidence="0.9700" data-source-pages="4">structured text-layer PDFs</p></td></tr><tr data-cocoapdf-node="node-692" data-confidence="0.9800" data-source-pages="4"><td data-cocoapdf-node="node-688" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-687" data-confidence="0.9700" data-source-pages="4"><strong data-cocoapdf-node="node-686" data-source-pages="4">Mode</strong></p></td><td data-cocoapdf-node="node-691" data-confidence="0.9800" data-source-pages="4"><p data-cocoapdf-node="node-690" data-confidence="0.9700" data-source-pages="4">Markdown-first with HTML fallback</p></td></tr></tbody></table></div>
+<hr data-cocoapdf-node="node-694" data-confidence="0.9000" data-source-pages="4" />
+<h2 id="12-complex-html-tables-requiring-html-fallback" data-cocoapdf-node="node-699" data-confidence="0.9200" data-source-pages="4"><u data-cocoapdf-node="node-697" data-source-pages="4"><strong data-cocoapdf-node="node-696" data-source-pages="4">12. Complex HTML Tables Requiring HTML Fallback</strong></u> </h2>
+<p data-cocoapdf-node="node-701" data-confidence="0.9600" data-source-pages="4">SENTINEL-HTML-TABLE-001 complex table:</p>
+<div class="cocoapdf-table-container" role="region" tabindex="0" aria-label="Table"><table data-cocoapdf-node="node-793" data-confidence="0.9000" data-source-pages="5">
 <caption>Complex semantic table with spans, nested content, and code</caption>
 <thead>
-<tr><th rowspan="2">Component</th><th colspan="2">Evidence</th><th rowspan="2">Required output</th></tr>
-<tr><th>Geometry</th><th>Semantic prior</th></tr>
+<tr><th rowspan="2" scope="col">Component</th><th colspan="2" scope="colgroup">Evidence</th><th rowspan="2" scope="col">Required output</th></tr>
+<tr><th scope="col">Geometry</th><th scope="col">Semantic prior</th></tr>
 </thead>
 <tbody>
 <tr><td>Heading</td><td>font size, gap, bold ratio</td><td>tagged H1–H6 when available</td><td>Markdown ATX heading</td></tr>
@@ -281,87 +211,61 @@ print(&quot;inner fenced block&quot;)
 <tr><td>Rowspan example</td><td rowspan="2">shared geometry evidence</td><td>first semantic row</td><td>preserve rowspan</td></tr>
 <tr><td>Rowspan continuation</td><td>second semantic row</td><td>do not flatten silently</td></tr>
 </tbody>
-</table>
-<a id="header-n255"></a>
-<hr />
-<h2 id="13-figures-images-captions-floats-and-svg">13. Figures, Images, Captions, Floats, and SVG</h2>
-<p>SENTINEL-FIGURE-001 Markdown image with SVG data URI:</p>
-<figure class="cocoapdf-figure cocoapdf-align-center">
-<img src="assets/vector-36d70b475f1d2d1e.svg" alt="Figure 1. SVG vector figure with cocoa mark, blue lines, and visible vector sentinel text." style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain; display: block; margin-left: auto; margin-right: auto;" />
-<figcaption>Figure 1. SVG vector figure with cocoa mark, blue lines, and visible vector sentinel text.</figcaption>
-</figure>
-<figure class="cocoapdf-figure cocoapdf-align-left">
-<img src="assets/vector-36d70b475f1d2d1e.svg" alt="Figure 2. HTML figure with explicit figcaption and vector source." style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain;" />
-<figcaption>Figure 2. HTML figure with explicit figcaption and vector source.</figcaption>
-</figure>
-<p>SENTINEL-FIGURE-002 inline icon-like image should not destroy surrounding text:</p>
-<figure class="cocoapdf-figure cocoapdf-align-left">
-<img src="assets/vector-36d70b475f1d2d1e.svg" alt="SVG FIGURE · vector sentinel: VEC-001 αβγ → Markdow" style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain;" />
-</figure>
-<p>before-icon</p>
-<p>after-icon.</p>
-<p>SENTINEL-FIGURE-003 image wrapped in link:</p>
-<figure class="cocoapdf-figure cocoapdf-align-left">
-<a href="https://example.com/linked-image" rel="noopener noreferrer"><img src="assets/vector-36d70b475f1d2d1e.svg" alt="SVG FIGURE · vector sentinel: VEC-001 αβγ → Markdow" style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain;" /></a>
-</figure>
-<hr />
-<h2 id="14-ocr-raster-hybrid-future-fixture">14. OCR / Raster Hybrid Future Fixture</h2>
-<p>SENTINEL-OCR-001: The following image is intentionally raster text. V1/V2/V3 core without OCR should preserve it as an image or alt text, not hallucinate body text. V4 optional OCR may recover the raster text only when explicitly enabled and must report OCR provenance.</p>
-<figure class="cocoapdf-figure cocoapdf-align-center">
-<img src="assets/img-8d1abc8db93e78de.png" alt="" style="width: 600.000pt; height: 146.250pt; max-width: 100%; object-fit: contain; display: block; margin-left: auto; margin-right: auto;" />
-</figure>
-<p>Expected OCR-visible phrase if OCR is enabled: <code>OCR-ONLY SENTINEL: Raster text 12345</code>.</p>
-<hr />
-<h2 id="15-footnotes-and-endnotes">15. Footnotes and Endnotes</h2>
-<p>SENTINEL-FOOTNOTE-001: This sentence has a numeric footnote. <sup><a href="#fn-1" role="doc-noteref">1</a></sup> This sentence has another note with Unicode. <sup><a href="#fn-2" role="doc-noteref">2</a></sup></p>
-<p>SENTINEL-FOOTNOTE-002: Multiple references to one definition may occur. <sup><a href="#fn-1" role="doc-noteref">1</a></sup></p>
-<h2 id="endnotes">Endnotes</h2>
-<p>[EN1] SENTINEL-ENDNOTE-001: Endnote-style paragraph that resembles a bibliography entry but is not a citation.</p>
-<hr />
-<h2 id="16-table-of-contents-cross-references-and-bibliography">16. Table of Contents, Cross-References, and Bibliography</h2>
-<h2 id="contents">Contents</h2>
-<ul>
-<li><a href="#header-n7" rel="noopener noreferrer">Plain Text, Paragraphs, Spacing, and Line Joining</a></li>
-<li><u>Tables</u></li>
-<li><a href="#header-n255" rel="noopener noreferrer">Figures</a></li>
-</ul>
-<p>SENTINEL-CROSSREF-001: See Figure 1, Figure 2, Table 1, Section 11, Appendix A, Equation (1), and reference <a href="#ref-1" rel="noopener noreferrer">[1]</a>.</p>
-<h2 id="references">References</h2>
-<p>&lt;a id=&quot;ref-1&quot;&gt;&lt;/a&gt;[1] Doe, Jane. “A Synthetic PDF Benchmark.” Journal of Deterministic Documents, 2026. DOI: 10.0000/cocoapdf.0001.</p>
-<p>&lt;a id=&quot;ref-2&quot;&gt;&lt;/a&gt;[2] Smith, John and Roe, Alex. <em>Tables Without Borders</em>. Example Press, 2025. <a href="https://example.com/references/2" rel="noopener noreferrer">https://example.com/references/2</a>.</p>
-<p>Doe, J. (2024). Author-year reference style with hanging indentation expectation. Example Journal, 12(3), 45–67.</p>
-<hr />
-<h2 id="17-math-and-formula-fallback">17. Math and Formula Fallback</h2>
-<p>SENTINEL-MATH-001 inline math-like text: E = mc², a² + b² = c², ∑ᵢ xᵢ = 42.</p>
-<p>SENTINEL-MATH-002 display formula source:</p>
-<figure class="cocoapdf-figure cocoapdf-align-center">
-<img src="assets/formula-6e4020bb5dcec410.svg" alt="Formula preserved from vector outlines; source text unavailable" style="width: 72.927pt; height: 31.488pt; max-width: 100%; object-fit: contain; display: block; margin-left: auto; margin-right: auto;" />
-</figure>
-<p>SENTINEL-MATH-003 Unicode formula:</p>
-<p>∀x ∈ ℝ, ∃y ∈ ℝ such that y² = x when x ≥ 0.</p>
-<p>SENTINEL-MATH-004 matrix-like text:</p>
-<table>
-<thead><tr>
-<th>Formula</th>
-<th>Meaning</th>
-</tr></thead>
-<tbody>
-<tr><td><code>A = [[1, 2], [3, 4]]</code></td><td>matrix literal</td></tr>
-<tr><td><code>det(A) = -2</code></td><td>determinant</td></tr>
-</tbody></table>
-<hr />
-<h2 id="18-multi-column-sidebars-callouts-and-floats-via-html-css">18. Multi-Column, Sidebars, Callouts, and Floats via HTML/CSS</h2>
-<div class="cocoapdf-columns" style="columns: 2; column-gap: 2rem; border-left: 4px solid #d63a2b; padding-left: 0.9rem;">
+</table></div>
+<a id="header-n255" data-cocoapdf-node="node-794" data-confidence="1.0000" data-source-pages="5"></a>
+<hr data-cocoapdf-node="node-795" data-confidence="0.9000" data-source-pages="5" />
+<h2 id="13-figures-images-captions-floats-and-svg" data-cocoapdf-node="node-800" data-confidence="0.9200" data-source-pages="5"><u data-cocoapdf-node="node-798" data-source-pages="5"><strong data-cocoapdf-node="node-797" data-source-pages="5">13. Figures, Images, Captions, Floats, and SVG</strong></u> </h2>
+<p data-cocoapdf-node="node-802" data-confidence="0.9600" data-source-pages="5">SENTINEL-FIGURE-001 Markdown image with SVG data URI:</p>
+<figure class="cocoapdf-figure cocoapdf-align-center" data-cocoapdf-node="node-807" data-confidence="0.9500" data-source-pages="5"><img src="assets/vector-36d70b475f1d2d1e.svg" alt="Figure 1. SVG vector figure with cocoa mark, blue lines, and visible vector sentinel text." style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain" data-cocoapdf-node="node-803" data-confidence="0.9600" data-source-pages="5" /><figcaption data-cocoapdf-node="node-806" data-confidence="0.9400" data-source-pages="5"><em data-cocoapdf-node="node-805" data-source-pages="5">Figure 1. SVG vector figure with cocoa mark, blue lines, and visible vector sentinel text.</em></figcaption></figure>
+<figure class="cocoapdf-figure cocoapdf-align-left" data-cocoapdf-node="node-811" data-confidence="0.9500" data-source-pages="5"><img src="assets/vector-36d70b475f1d2d1e.svg" alt="Figure 2. HTML figure with explicit figcaption and vector source." style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain" data-cocoapdf-node="node-808" data-confidence="0.9600" data-source-pages="5" /><figcaption data-cocoapdf-node="node-810" data-confidence="0.9400" data-source-pages="5">Figure 2. HTML figure with explicit figcaption and vector source.</figcaption></figure>
+<p data-cocoapdf-node="node-813" data-confidence="0.9600" data-source-pages="5">SENTINEL-FIGURE-002 inline icon-like image should not destroy surrounding text:</p>
+<figure class="cocoapdf-figure cocoapdf-align-left" data-cocoapdf-node="node-815" data-confidence="0.9500" data-source-pages="5"><img src="assets/vector-36d70b475f1d2d1e.svg" alt="SVG FIGURE · vector sentinel: VEC-001 αβγ → Markdow" style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain" data-cocoapdf-node="node-814" data-confidence="0.9600" data-source-pages="5" /></figure>
+<p data-cocoapdf-node="node-817" data-confidence="0.9600" data-source-pages="5">before-icon </p>
+<p data-cocoapdf-node="node-819" data-confidence="0.9600" data-source-pages="5">after-icon.</p>
+<p data-cocoapdf-node="node-821" data-confidence="0.9600" data-source-pages="5">SENTINEL-FIGURE-003 image wrapped in link:</p>
+<figure class="cocoapdf-figure cocoapdf-align-left" data-cocoapdf-node="node-823" data-confidence="0.9500" data-source-pages="5"><a href="https://example.com/linked-image" rel="noopener noreferrer"><img src="assets/vector-36d70b475f1d2d1e.svg" alt="SVG FIGURE · vector sentinel: VEC-001 αβγ → Markdow" style="width: 540.000pt; height: 180.000pt; max-width: 100%; object-fit: contain" data-cocoapdf-node="node-822" data-confidence="0.9600" data-source-pages="5" /></a></figure>
+<hr data-cocoapdf-node="node-824" data-confidence="0.9000" data-source-pages="5" />
+<h2 id="14-ocr-raster-hybrid-future-fixture" data-cocoapdf-node="node-829" data-confidence="0.9200" data-source-pages="6"><u data-cocoapdf-node="node-827" data-source-pages="6"><strong data-cocoapdf-node="node-826" data-source-pages="6">14. OCR / Raster Hybrid Future Fixture</strong></u> </h2>
+<p data-cocoapdf-node="node-833" data-confidence="0.9600" data-source-pages="6">SENTINEL-OCR-001: The following image is intentionally raster text. V1/V2/V3 core without OCR should preserve it as an image or alt text, not hallucinate body text. V4 optional OCR may recover the raster text only when explicitly enabled and must report OCR provenance.</p>
+<figure class="cocoapdf-figure cocoapdf-align-center" data-cocoapdf-node="node-835" data-confidence="0.9500" data-source-pages="6"><img src="assets/img-8d1abc8db93e78de.png" alt="" style="width: 600.000pt; height: 146.250pt; max-width: 100%; object-fit: contain" data-cocoapdf-node="node-834" data-confidence="0.9900" data-source-pages="6" /></figure>
+<p data-cocoapdf-node="node-840" data-confidence="0.9600" data-source-pages="6">Expected OCR-visible phrase if OCR is enabled: <code data-cocoapdf-node="node-838" data-source-pages="6">OCR-ONLY SENTINEL: Raster text 12345</code>.</p>
+<a id="ref-footnote-1" data-cocoapdf-node="node-841" data-confidence="1.0000" data-source-pages="6"></a>
+<a id="ref-footnote-2" data-cocoapdf-node="node-842" data-confidence="1.0000" data-source-pages="6"></a>
+<a id="ref-footnote-1-1" data-cocoapdf-node="node-843" data-confidence="1.0000" data-source-pages="6"></a>
+<hr data-cocoapdf-node="node-844" data-confidence="0.9000" data-source-pages="6" />
+<h2 id="15-footnotes-and-endnotes" data-cocoapdf-node="node-849" data-confidence="0.9200" data-source-pages="6"><u data-cocoapdf-node="node-847" data-source-pages="6"><strong data-cocoapdf-node="node-846" data-source-pages="6">15. Footnotes and Endnotes</strong></u> </h2>
+<p data-cocoapdf-node="node-861" data-confidence="0.9600" data-source-pages="6">SENTINEL-FOOTNOTE-001: This sentence has a numeric footnote. <sup data-cocoapdf-node="node-1240" data-confidence="0.9900" data-source-pages="6"><a href="#fn-1" role="doc-noteref">1</a></sup> This sentence has another note with Unicode. <sup data-cocoapdf-node="node-1241" data-confidence="0.9900" data-source-pages="6"><a href="#fn-2" role="doc-noteref">2</a></sup></p>
+<p data-cocoapdf-node="node-867" data-confidence="0.9600" data-source-pages="6">SENTINEL-FOOTNOTE-002: Multiple references to one definition may occur. <sup data-cocoapdf-node="node-1242" data-confidence="0.9900" data-source-pages="6"><a href="#fn-1" role="doc-noteref">1</a></sup></p>
+<h2 id="endnotes" data-cocoapdf-node="node-872" data-confidence="0.9200" data-source-pages="6"><u data-cocoapdf-node="node-870" data-source-pages="6"><strong data-cocoapdf-node="node-869" data-source-pages="6">Endnotes</strong></u> </h2>
+<p data-cocoapdf-node="node-874" data-confidence="0.9600" data-source-pages="6">[EN1] SENTINEL-ENDNOTE-001: Endnote-style paragraph that resembles a bibliography entry but is not a citation.</p>
+<hr data-cocoapdf-node="node-875" data-confidence="0.9000" data-source-pages="6" />
+<h2 id="16-table-of-contents-cross-references-and-bibliography" data-cocoapdf-node="node-880" data-confidence="0.9200" data-source-pages="6"><u data-cocoapdf-node="node-878" data-source-pages="6"><strong data-cocoapdf-node="node-877" data-source-pages="6">16. Table of Contents, Cross-References, and Bibliography</strong></u> </h2>
+<h2 id="contents" data-cocoapdf-node="node-885" data-confidence="0.9200" data-source-pages="6"><u data-cocoapdf-node="node-883" data-source-pages="6"><strong data-cocoapdf-node="node-882" data-source-pages="6">Contents</strong></u> </h2>
+<ul style="list-style-type: disc" data-cocoapdf-node="node-897" data-confidence="0.9000" data-source-pages="6"><li data-cocoapdf-node="node-889" data-confidence="0.9600" data-source-pages="6"><a href="#header-n7" data-cocoapdf-node="node-888" data-source-pages="6"><u data-cocoapdf-node="node-887" data-source-pages="6">Plain Text, Paragraphs, Spacing, and Line Joining</u></a></li><li data-cocoapdf-node="node-892" data-confidence="0.9600" data-source-pages="6"><u data-cocoapdf-node="node-891" data-source-pages="6">Tables</u></li><li data-cocoapdf-node="node-896" data-confidence="0.9600" data-source-pages="6"><a href="#header-n255" data-cocoapdf-node="node-895" data-source-pages="6"><u data-cocoapdf-node="node-894" data-source-pages="6">Figures</u></a></li></ul>
+<p data-cocoapdf-node="node-899" data-confidence="0.9600" data-source-pages="6">SENTINEL-CROSSREF-001: See Figure 1, Figure 2, Table 1, Section 11, Appendix A, Equation (1), and reference <a class="cocoapdf-cross-reference" href="#ref-1" data-cocoapdf-node="node-1245" data-source-pages="6">[1]</a>.</p>
+<h2 id="references" data-cocoapdf-node="node-904" data-confidence="0.9200" data-source-pages="6"><u data-cocoapdf-node="node-902" data-source-pages="6"><strong data-cocoapdf-node="node-901" data-source-pages="6">References</strong></u> </h2>
+<section role="doc-bibliography" data-cocoapdf-node="node-1234" data-confidence="0.8600" data-source-pages="6"><p role="doc-biblioentry" id="ref-1" data-cocoapdf-node="node-1230" data-confidence="0.9500" data-source-pages="6"><span class="cocoapdf-reference-label">[1]</span> Doe, Jane. “A Synthetic PDF Benchmark.” Journal of Deterministic Documents, 2026. DOI: 10.0000/cocoapdf.0001.</p><p role="doc-biblioentry" id="ref-2" data-cocoapdf-node="node-1232" data-confidence="0.9500" data-source-pages="6"><span class="cocoapdf-reference-label">[2]</span> Smith, John and Roe, Alex. <em data-cocoapdf-node="node-909" data-source-pages="6">Tables Without Borders</em>. Example Press, 2025. <a href="https://example.com/references/2" data-cocoapdf-node="node-913" data-source-pages="6"><u data-cocoapdf-node="node-912" data-source-pages="6">https://example.com/references/2</u></a>.</p><p role="doc-biblioentry" id="None" data-cocoapdf-node="node-1233" data-confidence="0.8600" data-source-pages="6">Doe, J. (2024). Author-year reference style with hanging indentation expectation. Example Journal, 12(3), 45–67.</p></section>
+<h2 id="17-math-and-formula-fallback" data-cocoapdf-node="node-923" data-confidence="0.9200" data-source-pages="6"><u data-cocoapdf-node="node-921" data-source-pages="6"><strong data-cocoapdf-node="node-920" data-source-pages="6">17. Math and Formula Fallback</strong></u> </h2>
+<p data-cocoapdf-node="node-925" data-confidence="0.9600" data-source-pages="6">SENTINEL-MATH-001 inline math-like text: E = mc², a² + b² = c², ∑ᵢ xᵢ = 42.</p>
+<p data-cocoapdf-node="node-927" data-confidence="0.9600" data-source-pages="6">SENTINEL-MATH-002 display formula source:</p>
+<figure class="cocoapdf-figure cocoapdf-align-center" data-cocoapdf-node="node-929" data-confidence="0.9500" data-source-pages="6"><img src="assets/formula-6e4020bb5dcec410.svg" alt="Formula preserved from vector outlines; source text unavailable" style="width: 72.927pt; height: 31.488pt; max-width: 100%; object-fit: contain" data-cocoapdf-node="node-928" data-confidence="0.9600" data-source-pages="6" /></figure>
+<p data-cocoapdf-node="node-931" data-confidence="0.9600" data-source-pages="6">SENTINEL-MATH-003 Unicode formula:</p>
+<p data-cocoapdf-node="node-933" data-confidence="0.9600" data-source-pages="6">∀x ∈ ℝ, ∃y ∈ ℝ such that y² = x when x ≥ 0.</p>
+<p data-cocoapdf-node="node-935" data-confidence="0.9600" data-source-pages="6">SENTINEL-MATH-004 matrix-like text:</p>
+<div class="cocoapdf-table-container" role="region" tabindex="0" aria-label="Table"><table data-cocoapdf-node="node-960" data-confidence="0.9600" data-source-pages="6"><thead><tr data-cocoapdf-node="node-945" data-confidence="0.9800" data-source-pages="6"><th scope="col" id="node-936" data-cocoapdf-node="node-936" data-confidence="0.9800" data-source-pages="6"></th><th scope="col" id="node-940" data-cocoapdf-node="node-940" data-confidence="0.9800" data-source-pages="6"><p data-cocoapdf-node="node-939" data-confidence="0.9700" data-source-pages="6"><strong data-cocoapdf-node="node-938" data-source-pages="6">Formula</strong></p></th><th scope="col" id="node-944" data-cocoapdf-node="node-944" data-confidence="0.9800" data-source-pages="6"><p data-cocoapdf-node="node-943" data-confidence="0.9700" data-source-pages="6"><strong data-cocoapdf-node="node-942" data-source-pages="6">Meaning</strong></p></th></tr></thead><tbody><tr data-cocoapdf-node="node-952" data-confidence="0.9800" data-source-pages="6"><td data-cocoapdf-node="node-946" data-confidence="0.9800" data-source-pages="6"></td><td data-cocoapdf-node="node-948" data-confidence="0.9800" data-source-pages="6"><pre data-cocoapdf-node="node-947" data-confidence="0.9300" data-source-pages="6"><code>A = [[1, 2], [3, 4]]</code></pre></td><td data-cocoapdf-node="node-951" data-confidence="0.9800" data-source-pages="6"><p data-cocoapdf-node="node-950" data-confidence="0.9700" data-source-pages="6">matrix literal</p></td></tr><tr data-cocoapdf-node="node-959" data-confidence="0.9800" data-source-pages="6"><td data-cocoapdf-node="node-953" data-confidence="0.9800" data-source-pages="6"></td><td data-cocoapdf-node="node-955" data-confidence="0.9800" data-source-pages="6"><pre data-cocoapdf-node="node-954" data-confidence="0.9300" data-source-pages="6"><code>det(A) = -2</code></pre></td><td data-cocoapdf-node="node-958" data-confidence="0.9800" data-source-pages="6"><p data-cocoapdf-node="node-957" data-confidence="0.9700" data-source-pages="6">determinant</p></td></tr></tbody></table></div>
+<hr data-cocoapdf-node="node-961" data-confidence="0.9000" data-source-pages="6" />
+<h2 id="18-multi-column-sidebars-callouts-and-floats-via-html-css" data-cocoapdf-node="node-966" data-confidence="0.9200" data-source-pages="6"><u data-cocoapdf-node="node-964" data-source-pages="6"><strong data-cocoapdf-node="node-963" data-source-pages="6">18. Multi-Column, Sidebars, Callouts, and Floats via HTML/CSS</strong></u> </h2>
+<section class="cocoapdf-layout-region cocoapdf-lossless-html" data-cocoapdf-node="node-985" data-confidence="0.9000" data-source-pages="6"><div class="cocoapdf-columns" style="columns: 2; column-gap: 2rem; border-left: 4px solid #d63a2b; padding-left: 0.9rem;">
 <p><strong>SENTINEL-COLUMNS-001 left/right flow:</strong> Column content alpha begins here. It should be read in column order when the PDF physically lays it out in columns.</p>
 <p>Column content bravo contains Greek αβγ and numbers 12345.</p>
 <p>Column content charlie contains a link-like visible string https://example.com/columns.</p>
 <p>Column content delta ends the multi-column region.</p>
-</div>
-<div style="border: 1px solid #9bb7d3; background: #eef6ff; padding: 12px;"><strong>SENTINEL-CALLOUT-001:</strong> This is an HTML callout/sidebar. Markdown cannot represent this exactly; CocoaPDF should use safe HTML fallback or report a callout region.</div>
-<hr />
-<h2 id="19-forms-and-annotations-future-fixture">19. Forms and Annotations Future Fixture</h2>
-<p>SENTINEL-FORM-001 visible form-like text:</p>
-<div class="cocoapdf-form-appearance" data-cocoapdf-kind="printed">
+</div></section>
+<aside class="cocoapdf-callout cocoapdf-lossless-html" data-cocoapdf-node="node-992" data-confidence="0.8600" data-source-pages="7"><div style="border: 1px solid #9bb7d3; background: #eef6ff; padding: 12px;"><strong>SENTINEL-CALLOUT-001:</strong> This is an HTML callout/sidebar. Markdown cannot represent this exactly; CocoaPDF should use safe HTML fallback or report a callout region.</div></aside>
+<hr data-cocoapdf-node="node-993" data-confidence="0.9000" data-source-pages="7" />
+<h2 id="19-forms-and-annotations-future-fixture" data-cocoapdf-node="node-998" data-confidence="0.9200" data-source-pages="7"><u data-cocoapdf-node="node-996" data-source-pages="7"><strong data-cocoapdf-node="node-995" data-source-pages="7">19. Forms and Annotations Future Fixture</strong></u> </h2>
+<p data-cocoapdf-node="node-1000" data-confidence="0.9600" data-source-pages="7">SENTINEL-FORM-001 visible form-like text:</p>
+<section class="cocoapdf-printed-form cocoapdf-lossless-html" data-cocoapdf-node="node-1010" data-confidence="0.7800" data-source-pages="7"><div class="cocoapdf-form-appearance" data-cocoapdf-kind="printed">
 <label>Name: <input type="text" value="Cocoa Tester" disabled /></label>
 
 <label><input type="checkbox" checked disabled /> checked checkbox visible label</label>
@@ -371,43 +275,32 @@ print(&quot;inner fenced block&quot;)
 <select disabled>
   <option selected>bravo selected</option>
 </select>
-</div>
-<p>SENTINEL-ANNOTATION-001: Highlight, underline, strikeout, sticky-note, stamp, and file-attachment annotations require PDF-level fixture construction. This Markdown source includes visible labels only; annotation dictionaries should be added by a PDF fixture generator for V2.12/V3 tests.</p>
-<hr />
-<h2 id="20-active-content-and-security-future-fixture">20. Active Content and Security Future Fixture</h2>
-<p>SENTINEL-SECURITY-001: Generated PDFs for this section may be post-processed to inject <code>/OpenAction</code>, <code>/AA</code>, <code>/JavaScript</code>, <code>/Launch</code>, <code>/RichMedia</code>, remote <code>/GoToR</code>, and embedded-file actions. CocoaPDF must detect and report these without executing, fetching, launching, or submitting anything.</p>
-<p>SENTINEL-SECURITY-002: Visible unsafe strings: javascript:alert(1), file:///tmp/secret.txt, data:text/html;base64,SGVsbG8=.</p>
-<hr />
-<h2 id="21-page-breaks-furniture-headers-footers">21. Page Breaks, Furniture, Headers, Footers</h2>
-<p>SENTINEL-PAGE-001: The generator may insert page numbers and running headers/footers. CocoaPDF must remove repeated furniture only with repeated-page evidence and must never drop body text.</p>
-<p>SENTINEL-PAGE-002: New page marker after explicit page break. If a PDF generator honors the break, this starts a new page.</p>
-<p>Running header text candidate: CocoaPDF Fixture Header Running footer text candidate: Page N Footer</p>
-<hr />
-<h2 id="22-damaged-encrypted-and-hard-pdf-v3-matrix-labels">22. Damaged, Encrypted, and Hard-PDF V3 Matrix Labels</h2>
-<p>SENTINEL-V3-001: This source cannot itself create malformed xrefs, object streams, encrypted streams, corrupted filters, or damaged trailers. Create derivative PDFs from this generated PDF for V3 tests:</p>
-<ul>
-<li>V3-A: object streams and xref streams</li>
-<li>V3-B: incremental update overriding old objects</li>
-<li>V3-C: empty-password RC4/AES encrypted copy</li>
-<li>V3-D: damaged xref requiring recovery scan</li>
-<li>V3-E: missing or lying <code>/Length</code></li>
-<li>V3-F: no-ToUnicode symbolic font</li>
-<li>V3-G: CJK/RTL/vertical-writing focused pages</li>
-<li>V3-H: decompression bomb guard fixture</li>
-</ul>
-<hr />
-<h2 id="23-final-kitchen-sink-paragraph">23. Final Kitchen Sink Paragraph</h2>
-<p>SENTINEL-FINAL-001: CocoaPDF final mixed paragraph contains <strong>bold αβγ</strong>, <em>italic</em> 中文, <code>code_with_pipe|and_backtick</code>, a link to <a href="https://example.com/final" rel="noopener noreferrer">HTTPS</a>, superscript x<sup>2</sup>, subscript H<sub>2</sub>O, emoji ☕🚀, currency €₹₿, RTL עברית العربية, and escaped markdown characters \ ` * _ [ ] ( ) # + - . ! |.</p>
-<hr />
-<h2 id="appendix-a-expected-comparison-notes">Appendix A — Expected Comparison Notes</h2>
-<ul>
-<li>V1/V2 Markdown-first output may preserve complex sections as safe HTML fallback.</li>
-<li>V3 hard-PDF cases require derivative PDFs created after this source PDF is generated.</li>
-<li>V4 OCR is optional and must be disabled by default; when enabled, OCR text must carry provenance and confidence.</li>
-<li>Unsafe links/actions must never remain active in HTML output.</li>
-<li>Structural false positives are worse than plain-text fallback.</li>
-</ul>
-<aside id="fn-1" role="doc-footnote">Footnote definition one. It includes a URL <a href="https://example.com/footnote" rel="noopener noreferrer">https://example.com/footnote</a>, punctuation, and continuation text.</aside>
-<aside id="fn-2" role="doc-footnote">Footnote with Greek αβγ, emoji ☕, and CJK 中文.</aside>
+</div></section>
+<p data-cocoapdf-node="node-1014" data-confidence="0.9600" data-source-pages="7">SENTINEL-ANNOTATION-001: Highlight, underline, strikeout, sticky-note, stamp, and file-attachment annotations require PDF-level fixture construction. This Markdown source includes visible labels only; annotation dictionaries should be added by a PDF fixture generator for V2.12/V3 tests.</p>
+<hr data-cocoapdf-node="node-1015" data-confidence="0.9000" data-source-pages="7" />
+<h2 id="20-active-content-and-security-future-fixture" data-cocoapdf-node="node-1020" data-confidence="0.9200" data-source-pages="7"><u data-cocoapdf-node="node-1018" data-source-pages="7"><strong data-cocoapdf-node="node-1017" data-source-pages="7">20. Active Content and Security Future Fixture</strong></u> </h2>
+<p data-cocoapdf-node="node-1041" data-confidence="0.9600" data-source-pages="7">SENTINEL-SECURITY-001: Generated PDFs for this section may be post-processed to inject <code data-cocoapdf-node="node-1023" data-source-pages="7">/OpenAction</code>, <code data-cocoapdf-node="node-1026" data-source-pages="7">/AA</code>, <code data-cocoapdf-node="node-1029" data-source-pages="7">/JavaScript</code>, <code data-cocoapdf-node="node-1032" data-source-pages="7">/Launch</code>, <code data-cocoapdf-node="node-1035" data-source-pages="7">/RichMedia</code>, remote <code data-cocoapdf-node="node-1038" data-source-pages="7">/GoToR</code>, and embedded-file actions. CocoaPDF must detect and report these without executing, fetching, launching, or submitting anything.</p>
+<p data-cocoapdf-node="node-1043" data-confidence="0.9600" data-source-pages="7">SENTINEL-SECURITY-002: Visible unsafe strings: javascript:alert(1), file:///tmp/secret.txt, data:text/html;base64,SGVsbG8=.</p>
+<hr data-cocoapdf-node="node-1044" data-confidence="0.9000" data-source-pages="7" />
+<h2 id="21-page-breaks-furniture-headers-footers" data-cocoapdf-node="node-1049" data-confidence="0.9200" data-source-pages="7"><u data-cocoapdf-node="node-1047" data-source-pages="7"><strong data-cocoapdf-node="node-1046" data-source-pages="7">21. Page Breaks, Furniture, Headers, Footers</strong></u> </h2>
+<p data-cocoapdf-node="node-1052" data-confidence="0.9600" data-source-pages="7">SENTINEL-PAGE-001: The generator may insert page numbers and running headers/footers. CocoaPDF must remove repeated furniture only with repeated-page evidence and must never drop body text.</p>
+<p data-cocoapdf-node="node-1054" data-confidence="0.9600" data-source-pages="8">SENTINEL-PAGE-002: New page marker after explicit page break. If a PDF generator honors the break, this starts a new page.</p>
+<p data-cocoapdf-node="node-1058" data-confidence="0.9600" data-source-pages="8">Running header text candidate: CocoaPDF Fixture Header Running footer text candidate: Page N Footer</p>
+<hr data-cocoapdf-node="node-1059" data-confidence="0.9000" data-source-pages="8" />
+<h2 id="22-damaged-encrypted-and-hard-pdf-v3-matrix-labels" data-cocoapdf-node="node-1064" data-confidence="0.9200" data-source-pages="8"><u data-cocoapdf-node="node-1062" data-source-pages="8"><strong data-cocoapdf-node="node-1061" data-source-pages="8">22. Damaged, Encrypted, and Hard-PDF V3 Matrix Labels</strong></u> </h2>
+<p data-cocoapdf-node="node-1067" data-confidence="0.9600" data-source-pages="8">SENTINEL-V3-001: This source cannot itself create malformed xrefs, object streams, encrypted streams, corrupted filters, or damaged trailers. Create derivative PDFs from this generated PDF for V3 tests:</p>
+<ul style="list-style-type: disc" data-cocoapdf-node="node-1086" data-confidence="0.9000" data-source-pages="8"><li data-cocoapdf-node="node-1069" data-confidence="0.9600" data-source-pages="8">V3-A: object streams and xref streams</li><li data-cocoapdf-node="node-1071" data-confidence="0.9600" data-source-pages="8">V3-B: incremental update overriding old objects</li><li data-cocoapdf-node="node-1073" data-confidence="0.9600" data-source-pages="8">V3-C: empty-password RC4/AES encrypted copy</li><li data-cocoapdf-node="node-1075" data-confidence="0.9600" data-source-pages="8">V3-D: damaged xref requiring recovery scan</li><li data-cocoapdf-node="node-1079" data-confidence="0.9600" data-source-pages="8">V3-E: missing or lying <code data-cocoapdf-node="node-1078" data-source-pages="8">/Length</code></li><li data-cocoapdf-node="node-1081" data-confidence="0.9600" data-source-pages="8">V3-F: no-ToUnicode symbolic font</li><li data-cocoapdf-node="node-1083" data-confidence="0.9600" data-source-pages="8">V3-G: CJK/RTL/vertical-writing focused pages</li><li data-cocoapdf-node="node-1085" data-confidence="0.9600" data-source-pages="8">V3-H: decompression bomb guard fixture</li></ul>
+<hr data-cocoapdf-node="node-1087" data-confidence="0.9000" data-source-pages="8" />
+<h2 id="23-final-kitchen-sink-paragraph" data-cocoapdf-node="node-1092" data-confidence="0.9200" data-source-pages="8"><u data-cocoapdf-node="node-1090" data-source-pages="8"><strong data-cocoapdf-node="node-1089" data-source-pages="8">23. Final Kitchen Sink Paragraph</strong></u> </h2>
+<p dir="auto" data-cocoapdf-node="node-1114" data-confidence="0.9600" data-source-pages="8">SENTINEL-FINAL-001: CocoaPDF final mixed paragraph contains <strong data-cocoapdf-node="node-1095" data-source-pages="8">bold αβγ</strong>, <em data-cocoapdf-node="node-1098" data-source-pages="8">italic </em>中文, <code data-cocoapdf-node="node-1101" data-source-pages="8">code_with_pipe|and_backtick</code>, a link to <a href="https://example.com/final" data-cocoapdf-node="node-1105" data-source-pages="8"><u data-cocoapdf-node="node-1104" data-source-pages="8">HTTPS</u></a>, superscript x<sup data-cocoapdf-node="node-1108" data-source-pages="8">2</sup>, subscript H<sub data-cocoapdf-node="node-1111" data-source-pages="8">2</sub>O, emoji ☕🚀, currency €₹₿, RTL עברית العربية, and escaped markdown characters \ ` * _ [ ] ( ) # + - . ! |.</p>
+<hr data-cocoapdf-node="node-1115" data-confidence="0.9000" data-source-pages="8" />
+<h2 id="appendix-a-expected-comparison-notes" data-cocoapdf-node="node-1120" data-confidence="0.9200" data-source-pages="8"><u data-cocoapdf-node="node-1118" data-source-pages="8"><strong data-cocoapdf-node="node-1117" data-source-pages="8">Appendix A — Expected Comparison Notes</strong></u> </h2>
+<ul style="list-style-type: disc" data-cocoapdf-node="node-1131" data-confidence="0.9000" data-source-pages="8"><li data-cocoapdf-node="node-1122" data-confidence="0.9600" data-source-pages="8">V1/V2 Markdown-first output may preserve complex sections as safe HTML fallback.</li><li data-cocoapdf-node="node-1124" data-confidence="0.9600" data-source-pages="8">V3 hard-PDF cases require derivative PDFs created after this source PDF is generated.</li><li data-cocoapdf-node="node-1126" data-confidence="0.9600" data-source-pages="8">V4 OCR is optional and must be disabled by default; when enabled, OCR text must carry provenance and confidence.</li><li data-cocoapdf-node="node-1128" data-confidence="0.9600" data-source-pages="8">Unsafe links/actions must never remain active in HTML output.</li><li data-cocoapdf-node="node-1130" data-confidence="0.9600" data-source-pages="8">Structural false positives are worse than plain-text fallback.</li></ul>
+<a id="dfref-footnote-1" data-cocoapdf-node="node-1132" data-confidence="1.0000" data-source-pages="8"></a>
+<a id="dfref-footnote-1-1" data-cocoapdf-node="node-1133" data-confidence="1.0000" data-source-pages="8"></a>
+<a id="dfref-footnote-2" data-cocoapdf-node="node-1134" data-confidence="1.0000" data-source-pages="8"></a>
+<aside id="fn-1" role="doc-footnote" data-cocoapdf-node="node-1237" data-confidence="0.9800" data-source-pages="8">Footnote definition one. It includes a URL <a href="https://example.com/footnote" data-cocoapdf-node="node-1138" data-source-pages="8">https://example.com/footnote</a>, punctuation, and continuation text.</aside>
+<aside id="fn-2" role="doc-footnote" data-cocoapdf-node="node-1239" data-confidence="0.9800" data-source-pages="8">Footnote with Greek αβγ, emoji ☕, and CJK 中文.</aside>
+</main>
 </body>
 </html>

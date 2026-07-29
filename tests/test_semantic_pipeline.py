@@ -4,18 +4,22 @@ import json
 import unittest
 from types import SimpleNamespace
 from typing import Iterable
+from unittest.mock import patch
 
 from cocoapdf import convert
 from cocoapdf.cli import _format_payload
 from cocoapdf.content.runtime import _attach_marked_content
-from cocoapdf.core import ConvertOptions, Converter
+from cocoapdf.core import ConvertOptions, Converter, MarkdownRenderer
 from cocoapdf.fonts.decoding import CMapMapping, decode_font, parse_tounicode
+from cocoapdf.html.sanitize import is_safe_generated_html
 from cocoapdf.html.semantic import render_semantic_html
 from cocoapdf.ir.semantic import NodeFactory, SemanticDocument, SemanticNode, SourceRef
 from cocoapdf.markdown.semantic import render_semantic_markdown
 from cocoapdf.reporting.report import attach_semantic_document
 from cocoapdf.semantics.navigation import _best_heading_target
+from cocoapdf.semantics.output import render_reconciled_outputs
 from cocoapdf.semantics.reconcile import _tagged_list_node, reconcile_tagged_content
+from cocoapdf.semantics.source import inline_nodes_from_tokens
 from cocoapdf.semantics.tagged import parse_tagged_structure
 from cocoapdf.synthetic import line_op, make_pdf, rect_fill_op, text_op
 from cocoapdf.text.bidi import reorder_text, reorder_tokens
@@ -95,14 +99,142 @@ class AuthoritativeGraphTests(unittest.TestCase):
         self.assertIsNotNone(result.semantic)
         self.assertTrue(result.report["semantic_output_used"])
         self.assertEqual(result.report["output_derivation"], {"markdown": "semantic_graph", "html": "semantic_graph", "json": "semantic_graph"})
+        self.assertEqual(result.report["html_projection"], "direct_semantic_html")
+        self.assertEqual(result.semantic.metadata["output_policy"], "independent_semantic_projections")
         self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
         self.assertIn("Graph source", result.markdown)
         self.assertIn("Graph source", result.html)
+        self.assertRegex(
+            result.html,
+            r'<p data-cocoapdf-node="[^"]+" data-confidence="[0-9.]+" '
+            r'data-source-pages="1">Graph source</p>',
+        )
         payload = json.loads(_format_payload(result, "json"))
         self.assertEqual(payload["semantic_document"]["schema"], "cocoapdf.semantic-document")
         paragraphs = semantic_nodes(result, "paragraph")
         self.assertEqual(len(paragraphs), 1)
         self.assertTrue(paragraphs[0].sources[0].glyph_ids)
+
+    def test_untagged_catalog_language_reaches_html_root(self) -> None:
+        content = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Bonjour) Tj ET"
+        result = convert(
+            one_page_pdf(content, catalog_extra=b"/Lang (fr-FR)")
+        )
+        self.assertEqual(result.semantic.metadata["language"], "fr-FR")
+        self.assertIn('<html lang="fr-FR">', result.html)
+
+    def test_untagged_html_never_reparses_markdown(self) -> None:
+        content = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Independent HTML) Tj ET"
+        with patch(
+            "cocoapdf.html.render.render_html",
+            side_effect=AssertionError("legacy Markdown HTML renderer was called"),
+        ):
+            result = convert(one_page_pdf(content))
+        self.assertEqual(result.markdown, "Independent HTML\n")
+        self.assertIn("<main", result.html)
+        self.assertIn("Independent HTML", result.html)
+        self.assertEqual(result.report["html_projection"], "direct_semantic_html")
+
+    def test_emergency_html_fallback_is_still_graph_derived(self) -> None:
+        content = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Fallback evidence) Tj ET"
+        with patch(
+            "cocoapdf.semantics.output.render_reconciled_outputs",
+            side_effect=RuntimeError("forced projection failure"),
+        ), patch(
+            "cocoapdf.html.render.render_html",
+            side_effect=AssertionError("Markdown HTML fallback was called"),
+        ) as legacy_renderer:
+            result = convert(one_page_pdf(content))
+        legacy_renderer.assert_not_called()
+        self.assertEqual(result.markdown, "Fallback evidence\n")
+        self.assertIn("cocoapdf-minimal-fallback", result.html)
+        self.assertIn("Fallback evidence", result.html)
+        self.assertEqual(
+            result.report["html_projection"],
+            "minimal_semantic_html_fallback",
+        )
+        self.assertFalse(result.report["semantic_output_used"])
+        self.assertTrue(
+            any(
+                warning.code == "SEMANTIC_OUTPUT_FAILED"
+                for warning in result.warnings
+            )
+        )
+
+    def test_html_projection_cannot_change_markdown_bytes(self) -> None:
+        content = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Markdown invariant) Tj ET"
+        sentinel = "<!doctype html><html><body>semantic sentinel</body></html>\n"
+        with patch(
+            "cocoapdf.semantics.output.render_semantic_html",
+            return_value=sentinel,
+        ):
+            result = convert(one_page_pdf(content))
+        self.assertEqual(result.markdown, "Markdown invariant\n")
+        self.assertEqual(result.html, sentinel)
+
+    def test_html_list_structure_uses_event_records_not_markdown_overlay(self) -> None:
+        stream = b"\n".join(
+            [
+                text_op(72, 720, "1. Alpha independent", "F1", 10),
+                text_op(72, 700, "2. Bravo independent", "F1", 10),
+            ]
+        )
+        original_analyze = MarkdownRenderer.analyze
+
+        def poison_markdown_overlay(renderer):
+            events_by_page = original_analyze(renderer)
+            for events in events_by_page.values():
+                for event in events:
+                    if event.kind == "list":
+                        event.legacy_markdown = "99. poisoned Markdown overlay"
+            return events_by_page
+
+        with patch.object(
+            MarkdownRenderer,
+            "analyze",
+            poison_markdown_overlay,
+        ):
+            result = convert(make_pdf([stream]))
+
+        self.assertEqual(result.markdown, "99. poisoned Markdown overlay\n")
+        self.assertIn("Alpha independent", result.html)
+        self.assertIn("Bravo independent", result.html)
+        self.assertNotIn("poisoned Markdown overlay", result.html)
+        self.assertRegex(
+            result.html,
+            r'(?s)<ol\b[^>]*>.*<li\b[^>]*value="1"[^>]*>'
+            r".*Alpha independent.*<li\b[^>]*value=\"2\"[^>]*>"
+            r".*Bravo independent.*</ol>",
+        )
+
+    def test_visible_toc_is_not_suppressed_as_an_outline_duplicate(self) -> None:
+        source = [SourceRef(page=1)]
+        item = SemanticNode(
+            "toc-item",
+            "toc_item",
+            text="Introduction",
+            attrs={"target_anchor": "introduction"},
+            sources=source,
+        )
+        toc = SemanticNode(
+            "visible-toc",
+            "toc",
+            children=[item],
+            attrs={"source": "visible_toc"},
+            sources=source,
+        )
+        document = SemanticDocument(
+            [toc],
+            metadata={"outline": {"kind": "outline"}},
+        )
+        markdown, rendered = render_reconciled_outputs(
+            "## Contents\n\nIntroduction .... 1\n",
+            document,
+            {},
+        )
+        self.assertEqual(markdown, "## Contents\n\nIntroduction .... 1\n")
+        self.assertIn('class="cocoapdf-toc"', rendered)
+        self.assertIn('href="#introduction"', rendered)
 
     def test_encrypted_refusal_still_uses_authoritative_graph_contract(self) -> None:
         content = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Ciphertext) Tj ET"
@@ -681,6 +813,49 @@ class TaggedReconciliationIntegrationTests(unittest.TestCase):
             "Authoritative replacement",
         )
 
+    def test_parenthesized_tagged_roman_label_keeps_exact_ordinal(self) -> None:
+        source = [SourceRef(page=1, mcids=(0,))]
+        label = SemanticNode(
+            "roman-label",
+            "text",
+            text="(iv)",
+            attrs={"tag_role": "Lbl"},
+            sources=source,
+        )
+        body = SemanticNode(
+            "roman-body",
+            "text",
+            text="Fourth",
+            attrs={"tag_role": "LBody"},
+            sources=source,
+        )
+        tagged = SemanticNode(
+            "roman-list",
+            "list",
+            children=[
+                SemanticNode(
+                    "roman-item",
+                    "item",
+                    children=[label, body],
+                    sources=source,
+                )
+            ],
+            attrs={
+                "structure_attributes": {
+                    "ListNumbering": "LowerRoman",
+                }
+            },
+            sources=source,
+        )
+        materialized = _tagged_list_node(tagged)
+        self.assertIsNotNone(materialized)
+        assert materialized is not None
+        self.assertEqual(materialized.attrs["start"], 4)
+        self.assertEqual(materialized.children[0].attrs["marker"], "iv")
+        rendered = render_semantic_html(SemanticDocument([materialized]))
+        self.assertIn('<ol type="i" start="4"', rendered)
+        self.assertIn('<li value="4"', rendered)
+
     def test_tagged_list_materializes_without_visual_bullets(self) -> None:
         content = (
             b"/Span <</MCID 0>> BDC BT /F1 12 Tf 1 0 0 1 90 720 Tm (First) Tj ET EMC "
@@ -707,6 +882,50 @@ class TaggedReconciliationIntegrationTests(unittest.TestCase):
         self.assertEqual(lists[0].attrs["tagged_node_id"], "tag-1")
         self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
 
+    def test_tagged_list_numbering_and_layout_attributes_reach_html(self) -> None:
+        content = (
+            b"/Span <</MCID 0>> BDC BT /F1 12 Tf "
+            b"1 0 0 1 90 720 Tm (First) Tj ET EMC "
+            b"/Span <</MCID 1>> BDC BT /F1 12 Tf "
+            b"1 0 0 1 90 690 Tm (Second) Tj ET EMC "
+            b"/Span <</MCID 2>> BDC BT /F1 12 Tf "
+            b"1 0 0 1 72 640 Tm (WWW) Tj ET EMC"
+        )
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Page /Parent 4 0 R /StructParents 0 /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /StructElem /S /L /P 13 0 R /A << /O /List /ListNumbering /UpperRoman >> /K [6 0 R 7 0 R] >>",
+            b"<< /Type /StructElem /S /LI /P 5 0 R /K [8 0 R] >>",
+            b"<< /Type /StructElem /S /LI /P 5 0 R /K [9 0 R] >>",
+            b"<< /Type /StructElem /S /LBody /P 6 0 R /Pg 3 0 R /K 0 >>",
+            b"<< /Type /StructElem /S /LBody /P 7 0 R /Pg 3 0 R /K 1 >>",
+            b"<< /Type /StructElem /S /P /P 13 0 R /Pg 3 0 R /K 2 /E (World Wide Web) /A << /O /Layout /TextAlign /Center /WritingMode /RlTb /TextIndent 12 >> >>",
+            b"<< /Nums [0 [8 0 R 9 0 R 10 0 R]] >>",
+            b"<< >>",
+            b"<< /Type /StructTreeRoot /K [5 0 R 10 0 R] /ParentTree 11 0 R >>",
+            b"<< /Type /Catalog /Pages 4 0 R /StructTreeRoot 13 0 R /MarkInfo << /Marked true >> >>",
+        ]
+        result = convert(render_pdf(objects, 14))
+        lists = semantic_nodes(result, "list")
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].attrs["marker_style"], "upper-roman")
+        self.assertIn('<ol type="I"', result.html)
+        self.assertIn(
+            'style="text-align: center; text-indent: 12.000pt"',
+            result.html,
+        )
+        self.assertIn('dir="rtl"', result.html)
+        self.assertIn(
+            '<abbr title="World Wide Web">WWW</abbr>',
+            result.html,
+        )
+        self.assertTrue(
+            result.report["semantic_valid"],
+            result.report["semantic_errors"],
+        )
+
     def test_tagged_table_preserves_colspan_and_cell_provenance(self) -> None:
         content = (
             b"/Span <</MCID 0>> BDC BT /F1 12 Tf 1 0 0 1 72 720 Tm (Header) Tj ET EMC "
@@ -721,8 +940,8 @@ class TaggedReconciliationIntegrationTests(unittest.TestCase):
             b"<< /Type /StructElem /S /Table /P 13 0 R /K [6 0 R 7 0 R] >>",
             b"<< /Type /StructElem /S /TR /P 5 0 R /K [8 0 R] >>",
             b"<< /Type /StructElem /S /TR /P 5 0 R /K [9 0 R 10 0 R] >>",
-            b"<< /Type /StructElem /S /TH /P 6 0 R /Pg 3 0 R /K 0 /A << /O /Table /ColSpan 2 /Scope /Column >> >>",
-            b"<< /Type /StructElem /S /TD /P 7 0 R /Pg 3 0 R /K 1 >>",
+            b"<< /Type /StructElem /S /TH /P 6 0 R /Pg 3 0 R /K 0 /ID (period) /A << /O /Table /ColSpan 2 /Scope /Column >> >>",
+            b"<< /Type /StructElem /S /TD /P 7 0 R /Pg 3 0 R /K 1 /A << /O /Table /Headers [(period)] >> >>",
             b"<< /Type /StructElem /S /TD /P 7 0 R /Pg 3 0 R /K 2 >>",
             b"<< /Nums [0 [8 0 R 9 0 R 10 0 R]] >>",
             b"<< >>",
@@ -736,9 +955,14 @@ class TaggedReconciliationIntegrationTests(unittest.TestCase):
         self.assertEqual(len(cells), 3)
         self.assertEqual(cells[0].attrs["colspan"], 2)
         self.assertEqual(cells[0].attrs["scope"], "Column")
+        self.assertEqual(cells[0].attrs["header_id"], "period")
+        self.assertEqual(cells[1].attrs["headers"], ["period"])
         self.assertTrue(all(cell.sources and cell.sources[0].mcids for cell in cells))
         self.assertIn('colspan="2"', result.markdown)
         self.assertIn('colspan="2"', result.html)
+        self.assertIn('scope="colgroup"', result.html)
+        self.assertIn('id="period"', result.html)
+        self.assertIn('headers="period"', result.html)
 
     def test_classmap_attribute_arrays_apply_table_spans_and_scope(self) -> None:
         content = (
@@ -1140,6 +1364,10 @@ class CompleteTableStructureTests(unittest.TestCase):
         self.assertEqual(tables[0].attrs["row_count"], 3)
         self.assertEqual(result.markdown.count("Name"), 1)
         self.assertIn("Beta", result.markdown)
+        self.assertEqual(result.html.count("Name"), 1)
+        self.assertIn("Alpha", result.html)
+        self.assertIn("Beta", result.html)
+        self.assertIn('data-source-pages="1 2"', result.html)
 
     def test_table_caption_and_note_are_typed_children(self) -> None:
         content = (
@@ -1190,6 +1418,22 @@ class CMapTests(unittest.TestCase):
 
 
 class ProvenanceTests(unittest.TestCase):
+	def test_synthetic_bidi_boundary_inherits_adjacent_glyph_provenance(self) -> None:
+		style = (False,) * 8
+		nodes = inline_nodes_from_tokens(
+			NodeFactory(),
+			[
+				{"text": "עברית", "style": style, "link": None, "page": 1, "glyph_ids": (1, 2), "bbox": (10, 20, 30, 40)},
+				{"text": " ", "style": style, "link": None, "synthetic_space": True},
+				{"text": "ABC", "style": style, "link": None, "page": 1, "glyph_ids": (3, 4, 5), "bbox": (31, 20, 50, 40)},
+			],
+		)
+		self.assertEqual(len(nodes), 3)
+		self.assertEqual(nodes[1].sources[0].page, 1)
+		self.assertEqual(nodes[1].sources[0].glyph_ids, (1, 2, 3, 4, 5))
+		self.assertEqual(nodes[1].sources[0].bbox, (10.0, 20.0, 50.0, 40.0))
+		self.assertEqual(SemanticDocument(nodes).validate(), [])
+
 	def test_marked_content_is_attached_to_character(self) -> None:
 		character = SimpleNamespace()
 		_attach_marked_content(character, [
@@ -1242,6 +1486,276 @@ class SemanticGraphTests(unittest.TestCase):
 		self.assertIn("[example](https://example.com)", markdown)
 		self.assertIn("<h1", html)
 		self.assertIn('href="https://example.com"', html)
+
+	def test_html_projects_sectioned_tables_expansions_and_exact_list_ordinals(self) -> None:
+		source = [SourceRef(page=1, glyph_ids=(1, 2, 3))]
+
+		def text(node_id: str, value: str) -> SemanticNode:
+			return SemanticNode(
+				node_id,
+				"text",
+				text=value,
+				sources=source,
+			)
+
+		head = SemanticNode(
+			"head",
+			"table_head",
+			children=[
+				SemanticNode(
+					"head-row",
+					"table_row",
+					children=[
+						SemanticNode(
+							"head-cell",
+							"table_cell",
+							children=[text("head-text", "Term")],
+							attrs={"role": "th"},
+							sources=source,
+						)
+					],
+					sources=source,
+				)
+			],
+			sources=source,
+		)
+		body = SemanticNode(
+			"body",
+			"table_body",
+			children=[
+				SemanticNode(
+					"body-row",
+					"table_row",
+					children=[
+						SemanticNode(
+							"body-cell",
+							"table_cell",
+							children=[text("body-text", "Value")],
+							sources=source,
+						)
+					],
+					sources=source,
+				)
+			],
+			sources=source,
+		)
+		second_body = SemanticNode(
+			"second-body",
+			"table_body",
+			children=[
+				SemanticNode(
+					"second-body-row",
+					"table_row",
+					children=[
+						SemanticNode(
+							"second-body-cell",
+							"table_cell",
+							children=[text("second-body-text", "Total")],
+							sources=source,
+						)
+					],
+					sources=source,
+				)
+			],
+			sources=source,
+		)
+		table = SemanticNode(
+			"sectioned-table",
+			"table",
+			children=[head, body, second_body],
+			sources=source,
+		)
+		abbreviation = SemanticNode(
+			"abbr-paragraph",
+			"paragraph",
+			children=[text("abbr-text", "WWW")],
+			attrs={"expanded_text": "World Wide Web"},
+			sources=source,
+		)
+		ordered = SemanticNode(
+			"roman-list",
+			"list",
+			children=[
+				SemanticNode(
+					"roman-four",
+					"item",
+					children=[text("roman-four-text", "Fourth")],
+					attrs={"marker": "(IV)"},
+					sources=source,
+				),
+				SemanticNode(
+					"roman-six",
+					"item",
+					children=[text("roman-six-text", "Sixth")],
+					attrs={"marker": "(VI)"},
+					sources=source,
+				),
+			],
+			attrs={
+				"ordered": True,
+				"start": 1,
+				"marker_style": "upper-roman",
+			},
+			sources=source,
+		)
+		document = SemanticDocument(
+			[abbreviation, ordered, table],
+			metadata={"title": "Rich HTML"},
+		)
+		rendered = render_semantic_html(document)
+		self.assertIn(
+			'<abbr title="World Wide Web">WWW</abbr>',
+			rendered,
+		)
+		self.assertIn('<ol type="I" start="4"', rendered)
+		self.assertIn('<li value="4"', rendered)
+		self.assertIn('<li value="6"', rendered)
+		self.assertIn("<thead>", rendered)
+		self.assertEqual(rendered.count("<tbody>"), 2)
+		self.assertIn('scope="col"', rendered)
+		self.assertIn('class="cocoapdf-table-container"', rendered)
+		self.assertIn("| Term |", render_semantic_markdown(document))
+		self.assertIn("| Value |", render_semantic_markdown(document))
+		self.assertIn("| Total |", render_semantic_markdown(document))
+		self.assertIn(
+			'http-equiv="Content-Security-Policy"',
+			rendered,
+		)
+
+	def test_lossless_complex_table_gets_html_only_header_scopes(self) -> None:
+		source = [SourceRef(page=1)]
+		fragment = (
+			"<table><thead><tr>"
+			'<th rowspan="2">Component</th>'
+			'<th colspan="2">Evidence</th>'
+			"</tr><tr><th>Geometry</th><th>Tags</th></tr></thead>"
+			"<tbody><tr><th>Heading</th><td>Large</td><td>H1</td></tr>"
+			"</tbody></table>"
+		)
+		table = SemanticNode(
+			"lossless",
+			"table",
+			attrs={"_layout_html": fragment},
+			sources=source,
+		)
+		rendered = render_semantic_html(SemanticDocument([table]))
+		self.assertIn(
+			'<th rowspan="2" scope="col">Component</th>',
+			rendered,
+		)
+		self.assertIn(
+			'<th colspan="2" scope="colgroup">Evidence</th>',
+			rendered,
+		)
+		self.assertIn('<th scope="row">Heading</th>', rendered)
+		self.assertEqual(table.attrs["_layout_html"], fragment)
+
+	def test_semantic_html_uses_native_structure_and_a_closed_trust_boundary(self) -> None:
+		source = [SourceRef(page=1)]
+		task = SemanticNode(
+			"task",
+			"item",
+			children=[SemanticNode("task-text", "text", text="Verified", sources=source)],
+			attrs={"task": True, "checked": True},
+			sources=source,
+		)
+		task_list = SemanticNode(
+			"tasks",
+			"list",
+			children=[task],
+			attrs={"ordered": False},
+			sources=source,
+		)
+		caption = SemanticNode(
+			"caption",
+			"caption",
+			children=[SemanticNode("caption-text", "text", text="Results", sources=source)],
+			attrs={"placement": "after"},
+			sources=source,
+		)
+		header = SemanticNode(
+			"header",
+			"table_cell",
+			children=[SemanticNode("header-text", "text", text="Period", sources=source)],
+			attrs={"role": "th", "scope": "Column", "colspan": 2},
+			sources=source,
+		)
+		row = SemanticNode(
+			"row",
+			"table_row",
+			children=[header],
+			sources=source,
+		)
+		table = SemanticNode(
+			"table",
+			"table",
+			children=[caption, row],
+			attrs={"header_rows": 1},
+			sources=source,
+		)
+		untrusted = SemanticNode(
+			"raw",
+			"html",
+			text="<table><iframe srcdoc=\"unsafe\"></iframe></table>",
+			attrs={"trusted_generated": True},
+			sources=source,
+		)
+		document = SemanticDocument(
+			[task_list, table, untrusted],
+			metadata={"title": "Native HTML", "tagged_pdf": {"language": "en-US"}},
+		)
+		rendered = render_semantic_html(document)
+		self.assertIn('<html lang="en-US">', rendered)
+		self.assertIn(
+			'<input type="checkbox" disabled checked '
+			'aria-label="Checked task: Verified" />',
+			rendered,
+		)
+		self.assertIn('scope="colgroup"', rendered)
+		self.assertIn('class="cocoapdf-caption-bottom"', rendered)
+		self.assertNotIn("<iframe", rendered)
+		self.assertIn("&lt;iframe", rendered)
+
+	def test_generated_html_allowlist_rejects_attribute_smuggling(self) -> None:
+		safe_fragments = (
+			'<p dir="rtl"><strong>مرحبا</strong></p>',
+			'<math display="block"><mrow><mi>x</mi><mo>+</mo>'
+			'<mn>1</mn></mrow></math>',
+			'<div class="cocoapdf-form-appearance" '
+			'data-cocoapdf-kind="printed"><label><input '
+			'type="checkbox" checked disabled /> Done</label></div>',
+			'<figure class="cocoapdf-figure cocoapdf-align-left">'
+			'<img src="assets/plot.svg" alt="Plot" '
+			'style="width: 10.000pt; height: 5.000pt; '
+			'max-width: 100%; object-fit: contain;" /></figure>',
+			'<table><thead><tr><th scope="col">Term</th></tr></thead>'
+			'<tbody><tr><td><ul><li>Value</li></ul></td></tr>'
+			'</tbody></table>',
+		)
+		for fragment in safe_fragments:
+			self.assertTrue(is_safe_generated_html(fragment), fragment)
+		unsafe_fragments = (
+			'<p align="center"><img src="x" onerror = "alert(1)" /></p>',
+			'<math display="block"><mi href="https://example.com">x</mi></math>',
+			'<img src="javascript:alert(1)" alt="" width="1" height="1" />',
+			'<table><tr><td><form action="https://example.com">'
+			'x</form></td></tr></table>',
+			'<div class="cocoapdf-form-appearance" '
+			'data-cocoapdf-kind="printed"><label><input '
+			'type="checkbox" disabled autofocus /> Done</label></div>',
+			'<figure class="cocoapdf-figure cocoapdf-align-left">'
+			'<img src="assets/plot.svg" alt="Plot" srcset="remote 2x" '
+			'style="width: 10.000pt; height: 5.000pt; '
+			'max-width: 100%; object-fit: contain;" /></figure>',
+			"<table><td>orphaned cell</td></table>",
+			"<table><tr><td><ul>orphaned list text</ul></td></tr></table>",
+			'<figure class="cocoapdf-figure cocoapdf-align-left">'
+			'<img src="https://example.com/tracker.png" alt="Remote" '
+			'style="width: 10.000pt; height: 5.000pt; '
+			'max-width: 100%; object-fit: contain;" /></figure>',
+		)
+		for fragment in unsafe_fragments:
+			self.assertFalse(is_safe_generated_html(fragment), fragment)
 
 	def test_complex_table_uses_html_fallback_in_markdown(self) -> None:
 		source = [SourceRef(page=1)]

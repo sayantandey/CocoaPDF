@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from ..ir.semantic import NodeFactory, SemanticNode, SourceRef, merge_sources
@@ -159,15 +160,25 @@ def inline_nodes_from_tokens(
 	regions: Tuple[str, ...] = (),
 ) -> List[SemanticNode]:
 	out: List[SemanticNode] = []
-	for token in tokens:
+	normalized = _normalize_inline_tokens(tokens)
+	for index, token in enumerate(normalized):
 		text = str(token.get("text", ""))
 		if not text:
 			continue
 		sources = source_from_token(token, regions, include_object_refs=False)
+		if not sources and token.get("synthetic_space"):
+			# Bidi repair can insert a logical boundary space after the original
+			# glyph tokens have been reordered. Attribute that semantic decision
+			# to the nearest source tokens on both sides instead of leaving an
+			# otherwise valid document with an untraceable inline node.
+			sources = _synthetic_boundary_sources(normalized, index, regions)
+		attrs = {"hard_break": bool(token.get("hard_break"))}
+		if token.get("synthetic_space"):
+			attrs["synthetic_space"] = True
 		base = factory.make(
 			"text",
 			text=text,
-			attrs={"hard_break": bool(token.get("hard_break"))},
+			attrs=attrs,
 			confidence=0.99 if token.get("glyph_ids") else 0.92,
 			sources=sources,
 		)
@@ -203,6 +214,63 @@ def inline_nodes_from_tokens(
 			)
 		out.append(node)
 	return coalesce_inline_nodes(out)
+
+
+def _synthetic_boundary_sources(
+	tokens: Sequence[Dict[str, Any]],
+	index: int,
+	regions: Tuple[str, ...],
+) -> List[SourceRef]:
+	sources: List[SourceRef] = []
+	for cursor in range(index - 1, -1, -1):
+		candidate = source_from_token(tokens[cursor], regions, include_object_refs=False)
+		if candidate:
+			sources.extend(candidate)
+			break
+	for cursor in range(index + 1, len(tokens)):
+		candidate = source_from_token(tokens[cursor], regions, include_object_refs=False)
+		if candidate:
+			sources.extend(candidate)
+			break
+	return merge_sources(sources)
+
+
+def _normalize_inline_tokens(
+	tokens: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+	"""Apply format-neutral spacing cleanup before any output projection."""
+	out: List[Dict[str, Any]] = []
+	for index, original in enumerate(tokens):
+		token = dict(original)
+		text = str(token.get("text", ""))
+		if token.get("hard_break"):
+			token["text"] = text
+			out.append(token)
+			continue
+		if token.get("synthetic_space") and text.isspace():
+			next_text = (
+				str(tokens[index + 1].get("text", ""))
+				if index + 1 < len(tokens)
+				else ""
+			)
+			if re.match(r"^[,.;:!?]", next_text):
+				continue
+			text = " "
+		if (
+			out
+			and str(out[-1].get("text", "")).endswith(" ")
+			and text.startswith(" ")
+			and (
+				token.get("synthetic_space")
+				or out[-1].get("synthetic_space")
+			)
+		):
+			text = text.lstrip(" ")
+		if not text:
+			continue
+		token["text"] = text
+		out.append(token)
+	return out
 
 
 def coalesce_inline_nodes(nodes: Sequence[SemanticNode]) -> List[SemanticNode]:
