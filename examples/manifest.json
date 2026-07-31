@@ -2,43 +2,47 @@
   "benchmarks": [
     {
       "benchmark_commit": "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109",
-      "engine_commit": "97527da3bdf8bd247cf19781a0599c9176e54a33",
+      "engine_commit": "937c403ed3b265a14db802b2ced36b3819d20b0f",
       "files": {
         "adapter.py": {
           "bytes": 8286,
           "sha256": "5e8494171afa13b1341c816fe7726a6f5a75d686783ac5eca63046d3de5d4c91"
         },
+        "determinism.json": {
+          "bytes": 909,
+          "sha256": "6887afb4f457ed4cbc8efffaac8b87869235568253cae76872438c54cd389cfd"
+        },
         "evaluation.csv": {
-          "bytes": 19054,
-          "sha256": "1979844c3b233c4774820420db25b7df4a4838fc80a81998b4db8844baf6776d"
+          "bytes": 18945,
+          "sha256": "d81e63e95ef9c48e1169e053fca971fe2da0729292cc986cb00d3a05b140eaf3"
         },
         "evaluation.json": {
-          "bytes": 65419,
-          "sha256": "5a187397419ac12fbd07bc0eaa414c63fe3802082c99b514d2c68a5cfc03c5b0"
+          "bytes": 65304,
+          "sha256": "bde9f4188aed3f50618e700cee8e7fd0ba062c0d6d61c75839b7464c5fc5e4de"
         },
         "failures.json": {
           "bytes": 3,
           "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
         },
         "integration.patch": {
-          "bytes": 12272,
-          "sha256": "36cbc2be308c63eb991ff0ea5aa4f33da0dc028ea8c7d2c98a36cdd8cf97f193"
+          "bytes": 1825,
+          "sha256": "3007b31bf41111ae8a4f46438fb2e9b4954704b7c67f0f07cb453c0baecf003d"
         },
         "prediction-hashes.json": {
-          "bytes": 27184,
-          "sha256": "17dc454fd21e0c8b7951598e3b05c39661e0c560f793811bde276a97fd2e242f"
+          "bytes": 27186,
+          "sha256": "ae88c3f8602dd7fb8bd70294efd69e8ea3f6bf15263473efb3100312f3f89965"
         },
         "provenance.json": {
-          "bytes": 4391,
-          "sha256": "82a9c1aaa3f4dbc9976d46333e325088bce9fe51249cc0532607683512a22c88"
+          "bytes": 4637,
+          "sha256": "b2c15228ace18289c78e79f6c922f67ddb6ddc23abc3c9077732bd2dd2cb8275"
         },
         "result.json": {
-          "bytes": 964,
-          "sha256": "049f91edf55df1bf02f88e661700af2345d6c1d260aea65d6c44c0c41c4a270f"
+          "bytes": 960,
+          "sha256": "870416d96628ada2fbc87ad71f317923477ee378711897f0600d94f6152ea7cc"
         },
         "summary.json": {
-          "bytes": 263,
-          "sha256": "302b42b7ece08c08ee69b357aa6ff0ec5918bc62fa592f5ac8763a80eab307a6"
+          "bytes": 261,
+          "sha256": "00fd7f775f3fcecde424d4a14b326a08c14f390d77967593c0a4583c0f2612ec"
         }
       },
       "id": "opendataloader-bench",
@@ -56,28 +60,28 @@
           "missing_predictions": 0,
           "prediction_files": 200
         },
-        "engine_commit": "97527da3bdf8bd247cf19781a0599c9176e54a33",
+        "engine_commit": "937c403ed3b265a14db802b2ced36b3819d20b0f",
         "metrics": {
           "mhs_count": 107,
           "missing_predictions": 0,
           "nid_count": 200,
           "score": {
-            "mhs_mean": 0.7912284341287635,
-            "mhs_s_mean": 0.8810292785828795,
-            "nid_mean": 0.8908832817585036,
-            "nid_s_mean": 0.8704161814503709,
-            "overall_mean": 0.8435980876181824,
-            "teds_mean": 0.5636823455148973,
-            "teds_s_mean": 0.5759866978044572
+            "mhs_mean": 0.8062168834231966,
+            "mhs_s_mean": 0.8889792725141817,
+            "nid_mean": 0.8993297819973527,
+            "nid_s_mean": 0.8822899267742511,
+            "overall_mean": 0.869665721357887,
+            "teds_mean": 0.806184123363159,
+            "teds_s_mean": 0.8110160459149278
           },
           "teds_count": 42
         },
         "schema": "cocoapdf.opendataloader-bench-result/v1",
         "speed": {
           "document_count": 200,
-          "elapsed_per_doc": 0.8607585263252259,
+          "elapsed_per_doc": 0.795267196893692,
           "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
-          "total_elapsed": 172.15170526504517
+          "total_elapsed": 159.0534393787384
         }
       },
       "source_content_redistributed": false
@@ -299,7 +303,7 @@
     "reason": "Page concatenation would alter document-global evidence and weaken failure attribution."
   },
   "generator": "validation/pr_visual/build.py",
-  "generator_sha256": "16a792d44cf284ec33930eadfdf8743a6852fcf63a14b2bc5120e81ef110402c",
+  "generator_sha256": "ef8a91c70a241205065b7621de1e08e6b32e3b44dbe7ad1a50d39d2a56f57a5d",
   "head_commit": null,
   "license": {
     "file": "LICENSE.txt",

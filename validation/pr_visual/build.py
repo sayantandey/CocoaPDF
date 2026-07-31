@@ -1075,6 +1075,7 @@ def _write_review_files(
 	if permanent and benchmark is not None:
 		result = benchmark["result"]
 		provenance = benchmark["provenance"]
+		determinism = benchmark["determinism"]
 		scores = result["metrics"]["score"]
 		counts = result["metrics"]
 		speed = result["speed"]
@@ -1128,14 +1129,17 @@ def _write_review_files(
 					int(completeness["conversion_failures"]),
 				),
 				"",
-				"One clean full run took **%.6f seconds total** (**%.6f seconds/document**) "
+				"Two clean full runs took **%.6f** and **%.6f seconds total** "
+				"(**%.6f** and **%.6f seconds/document**) "
 				"on `%s`, Windows 10 build 19045, CPython 3.13.14, uv 0.12.0, and %.2f GB "
 				"physical memory. This hardware-bound time covers CocoaPDF's complete default "
 				"conversion, including semantic HTML generation, although this benchmark scores "
 				"Markdown only."
 				% (
-					float(speed["total_elapsed"]),
-					float(speed["elapsed_per_doc"]),
+					float(determinism["runs"][0]["speed"]["total_elapsed"]),
+					float(determinism["runs"][1]["speed"]["total_elapsed"]),
+					float(determinism["runs"][0]["speed"]["elapsed_per_doc"]),
+					float(determinism["runs"][1]["speed"]["elapsed_per_doc"]),
 					str(speed["processor"]),
 					memory_gb,
 				),
@@ -1144,8 +1148,9 @@ def _write_review_files(
 				"[evaluation JSON](%s/evaluation.json), [evaluation CSV](%s/evaluation.csv), "
 				"[timing summary](%s/summary.json), [provenance](%s/provenance.json), "
 				"[prediction hashes](%s/prediction-hashes.json), "
-				"[adapter](%s/adapter.py), and [integration patch](%s/integration.patch)."
-				% ((base,) * 8),
+				"[two-run determinism](%s/determinism.json), [adapter](%s/adapter.py), "
+				"and [integration patch](%s/integration.patch)."
+				% ((base,) * 9),
 				"",
 				"> Scope: this table pins commit [`%s`](https://github.com/sayantandey/CocoaPDF/"
 				"commit/%s) and is regenerated only by importing a fresh run of that exact tree, "
@@ -1346,6 +1351,7 @@ def build_bundle(
 		benchmark_for_review = {
 			"result": validated["result"],
 			"provenance": validated["provenance"],
+			"determinism": validated["determinism"],
 		}
 		manifest_benchmarks.append(
 			{

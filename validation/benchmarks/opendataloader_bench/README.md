@@ -43,25 +43,24 @@ git clone https://github.com/opendataloader-project/opendataloader-bench.git
 cd opendataloader-bench
 git checkout 7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109
 # The pinned revision stores the 200 PDFs as ordinary Git blobs (~36 MB).
-uv sync --dev --system-certs
-
-# Install the CocoaPDF revision under test.
-uv pip install --system-certs -e ../CocoaPDF/Implementation
-
-# Register the engine in src/engine_registry.py:
-#   ENGINES["cocoapdf"] = "0.1.0"
-#   _ENGINE_MODULES["cocoapdf"] = "pdf_parser_cocoapdf"
+# Apply the archived minimal registry/dependency pin and copy the exact adapter.
+git apply --unidiff-zero ../CocoaPDF/Implementation/validation/benchmarks/opendataloader_bench/results/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/integration.patch
 cp ../CocoaPDF/Implementation/validation/benchmarks/opendataloader_bench/adapter.py \
   src/pdf_parser_cocoapdf.py
+uv sync --extra cocoapdf --extra dev --system-certs
+uv run --locked --offline --extra cocoapdf --extra dev --no-sync pytest -q
 
-rm -rf prediction/cocoapdf
-uv run --system-certs python src/run.py --engine cocoapdf --force
+# Run twice, preserving prediction/cocoapdf after the first run for comparison.
+uv run --locked --offline --extra cocoapdf --no-sync python src/run.py \
+  --engine cocoapdf --force --history-date 260801 --history-overwrite
+uv run --locked --offline --extra cocoapdf --no-sync python src/run.py \
+  --engine cocoapdf --force --history-date 260801 --history-overwrite
 ```
 
 Read the result from `prediction/cocoapdf/evaluation.json`:
 
 ```bash
-uv run --system-certs python -c "import json;print(json.dumps(json.load(open('prediction/cocoapdf/evaluation.json',encoding='utf-8'))['metrics'],indent=2))"
+uv run --locked --offline --extra cocoapdf --no-sync python -c "import json;print(json.dumps(json.load(open('prediction/cocoapdf/evaluation.json',encoding='utf-8'))['metrics'],indent=2))"
 ```
 
 Publish `overall_mean` together with every component score **and** the
@@ -85,11 +84,9 @@ count violations, then runs the hash-pinned evaluator.
 The authoritative check is `ODL 200 / trusted gate`. It requires all 200
 predictions, zero failures/missing/empty outputs, overall `>= 0.800`, and no
 regression greater than `0.001` in overall, NID, TEDS, or MHS relative to the
-published `0.8435980876181824` baseline. A separate least-privilege writer
+published `0.869665721357887` baseline. It also enforces independent `0.80`
+floors for NID, TEDS, and MHS. A separate least-privilege writer
 updates the informational PR block, or publishes the fixed-path main badge.
-The policy also supports independent NID, TEDS, and MHS absolute floors; these
-remain empty until they are ratcheted from the final authoritative 200-document
-run, rather than guessed from an intermediate result.
 Before a current-main run starts, the badge is changed to red `unverified`, so
 a cancelled or broken evaluation cannot leave the previous green score looking
 current. The retained evidence contains only scores, hashes, and

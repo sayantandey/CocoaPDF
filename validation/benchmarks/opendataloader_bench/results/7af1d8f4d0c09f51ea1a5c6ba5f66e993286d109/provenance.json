@@ -2,7 +2,7 @@
   "adapter": {
     "failure_policy": "write an empty Markdown prediction and record the exception",
     "interface": "to_markdown(doc_paths, input_path, output_dir)",
-    "options": "ConvertOptions()",
+    "options": "ConvertOptions(heading_level_mode=\"flat\")",
     "sha256": "5e8494171afa13b1341c816fe7726a6f5a75d686783ac5eca63046d3de5d4c91"
   },
   "artifacts": {
@@ -10,33 +10,37 @@
       "bytes": 8286,
       "sha256": "5e8494171afa13b1341c816fe7726a6f5a75d686783ac5eca63046d3de5d4c91"
     },
+    "determinism.json": {
+      "bytes": 909,
+      "sha256": "6887afb4f457ed4cbc8efffaac8b87869235568253cae76872438c54cd389cfd"
+    },
     "evaluation.csv": {
-      "bytes": 19054,
-      "sha256": "1979844c3b233c4774820420db25b7df4a4838fc80a81998b4db8844baf6776d"
+      "bytes": 18945,
+      "sha256": "d81e63e95ef9c48e1169e053fca971fe2da0729292cc986cb00d3a05b140eaf3"
     },
     "evaluation.json": {
-      "bytes": 65419,
-      "sha256": "5a187397419ac12fbd07bc0eaa414c63fe3802082c99b514d2c68a5cfc03c5b0"
+      "bytes": 65304,
+      "sha256": "bde9f4188aed3f50618e700cee8e7fd0ba062c0d6d61c75839b7464c5fc5e4de"
     },
     "failures.json": {
       "bytes": 3,
       "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
     },
     "integration.patch": {
-      "bytes": 12272,
-      "sha256": "36cbc2be308c63eb991ff0ea5aa4f33da0dc028ea8c7d2c98a36cdd8cf97f193"
+      "bytes": 1825,
+      "sha256": "3007b31bf41111ae8a4f46438fb2e9b4954704b7c67f0f07cb453c0baecf003d"
     },
     "prediction-hashes.json": {
-      "bytes": 27184,
-      "sha256": "17dc454fd21e0c8b7951598e3b05c39661e0c560f793811bde276a97fd2e242f"
+      "bytes": 27186,
+      "sha256": "ae88c3f8602dd7fb8bd70294efd69e8ea3f6bf15263473efb3100312f3f89965"
     },
     "result.json": {
-      "bytes": 964,
-      "sha256": "049f91edf55df1bf02f88e661700af2345d6c1d260aea65d6c44c0c41c4a270f"
+      "bytes": 960,
+      "sha256": "870416d96628ada2fbc87ad71f317923477ee378711897f0600d94f6152ea7cc"
     },
     "summary.json": {
-      "bytes": 263,
-      "sha256": "302b42b7ece08c08ee69b357aa6ff0ec5918bc62fa592f5ac8763a80eab307a6"
+      "bytes": 261,
+      "sha256": "00fd7f775f3fcecde424d4a14b326a08c14f390d77967593c0a4583c0f2612ec"
     }
   },
   "benchmark": {
@@ -59,15 +63,15 @@
   },
   "dependency_lock": {
     "path": "uv.lock",
-    "pinned_engine_commit": "97527da3bdf8bd247cf19781a0599c9176e54a33",
-    "sha256": "68ae88815c0a62399bd3f0818db81bc070fc7d16bf7989b10ff457001253d25b"
+    "pinned_engine_commit": "937c403ed3b265a14db802b2ced36b3819d20b0f",
+    "sha256": "5d5c55ee781e4619712b12b1108951a2f7135e865243ecb0034dc28dca89e1a6"
   },
   "engine": {
-    "commit": "97527da3bdf8bd247cf19781a0599c9176e54a33",
+    "commit": "937c403ed3b265a14db802b2ced36b3819d20b0f",
     "license": "MIT",
     "name": "CocoaPDF",
     "repository": "https://github.com/sayantandey/CocoaPDF",
-    "tree": "4580740ee72300dd27f40aae8a25d3c872c60d0d",
+    "tree": "f01a809b4e4c48d17716be2ac510e67b66b6ff28",
     "version": "0.1.0"
   },
   "environment": {
@@ -79,27 +83,27 @@
     "physical_memory_bytes": 25592647680,
     "platform": "Windows-10-10.0.19045-SP0",
     "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
-    "python": "3.11.0",
+    "provenance_importer_python": "3.11.0",
+    "python": "3.13.14",
     "python_implementation": "CPython",
     "uv": "uv 0.12.0 (b88d7c5c4 2026-07-28 x86_64-pc-windows-msvc)"
   },
   "limitations": [
     "Accuracy metrics evaluate Markdown only and do not measure HTML fidelity.",
     "NID is a whitespace-normalized Markdown text/order proxy.",
-    "TEDS evaluates only the first table in each eligible document.",
+    "TEDS concatenates every extracted table into one synthetic comparison per eligible document.",
     "MHS flattens heading levels and measures heading boundaries/text rather than true depth.",
-    "Timing is one hardware-bound wall-clock run and includes CocoaPDF semantic HTML generation.",
+    "Timings are two hardware-bound wall-clock runs and include CocoaPDF semantic HTML generation.",
     "The upstream chart relabels seconds/document as seconds/page and hardcodes Apple M4 hardware; it is not redistributed."
   ],
   "run": {
-    "completed_at": "2026-07-31T23:22:26.794136+05:30",
-    "date": "2026-07-31",
+    "completed_at": "2026-08-01T04:26:19.905500+05:30",
+    "date": "2026-08-01",
+    "determinism_artifact": "determinism.json",
     "empty_prediction_ids": [],
     "failures_source_file_present": true,
-    "full_command": "uv run --locked --offline --extra cocoapdf python src/run.py --engine cocoapdf --force",
-    "full_run_count": 1,
-    "prediction_directory_cleaned_after_smoke": true,
-    "smoke_document": "01030000000001"
+    "full_command": "uv run --locked --offline --extra cocoapdf --no-sync python src/run.py --engine cocoapdf --force --history-date 260801 --history-overwrite",
+    "full_run_count": 2
   },
   "schema": "cocoapdf.opendataloader-bench-provenance/v1",
   "verification": {
@@ -114,6 +118,6 @@
     "pdf_headers_valid": true,
     "prediction_ids_match_corpus": true,
     "score_ranges_valid": true,
-    "upstream_tests": "31 passed"
+    "two_full_runs_compared": true
   }
 }

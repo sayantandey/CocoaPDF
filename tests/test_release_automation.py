@@ -192,10 +192,10 @@ class BuildAutomationTests(unittest.TestCase):
 			examples_readme,
 		)
 		self.assertIn("## OpenDataLoader-Bench results", examples_readme)
-		self.assertIn("`0.8435980876`", examples_readme)
-		self.assertIn("`0.8908832818`", examples_readme)
-		self.assertIn("`0.5636823455`", examples_readme)
-		self.assertIn("`0.7912284341`", examples_readme)
+		self.assertIn("`0.8696657214`", examples_readme)
+		self.assertIn("`0.8993297820`", examples_readme)
+		self.assertIn("`0.8061841234`", examples_readme)
+		self.assertIn("`0.8062168834`", examples_readme)
 		self.assertIn("**200 evaluated, 200 prediction files, 0 missing, 0 empty, 0 conversion failures**", examples_readme)
 		self.assertIn("These numbers do not measure CocoaPDF's HTML fidelity.", examples_readme)
 		# The published table is provenance for one commit. Keep it explicit that
@@ -215,7 +215,7 @@ class BuildAutomationTests(unittest.TestCase):
 		)
 		self.assertEqual(
 			benchmark["engine_commit"],
-			"97527da3bdf8bd247cf19781a0599c9176e54a33",
+			"937c403ed3b265a14db802b2ced36b3819d20b0f",
 		)
 		self.assertFalse(benchmark["source_content_redistributed"])
 		self.assertEqual(

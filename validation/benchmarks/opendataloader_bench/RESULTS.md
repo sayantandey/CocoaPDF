@@ -1,83 +1,72 @@
-# Measured OpenDataLoader / DP-Bench results
+# Pinned OpenDataLoader / DP-Bench results
 
-All numbers below were produced by the **unmodified official evaluator** over the
-complete 200-document corpus. Ground truth, evaluator formulas, eligibility
-rules, and document lists were not touched.
+These numbers come from the unmodified official evaluator over all 200
+documents. The benchmark checkout was clean at
+`7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109`; the only integration changes are
+the archived CocoaPDF registry entry, direct dependency pin, license notice,
+and byte-identical canonical adapter.
 
-- Benchmark commit: `7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109`
-- CocoaPDF base commit: `7f0288807620131634eabed49bc78dc1adc37383` (working tree
-  dirty; the measured build is the uncommitted tree)
-- Corpus: 200 PDFs, real Git LFS payloads (~36 MB), verified `%PDF` headers
-- Conversion failures: **0**; missing predictions: **0**
+- CocoaPDF commit: `937c403ed3b265a14db802b2ced36b3819d20b0f`
+- CocoaPDF tree: `f01a809b4e4c48d17716be2ac510e67b66b6ff28`
+- Corpus: 200 PDFs stored as ordinary Git blobs (~36 MB), all with valid
+  `%PDF-` headers
+- Eligibility: NID 200, TEDS 42, MHS 107
+- Completeness: 200 predictions, 0 missing, 0 empty, 0 conversion failures
+- Evaluator tests: 31 passed in the locked Python 3.13 environment
 
-## Before and after
+## Final scores
 
-"Before" is the working tree as inherited (the half-complete predecessor work),
-converted with stock `ConvertOptions()`. "After" is the same corpus through the
-canonical adapter with the changes in this branch.
-
-| Metric | Archived provenance | Before (measured) | After (measured) | Floor |
+| Metric | Previous published result | Final | Change | Enforced floor |
 | --- | ---: | ---: | ---: | ---: |
-| overall | 0.6621 | 0.8098 | **0.8436** | 0.80 ✅ |
-| nid | 0.7753 | 0.8566 | **0.8909** | 0.80 ✅ |
-| nid_s | 0.7514 | 0.8330 | **0.8704** | 0.80 ✅ |
-| teds | 0.2135 | 0.5381 | **0.5637** | 0.80 ❌ |
-| teds_s | 0.2199 | 0.5529 | **0.5760** | 0.80 ❌ |
-| mhs | 0.4867 | 0.7513 | **0.7912** | 0.80 ❌ |
-| mhs_s | 0.5936 | 0.8630 | **0.8810** | 0.80 ✅ |
+| Overall document-macro | `0.8435980876` | **`0.8696657214`** | `+0.0260676337` | `0.80` |
+| NID | `0.8908832818` | **`0.8993297820`** | `+0.0084465002` | `0.80` |
+| NID-S | `0.8704161815` | **`0.8822899268`** | `+0.0118737453` | — |
+| TEDS | `0.5636823455` | **`0.8061841234`** | `+0.2425017778` | `0.80` |
+| TEDS-S | `0.5759866978` | **`0.8110160459`** | `+0.2350293481` | — |
+| MHS | `0.7912284341` | **`0.8062168834`** | `+0.0149884493` | `0.80` |
+| MHS-S | `0.8810292786` | **`0.8889792725`** | `+0.0079499939` | — |
 
-Eligible-document counts (unchanged, they are a property of the ground truth):
-`nid_count=200`, `teds_count=42`, `mhs_count=107`.
+`overall_mean` is the mean of each document's available metrics, not the mean
+of the three aggregate metric means. TEDS concatenates every extracted table
+into one synthetic comparison for an eligible document. MHS flattens heading
+levels, so it measures heading boundaries and text rather than true hierarchy
+depth. These metrics evaluate Markdown, not CocoaPDF's independent HTML output.
 
-The archived 0.6621 result predates the inherited work; it is provenance only.
-The honest baseline for judging this branch is the "Before" column.
+## Determinism and timing
 
-## Corrections to `cocoapdf_odl_accuracy_analysis.md`
+The complete conversion/evaluation command ran twice against the same locked
+git installation. All 200 Markdown files matched by name, size, and SHA-256;
+all aggregate and per-document scores also matched.
 
-The supplied analysis was written against a flattened snapshot and contains
-claims that measurement disproves:
+| Run | Total conversion time | Per document | Prediction digest |
+| --- | ---: | ---: | --- |
+| 1 | `175.0555016994 s` | `0.8752775085 s` | `f391c951c935cefac6ffc64dd15a267a9de8292e9c35a36c094732588774730a` |
+| 2 | `159.0534393787 s` | `0.7952671969 s` | `f391c951c935cefac6ffc64dd15a267a9de8292e9c35a36c094732588774730a` |
 
-1. **"Flat heading projection improves the heading metric."** It cannot.
-   `evaluator_heading_level._parse_markdown_structure` appends every heading to
-   the tree root and never reads the `#{1,6}` capture group, so MHS is
-   level-blind by construction. Flat projection is still worth applying, but
-   because `#` characters are part of the NID string, not because of MHS.
-2. **"18 failures, 5 errors, 304 tests."** That was an artifact of the flattened
-   upload. The complete checkout ran 317 tests with a single pre-existing
-   failure before any change here, and 325 tests green after.
-3. **"A full-corpus rerun is not possible in this environment."** It is. The
-   corpus, LFS payloads, `uv`, and the evaluator all work locally; the only
-   obstacle was a TLS trust issue, resolved with `--system-certs`.
+Host: Intel Core i5-10300H, 25,592,647,680 physical bytes. Timing is
+hardware-bound and includes CocoaPDF's semantic HTML generation even though the
+accuracy evaluator scores Markdown only.
 
-## Harness verification
+## Why the score is not yet 0.90
 
-Commit `7f028880` was re-run from a clean `git worktree` and reproduced the
-archived numbers to every decimal place (`overall 0.6621265231177883`,
-`teds 0.21354055439317537`, `mhs 0.48667938505567837`). The harness is therefore
-deterministic, and `examples/README.md` is correct provenance for that commit
-rather than stale data. Every improvement recorded here is uncommitted, which is
-why it must not be published under that commit's identifier.
+The remaining gap is concentrated rather than broad:
 
-Per-document deltas, baseline to final: NID improved on 167 documents and
-regressed on 10 (all small, none caused by a spurious table); TEDS improved on
-12 and regressed on **0**; MHS improved on 77 and regressed on 11. Table counts
-are unchanged in every regressed document, so the new detector introduced no
-false-positive tables anywhere in the corpus.
+1. NID is only `0.0006702180` below `0.90`, but a few severe reading-order
+   outliers dominate; document 141 has NID `0.0059447983`.
+2. Seven of 42 TEDS-eligible documents still score exactly zero: 110, 119, 122,
+   146, 150, 165, and 166. Recovering their producer-specific fill/booktabs
+   structures is the largest remaining table opportunity.
+3. Three of 107 MHS-eligible documents score exactly zero: 036, 141, and 148;
+   these need reading-order repair before broader heading admission.
+4. TEDS and MHS now clear `0.80` but only narrowly, so held-out adversarial
+   fixtures must accompany every new detector to prevent false-positive gains.
+5. The document-macro overall score gives low multi-metric outliers extra
+   leverage; improving the shared reading-order failures helps NID, MHS, and
+   table recovery together more than output-only normalization would.
 
-## Remaining gap
+## Evidence
 
-TEDS and MHS are below the acceptance floor. The dominant cause is precise and
-measurable: **14 of the 42 TEDS-eligible documents still score exactly 0.0**
-because CocoaPDF emits no table at all for them, while the ground truth has one.
-Their geometry splits into three families:
-
-| Family | Documents | Evidence available |
-| --- | --- | --- |
-| No rules, no fills (borderless) | 121, 122, 132, 178, 180 | text alignment only |
-| Fill-derived cell rectangles | 110, 119, 146, 150, 165, 166 | fill bands, no rules |
-| Rules present but unused | 187, 197, 200 | booktabs rules; 187 additionally collapses its rows into one line before table detection can run |
-
-Because TEDS is averaged over only 42 documents, each of those 14 is worth
-0.0238 of the metric. Recovering them at even 0.75 average quality would move
-TEDS to roughly 0.82; that is the concrete path to the floor, and it is the work
-that remains.
+The immutable snapshot under `results/7af1d8f4…/` contains exact evaluation
+JSON/CSV, completeness, both timing/hash records, the per-document prediction
+hash inventory, adapter, minimal integration patch, and full provenance. It
+does not redistribute source PDFs, ground truth, or predicted Markdown.

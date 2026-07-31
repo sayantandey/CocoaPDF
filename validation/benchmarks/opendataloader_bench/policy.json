@@ -3,13 +3,13 @@
     "sha256": "5e8494171afa13b1341c816fe7726a6f5a75d686783ac5eca63046d3de5d4c91"
   },
   "baseline": {
-    "engine_commit": "97527da3bdf8bd247cf19781a0599c9176e54a33",
-    "engine_tree": "4580740ee72300dd27f40aae8a25d3c872c60d0d",
+    "engine_commit": "937c403ed3b265a14db802b2ced36b3819d20b0f",
+    "engine_tree": "f01a809b4e4c48d17716be2ac510e67b66b6ff28",
     "scores": {
-      "mhs_mean": 0.7912284341287635,
-      "nid_mean": 0.8908832817585036,
-      "overall_mean": 0.8435980876181824,
-      "teds_mean": 0.5636823455148973
+      "mhs_mean": 0.8062168834231966,
+      "nid_mean": 0.8993297819973527,
+      "overall_mean": 0.869665721357887,
+      "teds_mean": 0.806184123363159
     }
   },
   "benchmark": {
@@ -33,7 +33,11 @@
     "tree": "749ede775f169461fb678754505274b6ad85134a"
   },
   "gates": {
-    "component_floors": {},
+    "component_floors": {
+      "mhs_mean": 0.8,
+      "nid_mean": 0.8,
+      "teds_mean": 0.8
+    },
     "material_regression": 0.001,
     "overall_floor": 0.8,
     "primary_scores": [

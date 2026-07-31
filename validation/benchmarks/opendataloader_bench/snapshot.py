@@ -11,16 +11,16 @@ from typing import Any, Dict, List, Optional
 
 
 BENCHMARK_COMMIT = "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109"
-ENGINE_COMMIT = "97527da3bdf8bd247cf19781a0599c9176e54a33"
+ENGINE_COMMIT = "937c403ed3b265a14db802b2ced36b3819d20b0f"
 SNAPSHOT_ROOT = Path(__file__).resolve().parent / "results" / BENCHMARK_COMMIT
 EXPECTED_SCORES = {
-	"overall_mean": 0.8435980876181824,
-	"nid_mean": 0.8908832817585036,
-	"nid_s_mean": 0.8704161814503709,
-	"teds_mean": 0.5636823455148973,
-	"teds_s_mean": 0.5759866978044572,
-	"mhs_mean": 0.7912284341287635,
-	"mhs_s_mean": 0.8810292785828795,
+	"overall_mean": 0.869665721357887,
+	"nid_mean": 0.8993297819973527,
+	"nid_s_mean": 0.8822899267742511,
+	"teds_mean": 0.806184123363159,
+	"teds_s_mean": 0.8110160459149278,
+	"mhs_mean": 0.8062168834231966,
+	"mhs_s_mean": 0.8889792725141817,
 }
 EXPECTED_COUNTS = {
 	"nid_count": 200,
@@ -88,6 +88,7 @@ def validate_snapshot(root: Optional[Path] = None) -> Dict[str, Any]:
 	summary = _read_json(snapshot / "summary.json")
 	failures = _read_json(snapshot / "failures.json")
 	predictions = _read_json(snapshot / "prediction-hashes.json")
+	determinism = _read_json(snapshot / "determinism.json")
 
 	if provenance["benchmark"]["commit"] != BENCHMARK_COMMIT:
 		raise ValueError("unexpected benchmark commit")
@@ -201,6 +202,35 @@ def validate_snapshot(root: Optional[Path] = None) -> Dict[str, Any]:
 		raise ValueError("prediction byte total mismatch")
 	if prediction_aggregate.hexdigest() != predictions["aggregate_sha256"]:
 		raise ValueError("prediction inventory digest mismatch")
+	if determinism.get("schema") != "cocoapdf.opendataloader-determinism/v1":
+		raise ValueError("unexpected determinism schema")
+	if determinism.get("document_count") != 200:
+		raise ValueError("determinism document count mismatch")
+	if determinism.get("prediction_mismatches") != 0 or determinism.get("score_mismatches") != 0:
+		raise ValueError("benchmark runs were not deterministic")
+	runs = determinism.get("runs")
+	if not isinstance(runs, list) or [run.get("label") for run in runs] != ["run-1", "run-2"]:
+		raise ValueError("expected two labelled benchmark runs")
+	for run in runs:
+		if run.get("prediction_bytes") != predictions["total_bytes"]:
+			raise ValueError("determinism prediction byte total mismatch")
+		if run.get("prediction_sha256") != predictions["aggregate_sha256"]:
+			raise ValueError("determinism prediction digest mismatch")
+		run_speed = run.get("speed")
+		if not isinstance(run_speed, dict) or run_speed.get("document_count") != 200:
+			raise ValueError("invalid determinism timing record")
+		for name in ("total_elapsed", "elapsed_per_doc"):
+			if not isinstance(run_speed.get(name), (int, float)) or float(run_speed[name]) <= 0.0:
+				raise ValueError("invalid determinism timing value")
+		_require_close(
+			float(run_speed["elapsed_per_doc"]),
+			float(run_speed["total_elapsed"]) / 200.0,
+			"determinism elapsed_per_doc",
+		)
+	if runs[1]["speed"] != evaluation["speed"]:
+		raise ValueError("run-2 timing does not match published evaluation")
+	if provenance["run"].get("full_run_count") != 2:
+		raise ValueError("provenance must record two full runs")
 	if result["completeness"] != {
 		"conversion_failures": 0,
 		"empty_predictions": 0,
@@ -223,4 +253,5 @@ def validate_snapshot(root: Optional[Path] = None) -> Dict[str, Any]:
 		"evaluation": evaluation,
 		"summary": summary,
 		"prediction_hashes": predictions,
+		"determinism": determinism,
 	}

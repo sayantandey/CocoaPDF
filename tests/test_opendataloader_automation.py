@@ -98,9 +98,12 @@ class FakeApi:
 class BenchmarkPolicyTests(unittest.TestCase):
 	def test_exact_published_baseline_and_regression_gates(self):
 		policy = load_policy()
-		self.assertEqual(policy["baseline"]["scores"]["overall_mean"], 0.8435980876181824)
+		self.assertEqual(policy["baseline"]["scores"]["overall_mean"], 0.869665721357887)
 		self.assertEqual(policy["gates"]["overall_floor"], 0.8)
-		self.assertEqual(policy["gates"]["component_floors"], {})
+		self.assertEqual(
+			policy["gates"]["component_floors"],
+			{"nid_mean": 0.8, "teds_mean": 0.8, "mhs_mean": 0.8},
+		)
 		self.assertEqual(policy["gates"]["material_regression"], 0.001)
 		scores = dict(policy["baseline"]["scores"])
 		scores.update({"nid_s_mean": 0.0, "teds_s_mean": 0.0, "mhs_s_mean": 0.0})

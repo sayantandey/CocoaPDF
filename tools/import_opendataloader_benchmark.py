@@ -22,8 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK_REPOSITORY = "https://github.com/opendataloader-project/opendataloader-bench"
 ENGINE_REPOSITORY = "https://github.com/sayantandey/CocoaPDF"
 EXPECTED_BENCHMARK_COMMIT = "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109"
-EXPECTED_ENGINE_COMMIT = "97527da3bdf8bd247cf19781a0599c9176e54a33"
-EXPECTED_ENGINE_TREE = "4580740ee72300dd27f40aae8a25d3c872c60d0d"
+EXPECTED_ENGINE_COMMIT = "937c403ed3b265a14db802b2ced36b3819d20b0f"
+EXPECTED_ENGINE_TREE = "f01a809b4e4c48d17716be2ac510e67b66b6ff28"
 EXPECTED_COUNTS = {
 	"document_count": 200,
 	"nid_count": 200,
@@ -339,12 +339,23 @@ def import_result(
 	lock_path = benchmark_dir / "uv.lock"
 	lock_text = lock_path.read_text(encoding="utf-8")
 	_require(EXPECTED_ENGINE_COMMIT in lock_text, "uv.lock does not pin the benchmarked engine commit")
+	runtime_python = benchmark_dir / ".venv" / (
+		Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
+	)
+	_require(runtime_python.is_file(), "missing locked benchmark Python runtime")
+	runtime_identity = _command_version(
+		str(runtime_python),
+		"-c",
+		"import platform; print(platform.python_version()); print(platform.python_implementation())",
+	).splitlines()
+	_require(len(runtime_identity) == 2, "unexpected benchmark Python identity")
 
 	completed_at = datetime.fromtimestamp(evaluation_path.stat().st_mtime).astimezone().isoformat()
 	patch = _git(
 		benchmark_dir,
 		"diff",
 		"--no-ext-diff",
+		"--unified=0",
 		"--",
 		"THIRD_PARTY_NOTICES.md",
 		"pyproject.toml",
@@ -472,8 +483,9 @@ def import_result(
 				"empty_prediction_ids": empty_predictions,
 			},
 			"environment": {
-				"python": platform.python_version(),
-				"python_implementation": platform.python_implementation(),
+				"python": runtime_identity[0],
+				"python_implementation": runtime_identity[1],
+				"provenance_importer_python": platform.python_version(),
 				"uv": _command_version("uv", "--version"),
 				"os": platform.system(),
 				"os_release": platform.release(),
