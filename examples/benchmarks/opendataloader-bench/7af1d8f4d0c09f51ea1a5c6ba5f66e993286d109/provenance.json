@@ -1,0 +1,119 @@
+{
+  "adapter": {
+    "failure_policy": "write an empty Markdown prediction and record the exception",
+    "interface": "to_markdown(doc_paths, input_path, output_dir)",
+    "options": "ConvertOptions()",
+    "sha256": "5e8494171afa13b1341c816fe7726a6f5a75d686783ac5eca63046d3de5d4c91"
+  },
+  "artifacts": {
+    "adapter.py": {
+      "bytes": 8286,
+      "sha256": "5e8494171afa13b1341c816fe7726a6f5a75d686783ac5eca63046d3de5d4c91"
+    },
+    "evaluation.csv": {
+      "bytes": 19054,
+      "sha256": "1979844c3b233c4774820420db25b7df4a4838fc80a81998b4db8844baf6776d"
+    },
+    "evaluation.json": {
+      "bytes": 65419,
+      "sha256": "5a187397419ac12fbd07bc0eaa414c63fe3802082c99b514d2c68a5cfc03c5b0"
+    },
+    "failures.json": {
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    "integration.patch": {
+      "bytes": 12272,
+      "sha256": "36cbc2be308c63eb991ff0ea5aa4f33da0dc028ea8c7d2c98a36cdd8cf97f193"
+    },
+    "prediction-hashes.json": {
+      "bytes": 27184,
+      "sha256": "17dc454fd21e0c8b7951598e3b05c39661e0c560f793811bde276a97fd2e242f"
+    },
+    "result.json": {
+      "bytes": 964,
+      "sha256": "049f91edf55df1bf02f88e661700af2345d6c1d260aea65d6c44c0c41c4a270f"
+    },
+    "summary.json": {
+      "bytes": 263,
+      "sha256": "302b42b7ece08c08ee69b357aa6ff0ec5918bc62fa592f5ac8763a80eab307a6"
+    }
+  },
+  "benchmark": {
+    "commit": "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109",
+    "corpus": {
+      "ground_truth_bytes": 443582,
+      "ground_truth_count": 200,
+      "ground_truth_inventory_sha256": "35e88bc2e3a5954de7f8844cb929f606eab75888a951e00aeb2e7b7126b8030d",
+      "license": "MIT",
+      "name": "DP-Bench",
+      "pdf_bytes": 36873075,
+      "pdf_count": 200,
+      "pdf_inventory_sha256": "23db64a86a6d103797d10e74c48d79a3c49fc42b7c44f5e1b07076eae0eec0b4",
+      "redistributed": false
+    },
+    "license": "Apache-2.0",
+    "name": "OpenDataLoader-Bench",
+    "repository": "https://github.com/opendataloader-project/opendataloader-bench",
+    "tree": "749ede775f169461fb678754505274b6ad85134a"
+  },
+  "dependency_lock": {
+    "path": "uv.lock",
+    "pinned_engine_commit": "97527da3bdf8bd247cf19781a0599c9176e54a33",
+    "sha256": "68ae88815c0a62399bd3f0818db81bc070fc7d16bf7989b10ff457001253d25b"
+  },
+  "engine": {
+    "commit": "97527da3bdf8bd247cf19781a0599c9176e54a33",
+    "license": "MIT",
+    "name": "CocoaPDF",
+    "repository": "https://github.com/sayantandey/CocoaPDF",
+    "tree": "4580740ee72300dd27f40aae8a25d3c872c60d0d",
+    "version": "0.1.0"
+  },
+  "environment": {
+    "logical_cpu_count": 8,
+    "machine": "AMD64",
+    "os": "Windows",
+    "os_release": "10",
+    "os_version": "10.0.19045",
+    "physical_memory_bytes": 25592647680,
+    "platform": "Windows-10-10.0.19045-SP0",
+    "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
+    "python": "3.11.0",
+    "python_implementation": "CPython",
+    "uv": "uv 0.12.0 (b88d7c5c4 2026-07-28 x86_64-pc-windows-msvc)"
+  },
+  "limitations": [
+    "Accuracy metrics evaluate Markdown only and do not measure HTML fidelity.",
+    "NID is a whitespace-normalized Markdown text/order proxy.",
+    "TEDS evaluates only the first table in each eligible document.",
+    "MHS flattens heading levels and measures heading boundaries/text rather than true depth.",
+    "Timing is one hardware-bound wall-clock run and includes CocoaPDF semantic HTML generation.",
+    "The upstream chart relabels seconds/document as seconds/page and hardcodes Apple M4 hardware; it is not redistributed."
+  ],
+  "run": {
+    "completed_at": "2026-07-31T23:22:26.794136+05:30",
+    "date": "2026-07-31",
+    "empty_prediction_ids": [],
+    "failures_source_file_present": true,
+    "full_command": "uv run --locked --offline --extra cocoapdf python src/run.py --engine cocoapdf --force",
+    "full_run_count": 1,
+    "prediction_directory_cleaned_after_smoke": true,
+    "smoke_document": "01030000000001"
+  },
+  "schema": "cocoapdf.opendataloader-bench-provenance/v1",
+  "verification": {
+    "aggregate_scores_recomputed": true,
+    "archive_checked": true,
+    "expected_counts": {
+      "document_count": 200,
+      "mhs_count": 107,
+      "nid_count": 200,
+      "teds_count": 42
+    },
+    "pdf_headers_valid": true,
+    "prediction_ids_match_corpus": true,
+    "score_ranges_valid": true,
+    "upstream_tests": "31 passed"
+  }
+}

@@ -1,0 +1,33 @@
+name: OpenDataLoader benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+# This candidate-controlled workflow is intentionally only a read-only trigger.
+# The completed workflow_run starts the default-branch trusted harness in
+# opendataloader-report.yml. If a pull request removes or renames this trigger,
+# the required trusted check is absent rather than forged.
+permissions:
+  contents: read
+
+concurrency:
+  group: opendataloader-trigger-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  request:
+    name: Request trusted ODL evaluation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - name: Hand off to the default-branch workflow_run harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Trusted evaluation starts after this read-only trigger completes."

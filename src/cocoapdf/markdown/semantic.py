@@ -2,17 +2,30 @@ from __future__ import annotations
 
 import html
 import re
+from contextvars import ContextVar
 from typing import List
 
 from ..html.sanitize import safe_asset_href, safe_href
 from ..ir.semantic import SemanticDocument, SemanticNode
 
+# The image markup policy belongs to the conversion request, not to a node, and
+# every block/inline renderer below would otherwise have to forward it. Hold it
+# for the duration of one render instead of widening each signature.
+_IMAGE_MARKUP: ContextVar[str] = ContextVar("cocoapdf_markdown_image_markup", default="markdown")
 
-def render_semantic_markdown(document: SemanticDocument) -> str:
+
+def render_semantic_markdown(
+    document: SemanticDocument,
+    image_markup: str = "markdown",
+) -> str:
     errors = document.validate(require_provenance=False)
     if errors:
         raise ValueError("invalid semantic document: %s" % "; ".join(errors[:8]))
-    blocks = [_render_block(node) for node in document.children if node.kind not in {"artifact", "outline"}]
+    token = _IMAGE_MARKUP.set(image_markup or "markdown")
+    try:
+        blocks = [_render_block(node) for node in document.children if node.kind not in {"artifact", "outline"}]
+    finally:
+        _IMAGE_MARKUP.reset(token)
     rendered = "\n\n".join(block for block in blocks if block.strip()).strip()
     return rendered + ("\n" if rendered else "")
 
@@ -155,6 +168,10 @@ def _render_image(node: SemanticNode) -> str:
     source = safe_asset_href(str(node.attrs.get("src", "")))
     if not source:
         return ""
+    if _IMAGE_MARKUP.get() != "markdown":
+        fragment = _html_image_fragment(node, "")
+        if fragment:
+            return fragment
     alt = _escape(str(node.attrs.get("alt", node.text)))
     width = float(node.attrs.get("display_width_pt", 0.0) or 0.0)
     height = float(node.attrs.get("display_height_pt", 0.0) or 0.0)
@@ -314,8 +331,63 @@ def _semantic_table_rows(
 
 
 def _render_figure(node: SemanticNode) -> str:
+    if _IMAGE_MARKUP.get() != "markdown":
+        figure = _render_html_figure(node)
+        if figure:
+            return figure
     parts = [_render_inline(child) if child.kind == "image" else "*%s*" % _render_inlines(child) if child.kind == "caption" else _render_block(child) for child in node.children]
     return "\n\n".join(filter(None, parts))
+
+
+def _render_html_figure(node: SemanticNode) -> str:
+    """Project one image figure as the generated <figure> fragment.
+
+    Markdown cannot carry an image's intrinsic dimensions, alignment, or a
+    caption bound to the image, so an explicit HTML request renders the same
+    closed fragment the layout projection emits and the sanitizer admits.
+    """
+    image = next((child for child in node.children if child.kind == "image"), None)
+    if image is None:
+        return ""
+    if any(child.kind not in {"image", "caption"} for child in node.children):
+        return ""
+    caption = next((child for child in node.children if child.kind == "caption"), None)
+    caption_text = _render_inlines(caption).strip() if caption is not None else ""
+    return _html_image_fragment(image, caption_text)
+
+
+def _html_image_fragment(image: SemanticNode, caption_text: str) -> str:
+    source = safe_asset_href(str(image.attrs.get("src", "")))
+    if not source:
+        return ""
+    alignment = str(image.attrs.get("alignment", "left"))
+    if alignment not in {"left", "center", "right"}:
+        alignment = "left"
+    alt = str(image.attrs.get("alt", image.text) or "")
+    width = float(image.attrs.get("display_width_pt", 0.0) or 0.0)
+    height = float(image.attrs.get("display_height_pt", 0.0) or 0.0)
+    style = "max-width: 100%; object-fit: contain;"
+    if width > 0 and height > 0:
+        style = "width: %.3fpt; height: %.3fpt; max-width: 100%%; object-fit: contain;" % (width, height)
+    image_html = '<img src="%s" alt="%s" style="%s" />' % (
+        html.escape(source, quote=True),
+        html.escape(alt, quote=True),
+        style,
+    )
+    link = safe_href(str(image.attrs.get("link", ""))) if image.attrs.get("link") else None
+    if link:
+        image_html = '<a href="%s" rel="noopener noreferrer">%s</a>' % (
+            html.escape(link, quote=True),
+            image_html,
+        )
+    parts = [
+        '<figure class="cocoapdf-figure cocoapdf-align-%s">' % alignment,
+        image_html,
+    ]
+    if caption_text:
+        parts.append("<figcaption>%s</figcaption>" % html.escape(caption_text))
+    parts.append("</figure>")
+    return "\n".join(parts)
 
 
 def _render_toc(node: SemanticNode) -> str:

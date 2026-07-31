@@ -44,6 +44,7 @@
       "kind": "heading",
       "text": "",
       "attrs": {
+        "level": 2,
         "page": 1,
         "bbox": [
           72.0,
@@ -59,10 +60,10 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "anchor": "tagged-semantics-review",
         "tag_role": "H2",
         "raw_tag_role": "H2",
         "tagged_node_id": "tag-1",
-        "level": 2,
         "lang": "en-US"
       },
       "children": [
@@ -134,12 +135,12 @@
           "warnings": []
         }
       ],
-      "confidence": 0.96,
+      "confidence": 1.0,
       "evidence": [
         {
           "kind": "geometric_semantic_detector",
-          "confidence": 0.96,
-          "detail": "paragraph",
+          "confidence": 0.92,
+          "detail": "heading",
           "page": 1,
           "data": {
             "region_ids": [
@@ -149,8 +150,8 @@
         },
         {
           "kind": "tag_geometry_reconciled",
-          "confidence": 0.94,
-          "detail": "paragraph->heading",
+          "confidence": 1.0,
+          "detail": "heading->heading",
           "page": null,
           "data": {
             "tagged_node": "tag-1"

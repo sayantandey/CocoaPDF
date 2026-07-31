@@ -34,8 +34,10 @@ also contains `review.html` for side-by-side input/output inspection and
 - No third-party prose, images, PDFs, or embedded font programs are added.
 - Newly generated PDFs use only first-party fixture text, elementary drawing
   operators, and references to PDF standard fonts.
-- The existing strategic fixture is already project material and is copied
-  without modification.
+- The strategic fixture is project material. Its original producer PDF remains
+  an immutable, hash-verified prefix; `tools/update_strategic_raster_fixture.py`
+  appends only a deterministic raster/text incremental update and rebuilds the
+  matching source PNG.
 - The corpus and generated artifacts are covered by the repository's MIT
   license; `LICENSE.txt` and a machine-readable manifest accompany every run.
 - A future external fixture may be admitted only with an explicit,
@@ -43,21 +45,20 @@ also contains `review.html` for side-by-side input/output inspection and
 
 ## Artifact lifecycle
 
-The workflow writes only beneath the runner's temporary directory. It never
-writes generated inputs or outputs into the checkout, so it cannot alter the
-permanent `examples/` demo. Artifacts are retained for at most seven days and
-are deleted when the pull request closes or merges.
+The generation workflow writes only beneath the runner's temporary directory.
+It never writes generated inputs or outputs into the checkout, so it cannot
+alter the permanent `examples/` demo. Artifacts expire automatically after at
+most seven days; no candidate-controlled job has artifact-delete or PR-write
+authority.
 
-For same-repository pull requests, the workflow maintains one delimited block
-in the PR description containing the current artifact link and digest. While
-the PR is open, the same block includes an immutable rendered-demo URL pinned
-to the exact head commit; the stable public demo remains explicitly on `main`.
-When the PR closes, the workflow replaces that block with an explicit deletion
-notice, the reviewed head SHA, the cleanup run, and a link to the permanent
-demo. A merged PR therefore never retains a live-looking link to a deleted
-artifact. Fork and automation-token restrictions may prevent description
-writes; the artifact link is always available from the workflow summary while
-the PR is open.
+After generation completes, a separate `workflow_run` reporter loaded from the
+default branch validates the repository, workflow path, exact current head,
+run attempt, artifact name, size, ID, and digest. It publishes only that
+metadata in one delimited PR-description block and never downloads or executes
+the candidate-produced artifact. Same-repository pull requests also receive an
+immutable rendered-demo URL pinned to the exact head commit; fork previews are
+intentionally omitted. The artifact link remains available in the unprivileged
+workflow summary even if repository policy prevents a description update.
 
 ## Local run
 
@@ -73,6 +74,14 @@ completes.
 The permanent demo is refreshed and verified separately:
 
 ```text
+python tools/update_strategic_raster_fixture.py --check
 python scripts/refresh_examples.py --write
 python scripts/refresh_examples.py --check
 ```
+
+The permanent profile also validates and copies the pinned OpenDataLoader-Bench
+result snapshot from `validation/benchmarks/opendataloader_bench/results/`.
+Benchmark PDFs, ground truth, generated predictions, and hardware-mislabelled
+upstream charts are not copied into `examples/`; only scores, timing,
+prediction hashes, adapter/integration evidence, and explicit provenance are
+published.

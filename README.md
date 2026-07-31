@@ -13,6 +13,10 @@ CocoaPDF recovers the text, layout, tables, links, notes, forms, and images alre
 [![Download for macOS](https://img.shields.io/badge/macOS-Download-8A4F32?style=for-the-badge\&logo=apple\&logoColor=white\&labelColor=111111)][download-macos]
 <br>
 
+[![Verified OpenDataLoader score](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fsayantandey%2FCocoaPDF%2Fodl-badge%2Fbadges%2Fopendataloader.json&style=for-the-badge)](examples/README.md#opendataloader-bench-results)
+[![ODL verification workflow](https://img.shields.io/github/actions/workflow/status/sayantandey/CocoaPDF/opendataloader-report.yml?branch=main&event=workflow_run&style=for-the-badge&label=ODL%20verification)](https://github.com/sayantandey/CocoaPDF/actions/workflows/opendataloader-report.yml)
+<br>
+
 <img src="https://img.shields.io/badge/Python-3.9%2B-B5654A?style=for-the-badge&amp;logo=python&amp;logoColor=white&amp;labelColor=2A1A15" alt="Python 3.9 or later">
 <img src="https://img.shields.io/badge/OCR-none-E27E84?style=for-the-badge&amp;labelColor=2A1A15" alt="OCR None">
 <img src="https://img.shields.io/badge/License-MIT-45B97C?style=for-the-badge&amp;labelColor=2A1A15" alt="MIT License">
@@ -169,6 +173,45 @@ would change the evidence being tested rather than merely combine examples.
 The committed `examples/` tree is distinct from temporary pull-request review
 artifacts. CI regenerates it from the same case definitions and fails if any
 checked-in source or output becomes stale.
+
+---
+
+## Benchmark results
+
+CocoaPDF `0.1.0` at commit [`97527da3`](https://github.com/sayantandey/CocoaPDF/commit/97527da3bdf8bd247cf19781a0599c9176e54a33)
+measured on **all 200 documents** of the DP-Bench corpus using the unmodified
+[OpenDataLoader-Bench evaluator at `7af1d8f4`](https://github.com/opendataloader-project/opendataloader-bench/tree/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109),
+run on 2026-07-31.
+
+| Metric | Mean | Eligible documents |
+| --- | ---: | ---: |
+| Overall document-macro score | `0.8435980876` | 200 |
+| NID (reading order) | `0.8908832818` | 200 |
+| NID-S (tables removed) | `0.8704161815` | 200 |
+| TEDS (table structure) | `0.5636823455` | 42 |
+| TEDS-S (structure only) | `0.5759866978` | 42 |
+| MHS (heading structure) | `0.7912284341` | 107 |
+| MHS-S (structure only) | `0.8810292786` | 107 |
+
+200 evaluated, 200 prediction files, **0 missing predictions, 0 conversion
+failures**. TEDS is scored only on the 42 documents whose ground truth contains
+a table, and MHS only on the 107 that contain a heading; `overall_mean` is the
+mean of each document's available metrics, not the mean of the three aggregates.
+
+TEDS and MHS remain below `0.80` and are the active work: 14 of the 42
+TEDS-eligible documents still emit no table, in three geometry families
+(borderless, fill-derived, and rules-present-but-unused). See
+[`validation/benchmarks/opendataloader_bench/RESULTS.md`](validation/benchmarks/opendataloader_bench/RESULTS.md)
+for the per-document breakdown.
+
+Evaluation artifacts — `result.json`, `evaluation.json`, `evaluation.csv`,
+`summary.json`, `provenance.json`, `prediction-hashes.json`, the adapter, and
+the benchmark integration patch — are committed under
+[`examples/benchmarks/opendataloader-bench/7af1d8f4…`](examples/benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109).
+No source PDFs, ground truth, or predicted Markdown are redistributed. The
+benchmark-only output-schema adapter lives in
+[`validation/benchmarks/opendataloader_bench/adapter.py`](validation/benchmarks/opendataloader_bench/adapter.py)
+and never changes CocoaPDF's default conversion.
 
 ---
 
@@ -652,11 +695,11 @@ cocoapdf input.pdf \
 cocoapdf input.pdf \
   --image-mode embed
 
-# Preserve dimensions and alignment when Markdown is insufficient
+# Preserve dimensions and alignment inside the Markdown file when needed
 cocoapdf input.pdf \
   --image-markup auto
 
-# Force dimensionless Markdown image syntax
+# Native Markdown image syntax (default)
 cocoapdf input.pdf \
   --image-markup markdown
 
@@ -665,7 +708,10 @@ cocoapdf input.pdf \
   --image-markup html
 ```
 
-`--image-markup auto` is the default. It emits controlled HTML when dimensions, alignment, captions, placement, or links would otherwise be lost.
+`--image-markup markdown` is the default. The Markdown projection stays portable,
+while CocoaPDF's independent HTML projection still preserves figure dimensions,
+alignment, captions, placement, and links. Use `auto` or `html` only when that
+controlled HTML must also be embedded in the Markdown file itself.
 
 ---
 

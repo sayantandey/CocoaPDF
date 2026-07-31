@@ -113,7 +113,13 @@ class V14FixtureTests(unittest.TestCase):
 			raise unittest.SkipTest("V1_4 strategic fixture files are missing")
 		cls.source = cls.source_path.read_text(encoding="utf-8")
 		cls.asset_tmp = tempfile.TemporaryDirectory()
-		cls.result = convert_file(cls.pdf_path, ConvertOptions(assets_dir=cls.asset_tmp.name))
+		cls.result = convert_file(
+			cls.pdf_path,
+			ConvertOptions(
+				assets_dir=cls.asset_tmp.name,
+				image_markup="auto",
+			),
+		)
 		cls.markdown = cls.result.markdown
 		cls.html = cls.result.html
 
@@ -324,13 +330,30 @@ class V14FixtureTests(unittest.TestCase):
 		self.assertIn("margin-left: auto; margin-right: auto;", self.markdown)
 		self.assertNotIn("data:image/svg+xml", self.markdown)
 
-	def test_raster_ocr_fixture_is_preserved_as_image_by_default(self):
+	def test_raster_only_fixture_is_preserved_as_an_opaque_image(self):
 		images = self.result.report["images_detail"]
 		rasters = [image for image in images if image["kind"] == "raster"]
 		vectors = [image for image in images if image["kind"] == "vector"]
 		self.assertEqual(len(rasters), 1)
 		self.assertGreaterEqual(len(vectors), 1)
 		self.assertRegex(self.markdown, r'<img src=".+/img-[0-9a-f]+\.png"')
+		self.assertIn("14. Raster Image Preservation Fixture", self.markdown)
+		self.assertIn("SENTINEL-RASTER-001", self.markdown)
+		self.assertIn("Raster SENTINEL: Raster text = 12345", self.source)
+		self.assertIn("Raster SENTINEL: Raster text = 12345", self.markdown)
+		for obsolete in ("OCR-ONLY", "SENTINEL-OCR", "Raster Hybrid Future"):
+			self.assertNotIn(obsolete, self.source)
+			self.assertNotIn(obsolete, self.markdown)
+			self.assertNotIn(obsolete, self.result.html)
+		self.assertFalse(self.result.report["image_text_extraction_attempted"])
+		self.assertFalse(self.result.report["ocr_used"])
+		raster_nodes = [node for node in self.result.semantic.walk() if node.kind == "image" and node.attrs.get("kind") == "raster"]
+		self.assertEqual(len(raster_nodes), 1)
+		self.assertEqual(raster_nodes[0].text, "")
+		self.assertEqual(raster_nodes[0].children, [])
+		self.assertTrue(raster_nodes[0].sources)
+		self.assertTrue(all(not source.glyph_ids for source in raster_nodes[0].sources))
+		self.assertFalse(raster_nodes[0].attrs.get("text_extraction_attempted"))
 		self.assertIn(
 			"VECTOR_FIGURE_APPROXIMATE",
 			{warning.code for warning in self.result.warnings},
@@ -514,7 +537,10 @@ class ArchitectureAndImageTests(unittest.TestCase):
 				0,
 			)
 			markdown = output_path.read_text(encoding="utf-8")
-			self.assertRegex(markdown, r'<img src="assets/img-[0-9a-f]+\.png"')
+			self.assertRegex(
+				markdown,
+				r"!\[[^\]]*\]\(assets/img-[0-9a-f]+\.png\)",
+			)
 			self.assertNotIn(str(assets_path).replace("\\", "/"), markdown)
 			self.assertTrue(any(assets_path.glob("img-*.png")))
 
@@ -905,6 +931,13 @@ class CliSurfaceContractTests(unittest.TestCase):
 		self.assertEqual(raised.exception.code, 2)
 		self.assertIn("confidence must be between 0 and 1", stderr.getvalue())
 
+		stderr = io.StringIO()
+		with redirect_stderr(stderr):
+			with self.assertRaises(SystemExit) as raised:
+				cli_main(["missing.pdf", "--ocr"])
+		self.assertEqual(raised.exception.code, 2)
+		self.assertIn("unrecognized arguments: --ocr", stderr.getvalue())
+
 	def test_output_formats_image_modes_and_markup_choices(self):
 		pdf = make_pdf(
 			[
@@ -1023,9 +1056,34 @@ class CliSurfaceContractTests(unittest.TestCase):
 			)
 			for name in ("document.md", "document.html", "document.json", "report.json"):
 				self.assertTrue((both_output / name).is_file(), name)
+			# --image-markup defaults to native Markdown images, so the Markdown
+			# projection of --format both stays plain Markdown.
+			both_markdown = (both_output / "document.md").read_text(encoding="utf-8")
+			self.assertRegex(both_markdown, r"!\[[^\]]*\]\([^)]*img-[0-9a-f]+\.png\)")
+			self.assertNotIn('class="cocoapdf-figure', both_markdown)
+
+			figure_output = root / "both-figure"
+			self.assertEqual(
+				cli_main(
+					[
+						str(pdf_path),
+						"-o",
+						str(figure_output),
+						"--assets",
+						str(root / "both-figure-assets"),
+						"--format",
+						"both",
+						"--image-markup",
+						"html",
+					]
+				),
+				0,
+			)
+			# Requesting HTML image markup preserves the image's intrinsic size
+			# and alignment, which Markdown cannot express.
 			self.assertIn(
 				'class="cocoapdf-figure',
-				(both_output / "document.md").read_text(encoding="utf-8"),
+				(figure_output / "document.md").read_text(encoding="utf-8"),
 			)
 
 			embed_output = root / "embed" / "document.md"

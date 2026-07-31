@@ -4,6 +4,9 @@ import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
+_CMAP_RANGE_EXPANSION_LIMIT = 65536
+
+
 class CMapMapping(dict):
 	def __init__(self) -> None:
 		super().__init__()
@@ -187,37 +190,117 @@ def parse_tounicode(data: bytes) -> CMapMapping:
 		):
 			out[bytes.fromhex(source)] = _utf16_hex(destination)
 	for block in re.finditer(r"beginbfrange(.*?)endbfrange", text, re.S):
-		body = block.group(1)
-		for low, high, destination in re.findall(
-			r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>",
-			body,
-		):
-			low_bytes = bytes.fromhex(low)
-			start = int.from_bytes(low_bytes, "big")
-			end = int.from_bytes(bytes.fromhex(high), "big")
-			destination_bytes = bytes.fromhex(destination)
-			destination_start = int.from_bytes(destination_bytes, "big")
-			for offset, code in enumerate(range(start, end + 1)):
-				value = destination_start + offset
+		for kind, low, high, destinations in _bfrange_entries(block.group(1)):
+			bounds = _bfrange_bounds(low, high)
+			if bounds is None:
+				continue
+			low_bytes, start, end = bounds
+			if kind == "scalar":
 				try:
-					encoded = value.to_bytes(len(destination_bytes), "big")
-				except OverflowError:
-					break
-				out[code.to_bytes(len(low_bytes), "big")] = _utf16_hex(encoded.hex())
-		for low, high, values in re.findall(
-			r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\[(.*?)\]",
-			body,
-			re.S,
-		):
-			low_bytes = bytes.fromhex(low)
-			start = int.from_bytes(low_bytes, "big")
-			end = int.from_bytes(bytes.fromhex(high), "big")
-			destinations = re.findall(r"<([0-9A-Fa-f]+)>", values)
+					destination_bytes = bytes.fromhex(destinations[0])
+				except (IndexError, ValueError):
+					continue
+				if not destination_bytes:
+					continue
+				destination_start = int.from_bytes(destination_bytes, "big")
+				for offset, code in enumerate(range(start, end + 1)):
+					value = destination_start + offset
+					try:
+						encoded = value.to_bytes(len(destination_bytes), "big")
+					except OverflowError:
+						break
+					out[code.to_bytes(len(low_bytes), "big")] = _utf16_hex(encoded.hex())
+				continue
 			for offset, destination in enumerate(destinations[: end - start + 1]):
-				out[(start + offset).to_bytes(len(low_bytes), "big")] = _utf16_hex(
-					destination
-				)
+				try:
+					decoded = _utf16_hex(destination)
+				except ValueError:
+					continue
+				out[(start + offset).to_bytes(len(low_bytes), "big")] = decoded
 	return out
+
+
+def _bfrange_entries(
+	body: str,
+) -> Iterable[Tuple[str, str, str, List[str]]]:
+	"""Parse mutually exclusive scalar/array bfrange grammar entries.
+
+	A token cursor is intentional here.  Regex searches can restart inside an
+	array (including a malformed, unterminated one) and reinterpret destination
+	hex strings as a new scalar range.  Once a valid source-pair prefix opens an
+	array, the cursor consumes the whole bracketed value or the remainder of the
+	block, so destination tokens are never promoted to source codes.
+	"""
+	clean = re.sub(r"%[^\r\n]*", " ", body)
+	tokens: List[Tuple[str, str]] = []
+	for match in re.finditer(r"<([0-9A-Fa-f]+)>|(\[)|(\])|(\S+)", clean):
+		if match.group(1) is not None:
+			tokens.append(("hex", match.group(1)))
+		elif match.group(2) is not None:
+			tokens.append(("open", "["))
+		elif match.group(3) is not None:
+			tokens.append(("close", "]"))
+		else:
+			tokens.append(("other", match.group(4)))
+
+	index = 0
+	while index < len(tokens):
+		if (
+			index + 2 >= len(tokens)
+			or tokens[index][0] != "hex"
+			or tokens[index + 1][0] != "hex"
+		):
+			index += 1
+			continue
+		low = tokens[index][1]
+		high = tokens[index + 1][1]
+		third_kind, third_value = tokens[index + 2]
+		if third_kind == "hex":
+			yield ("scalar", low, high, [third_value])
+			index += 3
+			continue
+		if third_kind != "open":
+			index += 3
+			continue
+
+		cursor = index + 3
+		values: List[str] = []
+		malformed = False
+		while cursor < len(tokens) and tokens[cursor][0] != "close":
+			kind, value = tokens[cursor]
+			if kind == "hex":
+				values.append(value)
+			else:
+				malformed = True
+			cursor += 1
+		if cursor >= len(tokens):
+			break
+		if not malformed:
+			yield ("array", low, high, values)
+		index = cursor + 1
+
+
+def _bfrange_bounds(
+	low: str,
+	high: str,
+) -> Optional[Tuple[bytes, int, int]]:
+	try:
+		low_bytes = bytes.fromhex(low)
+		high_bytes = bytes.fromhex(high)
+	except ValueError:
+		return None
+	if (
+		not low_bytes
+		or len(low_bytes) > 4
+		or len(low_bytes) != len(high_bytes)
+	):
+		return None
+	start = int.from_bytes(low_bytes, "big")
+	end = int.from_bytes(high_bytes, "big")
+	count = end - start + 1
+	if count <= 0 or count > _CMAP_RANGE_EXPANSION_LIMIT:
+		return None
+	return low_bytes, start, end
 
 
 def _utf16_hex(value: str) -> str:

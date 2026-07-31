@@ -373,15 +373,15 @@ SENTINEL-FIGURE-003 image wrapped in link:
 
 ---
 
-## 14. OCR / Raster Hybrid Future Fixture
+## 14. Raster Image Preservation Fixture
 
-SENTINEL-OCR-001: The following image is intentionally raster text. V1/V2/V3 core without OCR should preserve it as an image or alt text, not hallucinate body text. V4 optional OCR may recover the raster text only when explicitly enabled and must report OCR provenance.
+SENTINEL-RASTER-001: The following image contains pixel-only text and must remain an extracted raster asset. CocoaPDF preserves the image without parsing or inventing body text from its pixels. The semantic image node keeps page, PDF-object, dimensions, asset hash, and confidence provenance.
 
 <figure class="cocoapdf-figure cocoapdf-align-center">
-<img src="assets/img-8d1abc8db93e78de.png" alt="" style="width: 600.000pt; height: 146.250pt; max-width: 100%; object-fit: contain; display: block; margin-left: auto; margin-right: auto;" />
+<img src="assets/img-7e18449c0c49ea17.png" alt="" style="width: 600.000pt; height: 146.250pt; max-width: 100%; object-fit: contain; display: block; margin-left: auto; margin-right: auto;" />
 </figure>
 
-Expected OCR-visible phrase if OCR is enabled: `OCR-ONLY SENTINEL: Raster text 12345`.
+Pixel-only phrase inside the extracted image: `Raster SENTINEL: Raster text = 12345`.
 
 ---
 
@@ -516,7 +516,7 @@ SENTINEL-FINAL-001: CocoaPDF final mixed paragraph contains **bold αβγ**, *it
 
 - V1/V2 Markdown-first output may preserve complex sections as safe HTML fallback.
 - V3 hard-PDF cases require derivative PDFs created after this source PDF is generated.
-- V4 OCR is optional and must be disabled by default; when enabled, OCR text must carry provenance and confidence.
+- Raster-only content must remain an extracted image with page, object, and glyph-free provenance.
 - Unsafe links/actions must never remain active in HTML output.
 - Structural false positives are worse than plain-text fallback.
 

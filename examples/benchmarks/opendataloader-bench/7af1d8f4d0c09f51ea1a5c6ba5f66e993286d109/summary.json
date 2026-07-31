@@ -1,0 +1,9 @@
+{
+    "engine_name": "cocoapdf",
+    "engine_version": "0.1.0",
+    "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
+    "document_count": 200,
+    "total_elapsed": 172.15170526504517,
+    "elapsed_per_doc": 0.8607585263252259,
+    "date": "2026-07-31"
+}

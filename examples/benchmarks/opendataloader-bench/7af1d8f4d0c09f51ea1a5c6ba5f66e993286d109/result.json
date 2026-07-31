@@ -1,0 +1,33 @@
+{
+  "benchmark_commit": "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109",
+  "completeness": {
+    "conversion_failures": 0,
+    "empty_predictions": 0,
+    "evaluated_documents": 200,
+    "missing_predictions": 0,
+    "prediction_files": 200
+  },
+  "engine_commit": "97527da3bdf8bd247cf19781a0599c9176e54a33",
+  "metrics": {
+    "mhs_count": 107,
+    "missing_predictions": 0,
+    "nid_count": 200,
+    "score": {
+      "mhs_mean": 0.7912284341287635,
+      "mhs_s_mean": 0.8810292785828795,
+      "nid_mean": 0.8908832817585036,
+      "nid_s_mean": 0.8704161814503709,
+      "overall_mean": 0.8435980876181824,
+      "teds_mean": 0.5636823455148973,
+      "teds_s_mean": 0.5759866978044572
+    },
+    "teds_count": 42
+  },
+  "schema": "cocoapdf.opendataloader-bench-result/v1",
+  "speed": {
+    "document_count": 200,
+    "elapsed_per_doc": 0.8607585263252259,
+    "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
+    "total_elapsed": 172.15170526504517
+  }
+}

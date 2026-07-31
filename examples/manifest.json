@@ -1,20 +1,104 @@
 {
+  "benchmarks": [
+    {
+      "benchmark_commit": "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109",
+      "engine_commit": "97527da3bdf8bd247cf19781a0599c9176e54a33",
+      "files": {
+        "adapter.py": {
+          "bytes": 8286,
+          "sha256": "5e8494171afa13b1341c816fe7726a6f5a75d686783ac5eca63046d3de5d4c91"
+        },
+        "evaluation.csv": {
+          "bytes": 19054,
+          "sha256": "1979844c3b233c4774820420db25b7df4a4838fc80a81998b4db8844baf6776d"
+        },
+        "evaluation.json": {
+          "bytes": 65419,
+          "sha256": "5a187397419ac12fbd07bc0eaa414c63fe3802082c99b514d2c68a5cfc03c5b0"
+        },
+        "failures.json": {
+          "bytes": 3,
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        },
+        "integration.patch": {
+          "bytes": 12272,
+          "sha256": "36cbc2be308c63eb991ff0ea5aa4f33da0dc028ea8c7d2c98a36cdd8cf97f193"
+        },
+        "prediction-hashes.json": {
+          "bytes": 27184,
+          "sha256": "17dc454fd21e0c8b7951598e3b05c39661e0c560f793811bde276a97fd2e242f"
+        },
+        "provenance.json": {
+          "bytes": 4391,
+          "sha256": "82a9c1aaa3f4dbc9976d46333e325088bce9fe51249cc0532607683512a22c88"
+        },
+        "result.json": {
+          "bytes": 964,
+          "sha256": "049f91edf55df1bf02f88e661700af2345d6c1d260aea65d6c44c0c41c4a270f"
+        },
+        "summary.json": {
+          "bytes": 263,
+          "sha256": "302b42b7ece08c08ee69b357aa6ff0ec5918bc62fa592f5ac8763a80eab307a6"
+        }
+      },
+      "id": "opendataloader-bench",
+      "licenses": {
+        "benchmark": "Apache-2.0",
+        "cocoapdf": "MIT",
+        "corpus": "MIT"
+      },
+      "result": {
+        "benchmark_commit": "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109",
+        "completeness": {
+          "conversion_failures": 0,
+          "empty_predictions": 0,
+          "evaluated_documents": 200,
+          "missing_predictions": 0,
+          "prediction_files": 200
+        },
+        "engine_commit": "97527da3bdf8bd247cf19781a0599c9176e54a33",
+        "metrics": {
+          "mhs_count": 107,
+          "missing_predictions": 0,
+          "nid_count": 200,
+          "score": {
+            "mhs_mean": 0.7912284341287635,
+            "mhs_s_mean": 0.8810292785828795,
+            "nid_mean": 0.8908832817585036,
+            "nid_s_mean": 0.8704161814503709,
+            "overall_mean": 0.8435980876181824,
+            "teds_mean": 0.5636823455148973,
+            "teds_s_mean": 0.5759866978044572
+          },
+          "teds_count": 42
+        },
+        "schema": "cocoapdf.opendataloader-bench-result/v1",
+        "speed": {
+          "document_count": 200,
+          "elapsed_per_doc": 0.8607585263252259,
+          "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
+          "total_elapsed": 172.15170526504517
+        }
+      },
+      "source_content_redistributed": false
+    }
+  ],
   "cases": [
     {
       "conversions": [
         {
           "files": {
             "assertions.json": {
-              "bytes": 898,
-              "sha256": "bcbf1208120cb6160479bddd9dbea0256236fb2fe1ada4a493fd97e225834a4f"
+              "bytes": 3141,
+              "sha256": "9766bf189455cda1d0b262f46424e069535255fe0fd4fef9d189dc4f12d938ca"
             },
             "assets/formula-6e4020bb5dcec410.svg": {
               "bytes": 17242,
               "sha256": "6e4020bb5dcec410d68b5fb7edc753e0cdfb911c58716cbe5a5331ea1547cd68"
             },
-            "assets/img-8d1abc8db93e78de.png": {
-              "bytes": 16402,
-              "sha256": "8d1abc8db93e78deb23984d8504484e524690fbc6c2db0b4b5f5ddcc4fe45d5e"
+            "assets/img-7e18449c0c49ea17.png": {
+              "bytes": 14963,
+              "sha256": "7e18449c0c49ea17b0736fb6f71d4777e3f8e6d7899e1877c41aaf293cffbfcd"
             },
             "assets/vector-36d70b475f1d2d1e.svg": {
               "bytes": 4767,
@@ -25,20 +109,20 @@
               "sha256": "d82c113d8e7b4c998d5750f5ff0bb0bb5b4b9bd0e3782e17ae451fa94a9d255b"
             },
             "output.html": {
-              "bytes": 72222,
-              "sha256": "d9eaac7f79b5d95b52ace13209f15bf66fe41c19ccbae17d87bbb9a67185f859"
+              "bytes": 72073,
+              "sha256": "dcfdc573b87f61aaec466ca0a0c4771725a675b379ef41b90e3481036a863a59"
             },
             "output.json": {
-              "bytes": 2159508,
-              "sha256": "aa7a9ef2d3ea91d105d3442224d9cfdb7177a15421f51735882949e1b6d98a0c"
+              "bytes": 2153319,
+              "sha256": "ec058cb67a7f761280956a6015b2034fac7d844f6c67e2097fd35fb341e07896"
             },
             "output.md": {
-              "bytes": 20178,
-              "sha256": "b8821b37921002f6621840d1c97d6968659b066cfa05bb1a73d1fa84debb2609"
+              "bytes": 20183,
+              "sha256": "611da33b5134780ae924ccc0b2daedf7f4948478f626bc33d6e4a68d536e1557"
             },
             "output.report.summary.json": {
               "bytes": 9417,
-              "sha256": "4044688b69de40b20efac899e25a5a747c56a6a5d8426169beb7297e8f563f59"
+              "sha256": "52f1b1d22d51f2b970ecc77b116c200c039fbac2dcdda3c5f3663c5411bcd035"
             }
           },
           "name": "full",
@@ -49,9 +133,9 @@
       "description": "Broad V1-V4 formatting, Unicode, lists, tables, figures, forms, columns, security, and fallback coverage.",
       "id": "strategic_corner_cases",
       "input": {
-        "bytes": 340350,
+        "bytes": 373578,
         "deterministic": true,
-        "sha256": "f8e34e48c551d98591ab41af8c54251373067d2301beb93e9aa106aab2914256"
+        "sha256": "7d6aa32ecf6aae78cc79a597b0619add1a1325ad7a38dfa4249404b69d923b8f"
       },
       "provenance": {
         "generation": "locked project fixture copied byte-for-byte",
@@ -73,12 +157,12 @@
               "sha256": "d82c113d8e7b4c998d5750f5ff0bb0bb5b4b9bd0e3782e17ae451fa94a9d255b"
             },
             "output.html": {
-              "bytes": 5223,
-              "sha256": "e3f7bcafba2e3150af82995677f1077a23eb9ccafaeaf4fc6dd408912b345563"
+              "bytes": 5287,
+              "sha256": "c4c519ab25cb781179d1f9addbec8403d2824c91b4b8576a8fd11f42878daa5b"
             },
             "output.json": {
-              "bytes": 30613,
-              "sha256": "dd228e79a3e86555086b7136e43a83f553f1594dee2c3f10980c35192ee77bb0"
+              "bytes": 30652,
+              "sha256": "9282ad95b29bb88069becf02f5a6a202ff5520079163d09831b47f9f7902a388"
             },
             "output.md": {
               "bytes": 134,
@@ -129,8 +213,8 @@
               "sha256": "d82c113d8e7b4c998d5750f5ff0bb0bb5b4b9bd0e3782e17ae451fa94a9d255b"
             },
             "output.html": {
-              "bytes": 7163,
-              "sha256": "bf99d09af893288749e65eaba9194cf0d40909b7b9f13b763282fe1caa86baa4"
+              "bytes": 7210,
+              "sha256": "4bd3c40c17718e52742662e88ceba2c472d2097d08ba05bad28bb4102a61200e"
             },
             "output.json": {
               "bytes": 91880,
@@ -164,8 +248,8 @@
               "sha256": "179d6e7aeced8baa4f7edc6730aa0e6136f18b93679700e9d4f9791f111996d3"
             },
             "output.html": {
-              "bytes": 6048,
-              "sha256": "e36123e29233651432e4fb021e727bec2e3c36ee509211de84e117a89f3dee61"
+              "bytes": 6095,
+              "sha256": "511fde3fbe48a020dae77559b2b16ce8af745a3869ae59f1cfd6072a5fb6bbde"
             },
             "output.json": {
               "bytes": 77009,
@@ -215,14 +299,23 @@
     "reason": "Page concatenation would alter document-global evidence and weaken failure attribution."
   },
   "generator": "validation/pr_visual/build.py",
-  "generator_sha256": "f748b24868fb64fdf312187947574d299fd0d57d30c0ab8c91fcdb1a50e9335a",
+  "generator_sha256": "16a792d44cf284ec33930eadfdf8743a6852fcf63a14b2bc5120e81ef110402c",
   "head_commit": null,
   "license": {
     "file": "LICENSE.txt",
     "network_fetches": 0,
-    "origin": "first-party CocoaPDF project fixtures",
+    "origin": "first-party CocoaPDF fixtures plus attributed derived benchmark results",
     "spdx": "MIT",
-    "third_party_content_added": false
+    "third_party": [
+      {
+        "benchmark_license": "Apache-2.0",
+        "corpus": "DP-Bench",
+        "corpus_license": "MIT",
+        "name": "OpenDataLoader-Bench result data",
+        "source_content_redistributed": false
+      }
+    ],
+    "third_party_content_added": true
   },
   "lifecycle": {
     "committed_outputs": true,
@@ -231,6 +324,6 @@
     "verification_command": "python scripts/refresh_examples.py --check"
   },
   "profile": "permanent",
-  "schema": "cocoapdf.capability-demo/v1",
+  "schema": "cocoapdf.capability-demo/v2",
   "source_commit": null
 }

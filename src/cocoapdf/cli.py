@@ -56,12 +56,21 @@ def main(argv=None):
 	parser.add_argument("--pages", help="Page range to process, for example 1,3-5 or 4-")
 	parser.add_argument("--image-mode", choices=["reference", "embed"], default="reference", help="Reference extracted image files or embed data URIs")
 	parser.add_argument(
+		"--heading-levels",
+		choices=["semantic", "flat"],
+		default="semantic",
+		help=(
+			"Preserve the inferred heading hierarchy (default), or project every "
+			"accepted heading as level one"
+		),
+	)
+	parser.add_argument(
 		"--image-markup",
 		choices=["auto", "markdown", "html"],
-		default="auto",
+		default="markdown",
 		help=(
-			"Use safe size/alignment-preserving HTML automatically, "
-			"or force Markdown/HTML image markup"
+			"Use native Markdown images (default), or request safe "
+			"size/alignment-preserving HTML markup"
 		),
 	)
 	parser.add_argument("--report", help="Write JSON conversion report")
@@ -82,6 +91,7 @@ def main(argv=None):
 		pages=args.pages,
 		image_mode=args.image_mode,
 		image_markup=args.image_markup,
+		heading_level_mode=args.heading_levels,
 	)
 	try:
 		result = convert_file(args.pdf, options)

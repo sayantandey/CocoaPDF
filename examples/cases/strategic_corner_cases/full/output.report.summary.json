@@ -49,10 +49,10 @@
   ],
   "assets": [
     "formula-6e4020bb5dcec410.svg",
-    "img-8d1abc8db93e78de.png",
+    "img-7e18449c0c49ea17.png",
     "vector-36d70b475f1d2d1e.svg"
   ],
-  "chars": 15085,
+  "chars": 15090,
   "description": "Deterministic PDF-to-Markdown/HTML conversion for structured text-layer PDFs. No OCR. No AI.",
   "encrypted": false,
   "fills": 337,
@@ -63,7 +63,7 @@
     {
       "alignment": "center",
       "alt": "",
-      "asset": "img-8d1abc8db93e78de.png",
+      "asset": "img-7e18449c0c49ea17.png",
       "bbox": {
         "x0": 96.25,
         "x1": 696.25,
@@ -357,7 +357,7 @@
     "toc_item",
     "underline"
   ],
-  "semantic_node_count": 1150,
+  "semantic_node_count": 1151,
   "semantic_output_used": true,
   "semantic_schema": "cocoapdf.semantic-document/v2",
   "semantic_valid": true,
