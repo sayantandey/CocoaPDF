@@ -4,19 +4,26 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import hashlib
 import importlib.util
+import io
 import json
 import math
 import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+import zipfile
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 
 DEFAULT_POLICY = Path(__file__).with_name("policy.json")
@@ -46,11 +53,13 @@ ARTIFACT_FILES = {
 }
 MAX_ARTIFACT_FILE_BYTES = 2 * 1024 * 1024
 MAX_ARTIFACT_TOTAL_BYTES = 5 * 1024 * 1024
-MAX_PREDICTION_FILE_BYTES = 2 * 1024 * 1024
-MAX_PREDICTION_TOTAL_BYTES = 50 * 1024 * 1024
+MAX_PREDICTION_FILE_BYTES = 256 * 1024
+MAX_PREDICTION_TOTAL_BYTES = 8 * 1024 * 1024
+MAX_CANDIDATE_ARTIFACT_BYTES = 12 * 1024 * 1024
 PRIVILEGED_BOUNDARY_PATHS = (
 	".github/workflows/opendataloader-benchmark.yml",
 	".github/workflows/opendataloader-report.yml",
+	".github/workflows/opendataloader-worker.yml",
 	".github/workflows/pr-visual-report.yml",
 	"tools/update_pr_body_block.py",
 	"validation/benchmarks/opendataloader_bench/adapter.py",
@@ -181,7 +190,7 @@ def _inventory(paths: Iterable[Path]) -> Tuple[Dict[str, Dict[str, Any]], int, s
 	return records, total_bytes, aggregate.hexdigest()
 
 
-def verify_corpus(corpus_root: Path, benchmark_root: Path, policy: Mapping[str, Any]) -> Set[str]:
+def verify_pdf_corpus(corpus_root: Path, policy: Mapping[str, Any]) -> Set[str]:
 	pdf_root = corpus_root / "pdfs"
 	_require(pdf_root.is_dir() and not pdf_root.is_symlink(), "PDF corpus directory is invalid")
 	pdf_children = list(pdf_root.iterdir())
@@ -190,6 +199,25 @@ def verify_corpus(corpus_root: Path, benchmark_root: Path, policy: Mapping[str, 
 		"PDF corpus contains an unexpected or non-regular entry",
 	)
 	pdfs = sorted(pdf_children)
+	corpus = policy["benchmark"]["corpus"]
+	_require(len(pdfs) == corpus["pdf_count"], "expected exactly 200 PDFs")
+	for pdf in pdfs:
+		_require(DOCUMENT_ID.fullmatch(pdf.stem) is not None, "invalid PDF document ID")
+		_require(pdf.read_bytes()[:5] == b"%PDF-", "invalid PDF or pointer file: %s" % pdf.name)
+	pdf_inventory, pdf_bytes, pdf_digest = _inventory(pdfs)
+	_require(pdf_bytes == corpus["pdf_bytes"], "PDF byte count mismatch")
+	_require(pdf_digest == corpus["pdf_inventory_sha256"], "PDF inventory digest mismatch")
+	return set(pdf_inventory)
+
+
+def verify_corpus(corpus_root: Path, benchmark_root: Path, policy: Mapping[str, Any]) -> Set[str]:
+	pdf_root = corpus_root / "pdfs"
+	_require(pdf_root.is_dir() and not pdf_root.is_symlink(), "PDF corpus directory is invalid")
+	pdf_children = list(pdf_root.iterdir())
+	_require(
+		all(path.is_file() and not path.is_symlink() and path.suffix == ".pdf" for path in pdf_children),
+		"PDF corpus contains an unexpected or non-regular entry",
+	)
 	ground_truth_root = benchmark_root / "ground-truth" / "markdown"
 	_require(
 		ground_truth_root.is_dir() and not ground_truth_root.is_symlink(),
@@ -202,21 +230,15 @@ def verify_corpus(corpus_root: Path, benchmark_root: Path, policy: Mapping[str, 
 	)
 	ground_truth = sorted(ground_truth_children)
 	corpus = policy["benchmark"]["corpus"]
-	_require(len(pdfs) == corpus["pdf_count"], "expected exactly 200 PDFs")
 	_require(len(ground_truth) == corpus["ground_truth_count"], "expected exactly 200 ground truths")
-	for pdf in pdfs:
-		_require(DOCUMENT_ID.fullmatch(pdf.stem) is not None, "invalid PDF document ID")
-		_require(pdf.read_bytes()[:5] == b"%PDF-", "invalid PDF or pointer file: %s" % pdf.name)
 	for markdown in ground_truth:
 		_require(DOCUMENT_ID.fullmatch(markdown.stem) is not None, "invalid ground-truth document ID")
-	pdf_inventory, pdf_bytes, pdf_digest = _inventory(pdfs)
+	pdf_ids = verify_pdf_corpus(corpus_root, policy)
 	gt_inventory, gt_bytes, gt_digest = _inventory(ground_truth)
-	_require(pdf_bytes == corpus["pdf_bytes"], "PDF byte count mismatch")
-	_require(pdf_digest == corpus["pdf_inventory_sha256"], "PDF inventory digest mismatch")
 	_require(gt_bytes == corpus["ground_truth_bytes"], "ground-truth byte count mismatch")
 	_require(gt_digest == corpus["ground_truth_inventory_sha256"], "ground-truth inventory digest mismatch")
-	_require(set(pdf_inventory) == set(gt_inventory), "PDF and ground-truth IDs differ")
-	return set(pdf_inventory)
+	_require(pdf_ids == set(gt_inventory), "PDF and ground-truth IDs differ")
+	return pdf_ids
 
 
 def _git(checkout: Path, *args: str) -> str:
@@ -254,6 +276,261 @@ def verify_privileged_boundary(trusted_root: Path, candidate_root: Path) -> None
 		_require(trusted.is_file() and not trusted.is_symlink(), "trusted boundary file is invalid: %s" % relative)
 		_require(candidate.is_file() and not candidate.is_symlink(), "candidate changed privileged boundary: %s" % relative)
 		_require(trusted.read_bytes() == candidate.read_bytes(), "candidate changed privileged boundary: %s" % relative)
+
+
+def _github_api_json(endpoint: str, token: str) -> Any:
+	request = urllib.request.Request(
+		"https://api.github.com" + endpoint,
+		headers={
+			"Accept": "application/vnd.github+json",
+			"Authorization": "Bearer %s" % token,
+			"User-Agent": "CocoaPDF-ODL-boundary-verifier",
+			"X-GitHub-Api-Version": "2022-11-28",
+		},
+	)
+	try:
+		with urllib.request.urlopen(request, timeout=30) as response:
+			return json.loads(response.read().decode("utf-8"))
+	except (urllib.error.HTTPError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+		raise BenchmarkValidationError("GitHub boundary API request failed") from exc
+
+
+def verify_privileged_boundary_ref(
+	trusted_root: Path,
+	candidate_repository: str,
+	candidate_sha: str,
+	token: str,
+	*,
+	api_get: Optional[Callable[[str], Any]] = None,
+) -> None:
+	"""Compare protected candidate blobs without checking untrusted code out."""
+
+	_require(trusted_root.is_dir() and not trusted_root.is_symlink(), "trusted checkout root is invalid")
+	_require(
+		re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", candidate_repository) is not None,
+		"invalid candidate repository",
+	)
+	_require(COMMIT_SHA.fullmatch(candidate_sha) is not None, "invalid candidate SHA")
+	_require(bool(token), "GitHub boundary token is missing")
+	getter = api_get if api_get is not None else lambda endpoint: _github_api_json(endpoint, token)
+	repository = urllib.parse.quote(candidate_repository, safe="/")
+	commit = getter("/repos/%s/git/commits/%s" % (repository, candidate_sha))
+	_require(isinstance(commit, dict) and commit.get("sha") == candidate_sha, "candidate commit identity mismatch")
+	tree_record = commit.get("tree")
+	_require(isinstance(tree_record, dict), "candidate commit tree is missing")
+	tree_sha = tree_record.get("sha")
+	_require(isinstance(tree_sha, str) and COMMIT_SHA.fullmatch(tree_sha) is not None, "invalid candidate tree SHA")
+	tree = getter("/repos/%s/git/trees/%s?recursive=1" % (repository, tree_sha))
+	_require(isinstance(tree, dict) and tree.get("truncated") is False, "candidate tree is incomplete")
+	entries = tree.get("tree")
+	_require(isinstance(entries, list), "candidate tree entries are missing")
+	protected: Dict[str, Mapping[str, Any]] = {}
+	for entry in entries:
+		if not isinstance(entry, dict):
+			continue
+		path = entry.get("path")
+		if path in PRIVILEGED_BOUNDARY_PATHS:
+			_require(path not in protected, "duplicate candidate boundary path")
+			protected[path] = entry
+	for relative in PRIVILEGED_BOUNDARY_PATHS:
+		trusted = trusted_root / relative
+		_require(trusted.is_file() and not trusted.is_symlink(), "trusted boundary file is invalid: %s" % relative)
+		entry = protected.get(relative)
+		_require(isinstance(entry, dict), "candidate changed privileged boundary: %s" % relative)
+		_require(
+			entry.get("type") == "blob" and entry.get("mode") in {"100644", "100755"},
+			"candidate boundary is not a regular file: %s" % relative,
+		)
+		blob_sha = entry.get("sha")
+		_require(isinstance(blob_sha, str) and COMMIT_SHA.fullmatch(blob_sha) is not None, "invalid boundary blob SHA")
+		blob = getter("/repos/%s/git/blobs/%s" % (repository, blob_sha))
+		_require(isinstance(blob, dict) and blob.get("sha") == blob_sha, "boundary blob identity mismatch")
+		_require(blob.get("encoding") == "base64" and isinstance(blob.get("content"), str), "invalid boundary blob encoding")
+		try:
+			content = base64.b64decode(blob["content"].replace("\n", ""), validate=True)
+		except (ValueError, TypeError) as exc:
+			raise BenchmarkValidationError("invalid boundary blob content") from exc
+		_require(blob.get("size") == len(content), "boundary blob size mismatch")
+		_require(content == trusted.read_bytes(), "candidate changed privileged boundary: %s" % relative)
+
+
+def candidate_artifact_name(context: Mapping[str, Any]) -> str:
+	candidate = context["candidate"]
+	run = context["run"]
+	return "cocoapdf-odl-candidate-%s-%s-%s" % (
+		candidate["head_sha"],
+		run["id"],
+		run["attempt"],
+	)
+
+
+def verify_candidate_artifact_metadata(
+	context_path: Path,
+	token: str,
+	*,
+	api_get: Optional[Callable[[str], Any]] = None,
+) -> Mapping[str, Any]:
+	"""Authenticate and bound the prediction archive before extraction."""
+
+	context = load_run_context(context_path)
+	_require(bool(token), "GitHub artifact token is missing")
+	getter = api_get if api_get is not None else lambda endpoint: _github_api_json(endpoint, token)
+	run_id = context["run"]["id"]
+	payload = getter(
+		"/repos/sayantandey/CocoaPDF/actions/runs/%s/artifacts?per_page=100" % run_id
+	)
+	_require(isinstance(payload, dict) and isinstance(payload.get("artifacts"), list), "candidate artifact listing is invalid")
+	expected_name = candidate_artifact_name(context)
+	matches = [
+		artifact
+		for artifact in payload["artifacts"]
+		if isinstance(artifact, dict) and artifact.get("name") == expected_name
+	]
+	_require(len(matches) == 1, "expected exactly one candidate prediction artifact")
+	artifact = matches[0]
+	_require(artifact.get("expired") is False, "candidate prediction artifact expired")
+	_require(_positive_int(artifact.get("id"), "candidate artifact ID") > 0, "invalid candidate artifact ID")
+	size = artifact.get("size_in_bytes")
+	_require(
+		isinstance(size, int) and not isinstance(size, bool) and 0 < size <= MAX_CANDIDATE_ARTIFACT_BYTES,
+		"candidate prediction artifact exceeds its size limit",
+	)
+	_require(
+		isinstance(artifact.get("digest"), str)
+		and re.fullmatch(r"sha256:[0-9a-f]{64}", artifact["digest"]) is not None,
+		"candidate prediction artifact digest is invalid",
+	)
+	workflow_run = artifact.get("workflow_run")
+	_require(
+		isinstance(workflow_run, dict) and workflow_run.get("id") == run_id,
+		"candidate artifact triggering-run mismatch",
+	)
+	return artifact
+
+
+class _SafeGithubRedirect(urllib.request.HTTPRedirectHandler):
+	def redirect_request(self, request, file_pointer, code, message, headers, new_url):  # type: ignore[override]
+		redirected = super().redirect_request(request, file_pointer, code, message, headers, new_url)
+		if redirected is None:
+			return None
+		target = urllib.parse.urlsplit(redirected.full_url)
+		_require(target.scheme == "https" and bool(target.hostname), "unsafe artifact redirect")
+		if target.hostname != urllib.parse.urlsplit(request.full_url).hostname:
+			redirected.remove_header("Authorization")
+			redirected.remove_header("X-GitHub-Api-Version")
+		return redirected
+
+
+def _github_archive_bytes(url: str, token: str, maximum: int) -> bytes:
+	parsed = urllib.parse.urlsplit(url)
+	_require(
+		parsed.scheme == "https" and parsed.hostname == "api.github.com",
+		"invalid candidate artifact download URL",
+	)
+	request = urllib.request.Request(
+		url,
+		headers={
+			"Accept": "application/vnd.github+json",
+			"Authorization": "Bearer %s" % token,
+			"User-Agent": "CocoaPDF-ODL-artifact-downloader",
+			"X-GitHub-Api-Version": "2022-11-28",
+		},
+	)
+	try:
+		with urllib.request.build_opener(_SafeGithubRedirect()).open(request, timeout=60) as response:
+			length = response.headers.get("Content-Length")
+			if length is not None:
+				_require(int(length) <= maximum, "candidate artifact download exceeds its size limit")
+			data = response.read(maximum + 1)
+	except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError) as exc:
+		raise BenchmarkValidationError("candidate artifact download failed") from exc
+	_require(0 < len(data) <= maximum, "candidate artifact download exceeds its size limit")
+	return data
+
+
+def _extract_candidate_archive(data: bytes, destination: Path, policy: Mapping[str, Any]) -> None:
+	if destination.exists() and any(destination.iterdir()):
+		raise BenchmarkValidationError("candidate extraction directory must be empty")
+	destination.mkdir(parents=True, exist_ok=True)
+	allowed_directories = {
+		"prediction/",
+		"prediction/cocoapdf/",
+		"prediction/cocoapdf/markdown/",
+	}
+	markdown_pattern = re.compile(r"prediction/cocoapdf/markdown/([0-9]{14})\.md")
+	allowed_metadata = "prediction/cocoapdf/failures.json"
+	seen: Set[str] = set()
+	markdown_ids: Set[str] = set()
+	total_bytes = 0
+	try:
+		with zipfile.ZipFile(io.BytesIO(data), "r") as archive:
+			infos = archive.infolist()
+			_require(len(infos) <= policy["required_counts"]["document_count"] + 4, "candidate archive has too many entries")
+			for info in infos:
+				name = info.filename
+				_require(
+					name not in seen
+					and "\\" not in name
+					and not name.startswith("/")
+					and "\x00" not in name
+					and all(part not in {"", ".", ".."} for part in name.rstrip("/").split("/")),
+					"candidate archive contains an unsafe or duplicate path",
+				)
+				seen.add(name)
+				mode = (info.external_attr >> 16) & 0xFFFF
+				_require(not stat.S_ISLNK(mode), "candidate archive contains a symbolic link")
+				_require(info.flag_bits & 0x1 == 0, "candidate archive contains encrypted data")
+				_require(info.compress_type in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}, "candidate archive compression is unsupported")
+				if info.is_dir():
+					_require(name in allowed_directories, "candidate archive contains an unexpected directory")
+					continue
+				match = markdown_pattern.fullmatch(name)
+				_require(match is not None or name == allowed_metadata, "candidate archive contains an unexpected file")
+				limit = MAX_PREDICTION_FILE_BYTES if match is not None else MAX_ARTIFACT_FILE_BYTES
+				_require(0 <= info.file_size <= limit, "candidate archive entry exceeds its size limit")
+				total_bytes += info.file_size
+				_require(
+					total_bytes <= MAX_PREDICTION_TOTAL_BYTES + MAX_ARTIFACT_FILE_BYTES,
+					"candidate archive expands beyond its total size limit",
+				)
+				content = archive.read(info)
+				_require(len(content) == info.file_size, "candidate archive entry size mismatch")
+				target = destination.joinpath(*name.split("/"))
+				target.parent.mkdir(parents=True, exist_ok=True)
+				_require(not target.exists(), "candidate archive target already exists")
+				target.write_bytes(content)
+				if match is not None:
+					markdown_ids.add(match.group(1))
+	except (zipfile.BadZipFile, RuntimeError, OSError) as exc:
+		raise BenchmarkValidationError("candidate prediction archive is invalid") from exc
+	_require(allowed_metadata in seen, "candidate archive metadata is missing")
+	_require(
+		len(markdown_ids) == policy["required_counts"]["document_count"],
+		"candidate archive must contain exactly 200 predictions",
+	)
+	validate_candidate_output(destination / "prediction" / "cocoapdf", markdown_ids)
+
+
+def download_candidate_artifact(
+	context_path: Path,
+	destination: Path,
+	token: str,
+	*,
+	api_get: Optional[Callable[[str], Any]] = None,
+	archive_get: Optional[Callable[[str, str, int], bytes]] = None,
+) -> Mapping[str, Any]:
+	policy = load_policy()
+	artifact = verify_candidate_artifact_metadata(context_path, token, api_get=api_get)
+	archive_url = artifact.get("archive_download_url")
+	_require(isinstance(archive_url, str), "candidate artifact download URL is missing")
+	getter = archive_get if archive_get is not None else _github_archive_bytes
+	data = getter(archive_url, token, MAX_CANDIDATE_ARTIFACT_BYTES)
+	_require(
+		"sha256:" + hashlib.sha256(data).hexdigest() == artifact["digest"],
+		"candidate artifact download digest mismatch",
+	)
+	_extract_candidate_archive(data, destination, policy)
+	return artifact
 
 
 def _score_series(documents: Sequence[Mapping[str, Any]]) -> Dict[str, List[float]]:
@@ -585,6 +862,25 @@ def validate_candidate_output(engine_root: Path, expected_ids: Set[str]) -> Tupl
 	return sorted(markdown_paths), failures
 
 
+def stage_candidate_output(args: argparse.Namespace) -> bool:
+	"""Copy only validated regular prediction files into the upload directory."""
+
+	policy = load_policy(args.policy)
+	document_ids = verify_pdf_corpus(args.corpus_root, policy)
+	_require(args.candidate_output.name == "cocoapdf", "candidate output engine name mismatch")
+	markdown_paths, failures = validate_candidate_output(args.candidate_output, document_ids)
+	if args.artifact_root.exists() and any(args.artifact_root.iterdir()):
+		raise BenchmarkValidationError("candidate artifact directory must be empty")
+	destination = args.artifact_root / "prediction" / "cocoapdf"
+	markdown_root = destination / "markdown"
+	markdown_root.mkdir(parents=True, exist_ok=True)
+	for source in markdown_paths:
+		(markdown_root / source.name).write_bytes(source.read_bytes())
+	_write_json(destination / "failures.json", failures)
+	validate_candidate_output(destination, document_ids)
+	return True
+
+
 def score_predictions(args: argparse.Namespace) -> bool:
 	policy = load_policy(args.policy)
 	verify_benchmark(args.benchmark_root, policy)
@@ -842,9 +1138,22 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 	verify.add_argument("--corpus-root", type=Path, required=True)
 	verify.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
 
+	verify_pdfs = subparsers.add_parser("verify-pdf-corpus")
+	verify_pdfs.add_argument("--corpus-root", type=Path, required=True)
+	verify_pdfs.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
+
 	boundary = subparsers.add_parser("verify-boundary")
 	boundary.add_argument("--trusted-root", type=Path, required=True)
 	boundary.add_argument("--candidate-root", type=Path, required=True)
+
+	boundary_ref = subparsers.add_parser("verify-boundary-ref")
+	boundary_ref.add_argument("--trusted-root", type=Path, required=True)
+	boundary_ref.add_argument("--candidate-repository", required=True)
+	boundary_ref.add_argument("--candidate-sha", required=True)
+
+	download = subparsers.add_parser("download-candidate-artifact")
+	download.add_argument("--context", type=Path, required=True)
+	download.add_argument("--destination", type=Path, required=True)
 
 	context = subparsers.add_parser("init-context")
 	context.add_argument("--artifact-root", type=Path, required=True)
@@ -857,6 +1166,12 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 	convert.add_argument("--output-root", type=Path, required=True)
 	convert.add_argument("--adapter", type=Path, default=ADAPTER_PATH)
 	convert.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
+
+	stage = subparsers.add_parser("stage-candidate")
+	stage.add_argument("--corpus-root", type=Path, required=True)
+	stage.add_argument("--candidate-output", type=Path, required=True)
+	stage.add_argument("--artifact-root", type=Path, required=True)
+	stage.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
 
 	score = subparsers.add_parser("score")
 	score.add_argument("--benchmark-root", type=Path, required=True)
@@ -885,15 +1200,38 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 			verify_corpus(args.corpus_root, args.benchmark_root, policy)
 			print("verified pinned 200-document OpenDataLoader corpus")
 			return 0
+		if args.command == "verify-pdf-corpus":
+			verify_pdf_corpus(args.corpus_root, load_policy(args.policy))
+			print("verified pinned 200-document OpenDataLoader PDF corpus")
+			return 0
 		if args.command == "verify-boundary":
 			verify_privileged_boundary(args.trusted_root, args.candidate_root)
 			print("verified candidate did not change the privileged CI boundary")
+			return 0
+		if args.command == "verify-boundary-ref":
+			verify_privileged_boundary_ref(
+				args.trusted_root,
+				args.candidate_repository,
+				args.candidate_sha,
+				os.environ.get("GH_TOKEN", ""),
+			)
+			print("verified candidate did not change the privileged CI boundary")
+			return 0
+		if args.command == "download-candidate-artifact":
+			artifact = download_candidate_artifact(
+				args.context,
+				args.destination,
+				os.environ.get("GH_TOKEN", ""),
+			)
+			print("downloaded validated candidate artifact %s" % artifact["id"])
 			return 0
 		if args.command == "init-context":
 			write_run_context(args)
 			return 0
 		if args.command == "convert":
 			return 0 if convert_candidate(args) else 1
+		if args.command == "stage-candidate":
+			return 0 if stage_candidate_output(args) else 1
 		if args.command == "score":
 			return 0 if score_predictions(args) else 1
 		if args.command == "assert-workflow":

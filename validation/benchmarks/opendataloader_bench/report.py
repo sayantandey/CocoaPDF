@@ -121,9 +121,15 @@ def _read_event(path: Path) -> Dict[str, Any]:
 	return value
 
 
-def _validate_workflow_run(event: Mapping[str, Any], repository: str, expected_event: str) -> Dict[str, Any]:
-	if event.get("action") != "completed":
-		raise BenchmarkValidationError("reporter only accepts completed workflow_run events")
+def _validate_workflow_run(
+	event: Mapping[str, Any],
+	repository: str,
+	expected_event: str,
+	*,
+	expected_action: str = "completed",
+) -> Dict[str, Any]:
+	if event.get("action") != expected_action:
+		raise BenchmarkValidationError("unexpected workflow_run action")
 	repository_payload = event.get("repository")
 	if not isinstance(repository_payload, dict) or repository_payload.get("full_name") != repository:
 		raise BenchmarkValidationError("workflow_run repository mismatch")
@@ -644,7 +650,12 @@ def publish_main_badge(args: argparse.Namespace, api: GhApi) -> int:
 
 
 def mark_main_pending(args: argparse.Namespace, api: GhApi) -> int:
-	run = _validate_workflow_run(_read_event(args.event_json), api.repository, "push")
+	run = _validate_workflow_run(
+		_read_event(args.event_json),
+		api.repository,
+		"push",
+		expected_action="requested",
+	)
 	if not _main_is_current(api, run["head_sha"]):
 		print("superseded main run; pending badge write skipped")
 		return 0

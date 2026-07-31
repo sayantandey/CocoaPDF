@@ -1,21 +1,23 @@
-name: OpenDataLoader benchmark
+name: OpenDataLoader candidate worker
 
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
-  push:
-    branches: [main]
+  workflow_call:
+    inputs:
+      candidate_repository:
+        description: Repository containing the candidate commit
+        required: true
+        type: string
+      candidate_sha:
+        description: Immutable candidate commit SHA
+        required: true
+        type: string
+      worker_sha:
+        description: Immutable commit containing this trusted worker and harness
+        required: true
+        type: string
 
-# Candidate code runs here with read-only repository permissions. The only
-# output crossing into the default-branch workflow_run is a bounded prediction
-# artifact; scoring and all writes happen in opendataloader-report.yml.
 permissions:
   contents: read
-
-concurrency:
-  group: opendataloader-candidate-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 env:
   ODL_CACHE_KEY: odl-corpus-linux-v1-7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109-23db64a86a6d103797d10e74c48d79a3c49fc42b7c44f5e1b07076eae0eec0b4
@@ -29,9 +31,19 @@ jobs:
     permissions:
       contents: read
     env:
-      CANDIDATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_REPOSITORY: ${{ inputs.candidate_repository }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      WORKER_SHA: ${{ inputs.worker_sha }}
     steps:
+      - name: Check out the immutable worker harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: sayantandey/CocoaPDF
+          ref: ${{ env.WORKER_SHA }}
+          path: harness
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Check out the exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,11 +53,13 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Authenticate the candidate checkout
+      - name: Authenticate both immutable checkouts
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$(git -C candidate rev-parse --is-inside-work-tree)" == "true" ]]
+          [[ "${WORKER_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${CANDIDATE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git -C harness rev-parse HEAD)" == "${WORKER_SHA}" ]]
           [[ "$(git -C candidate rev-parse HEAD)" == "${CANDIDATE_SHA}" ]]
           [[ -d "${GITHUB_WORKSPACE}/candidate/src" ]]
           [[ ! -L "${GITHUB_WORKSPACE}/candidate/src" ]]
@@ -98,12 +112,12 @@ jobs:
             --cpus 1 \
             --user "$(id -u):$(id -g)" \
             --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
-            --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/candidate,readonly" \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/harness,dst=/harness,readonly" \
             --mount "type=bind,src=${RUNNER_TEMP}/cocoapdf-odl-corpus,dst=/corpus,readonly" \
             "${ODL_PYTHON_IMAGE}" \
-            python /candidate/validation/benchmarks/opendataloader_bench/ci_runner.py verify-pdf-corpus \
+            python /harness/validation/benchmarks/opendataloader_bench/ci_runner.py verify-pdf-corpus \
               --corpus-root /corpus \
-              --policy /candidate/validation/benchmarks/opendataloader_bench/policy.json
+              --policy /harness/validation/benchmarks/opendataloader_bench/policy.json
           docker run --rm --platform linux/amd64 \
             --network none \
             --read-only \
@@ -119,15 +133,16 @@ jobs:
             --env PYTHONDONTWRITEBYTECODE=1 \
             --env PYTHONHASHSEED=0 \
             --env TZ=UTC \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/harness,dst=/harness,readonly" \
             --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/candidate,readonly" \
             --mount "type=bind,src=${RUNNER_TEMP}/cocoapdf-odl-corpus,dst=/corpus,readonly" \
             --mount "type=bind,src=${raw},dst=/output" \
             "${ODL_PYTHON_IMAGE}" \
-            python /candidate/validation/benchmarks/opendataloader_bench/ci_runner.py convert \
+            python /harness/validation/benchmarks/opendataloader_bench/ci_runner.py convert \
               --corpus-root /corpus \
               --output-root /output \
-              --adapter /candidate/validation/benchmarks/opendataloader_bench/adapter.py \
-              --policy /candidate/validation/benchmarks/opendataloader_bench/policy.json
+              --adapter /harness/validation/benchmarks/opendataloader_bench/adapter.py \
+              --policy /harness/validation/benchmarks/opendataloader_bench/policy.json
           docker run --rm --platform linux/amd64 \
             --network none \
             --read-only \
@@ -138,16 +153,16 @@ jobs:
             --cpus 1 \
             --user "$(id -u):$(id -g)" \
             --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
-            --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/candidate,readonly" \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/harness,dst=/harness,readonly" \
             --mount "type=bind,src=${RUNNER_TEMP}/cocoapdf-odl-corpus,dst=/corpus,readonly" \
             --mount "type=bind,src=${RUNNER_TEMP}/cocoapdf-odl-work/raw,dst=/raw,readonly" \
             --mount "type=bind,src=${staged},dst=/artifact" \
             "${ODL_PYTHON_IMAGE}" \
-            python /candidate/validation/benchmarks/opendataloader_bench/ci_runner.py stage-candidate \
+            python /harness/validation/benchmarks/opendataloader_bench/ci_runner.py stage-candidate \
               --corpus-root /corpus \
               --candidate-output /raw/cocoapdf \
               --artifact-root /artifact \
-              --policy /candidate/validation/benchmarks/opendataloader_bench/policy.json
+              --policy /harness/validation/benchmarks/opendataloader_bench/policy.json
 
       - name: Upload bounded predictions only
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

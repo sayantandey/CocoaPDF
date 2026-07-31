@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
+import io
 import json
 import os
 import re
+import stat
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 from unittest.mock import patch
@@ -13,12 +18,17 @@ from unittest.mock import patch
 from tools.update_pr_body_block import MarkerError, StaleHeadError, payload_for_pull_request, replace_owned_block
 from validation.benchmarks.opendataloader_bench.ci_runner import (
 	BenchmarkValidationError,
+	MAX_CANDIDATE_ARTIFACT_BYTES,
 	MAX_PREDICTION_FILE_BYTES,
+	PRIVILEGED_BOUNDARY_PATHS,
+	candidate_artifact_name,
+	download_candidate_artifact,
 	evaluate_gate,
 	load_policy,
 	validate_candidate_output,
 	verify_corpus,
 	verify_privileged_boundary,
+	verify_privileged_boundary_ref,
 	write_run_context,
 )
 from validation.benchmarks.opendataloader_bench.report import (
@@ -28,6 +38,7 @@ from validation.benchmarks.opendataloader_bench.report import (
 	_trusted_artifact_metadata,
 	badge_document,
 	badge_provenance_document,
+	mark_main_pending,
 	publish_badge,
 	report_pull_request_body,
 	report_pull_request_check,
@@ -43,6 +54,7 @@ TRUSTED_SHA = "2" * 40
 
 def workflow_event(
 	*,
+	action: str = "completed",
 	event_name: str = "pull_request",
 	run_id: int = 101,
 	attempt: int = 1,
@@ -51,7 +63,7 @@ def workflow_event(
 	workflow_path: str = ".github/workflows/opendataloader-benchmark.yml",
 ) -> Dict[str, Any]:
 	return {
-		"action": "completed",
+		"action": action,
 		"repository": {"full_name": "sayantandey/CocoaPDF"},
 		"workflow_run": {
 			"conclusion": "success",
@@ -169,8 +181,6 @@ class BenchmarkPolicyTests(unittest.TestCase):
 				write_run_context(args)
 
 	def test_privileged_boundary_is_byte_identical_or_requires_bootstrap(self):
-		from validation.benchmarks.opendataloader_bench.ci_runner import PRIVILEGED_BOUNDARY_PATHS
-
 		with tempfile.TemporaryDirectory() as directory:
 			root = Path(directory)
 			trusted = root / "trusted"
@@ -184,6 +194,52 @@ class BenchmarkPolicyTests(unittest.TestCase):
 			(candidate / PRIVILEGED_BOUNDARY_PATHS[-1]).write_text("changed\n", encoding="utf-8")
 			with self.assertRaisesRegex(BenchmarkValidationError, "privileged boundary"):
 				verify_privileged_boundary(trusted, candidate)
+
+	def test_remote_boundary_uses_regular_git_blobs_without_candidate_checkout(self):
+		with tempfile.TemporaryDirectory() as directory:
+			trusted = Path(directory) / "trusted"
+			content = b"trusted\n"
+			for relative in PRIVILEGED_BOUNDARY_PATHS:
+				path = trusted / relative
+				path.parent.mkdir(parents=True, exist_ok=True)
+				path.write_bytes(content)
+			blob_sha = "3" * 40
+			tree_sha = "4" * 40
+			entries = [
+				{"mode": "100644", "path": relative, "sha": blob_sha, "type": "blob"}
+				for relative in PRIVILEGED_BOUNDARY_PATHS
+			]
+
+			def api_get(endpoint: str):
+				if "/git/commits/" in endpoint:
+					return {"sha": SHA, "tree": {"sha": tree_sha}}
+				if "/git/trees/" in endpoint:
+					return {"tree": entries, "truncated": False}
+				if "/git/blobs/" in endpoint:
+					return {
+						"content": base64.b64encode(content).decode("ascii"),
+						"encoding": "base64",
+						"sha": blob_sha,
+						"size": len(content),
+					}
+				raise AssertionError(endpoint)
+
+			verify_privileged_boundary_ref(
+				trusted,
+				"sayantandey/CocoaPDF",
+				SHA,
+				"token",
+				api_get=api_get,
+			)
+			entries[-1]["mode"] = "120000"
+			with self.assertRaisesRegex(BenchmarkValidationError, "not a regular file"):
+				verify_privileged_boundary_ref(
+					trusted,
+					"sayantandey/CocoaPDF",
+					SHA,
+					"token",
+					api_get=api_get,
+				)
 
 
 class CandidateOutputBoundaryTests(unittest.TestCase):
@@ -276,7 +332,117 @@ class CandidateOutputBoundaryTests(unittest.TestCase):
 				verify_corpus(root / "corpus", root / "benchmark", policy)
 
 
+class CandidateArtifactDownloadTests(unittest.TestCase):
+	def _archive(self, extra: Optional[zipfile.ZipInfo] = None, extra_data: bytes = b"") -> bytes:
+		stream = io.BytesIO()
+		with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_STORED) as archive:
+			archive.writestr("prediction/cocoapdf/failures.json", "[]\n")
+			for index in range(200):
+				archive.writestr(
+					"prediction/cocoapdf/markdown/%014d.md" % index,
+					"document %d\n" % index,
+				)
+			if extra is not None:
+				archive.writestr(extra, extra_data)
+		return stream.getvalue()
+
+	def _download(self, root: Path, data: bytes, *, digest: Optional[str] = None, size: Optional[int] = None):
+		event_path = root / "event.json"
+		event_path.write_text(json.dumps(workflow_event()), encoding="utf-8")
+		artifact_root = root / "trusted-artifact"
+		context = write_run_context(
+			argparse.Namespace(
+				artifact_root=artifact_root,
+				event_json=event_path,
+				github_output=None,
+				trusted_sha=TRUSTED_SHA,
+			)
+		)
+		artifact = {
+			"archive_download_url": "https://api.github.com/repos/sayantandey/CocoaPDF/actions/artifacts/9/zip",
+			"digest": digest or "sha256:" + hashlib.sha256(data).hexdigest(),
+			"expired": False,
+			"id": 9,
+			"name": candidate_artifact_name(context),
+			"size_in_bytes": len(data) if size is None else size,
+			"workflow_run": {"id": context["run"]["id"]},
+		}
+
+		def api_get(endpoint: str):
+			self.assertIn("/actions/runs/101/artifacts", endpoint)
+			return {"artifacts": [artifact], "total_count": 1}
+
+		def archive_get(url: str, token: str, maximum: int) -> bytes:
+			self.assertEqual(url, artifact["archive_download_url"])
+			self.assertEqual(token, "token")
+			self.assertEqual(maximum, MAX_CANDIDATE_ARTIFACT_BYTES)
+			return data
+
+		destination = root / "candidate"
+		result = download_candidate_artifact(
+			artifact_root / "run-context.json",
+			destination,
+			"token",
+			api_get=api_get,
+			archive_get=archive_get,
+		)
+		return destination, result
+
+	def test_download_binds_run_digest_and_exact_prediction_allowlist(self):
+		with tempfile.TemporaryDirectory() as directory:
+			destination, artifact = self._download(Path(directory), self._archive())
+			self.assertEqual(artifact["id"], 9)
+			markdown = destination / "prediction" / "cocoapdf" / "markdown"
+			self.assertEqual(len(list(markdown.glob("*.md"))), 200)
+
+	def test_download_rejects_digest_traversal_symlink_and_oversize_metadata(self):
+		with tempfile.TemporaryDirectory() as directory:
+			with self.assertRaisesRegex(BenchmarkValidationError, "digest mismatch"):
+				self._download(Path(directory), self._archive(), digest="sha256:" + "0" * 64)
+
+		traversal = zipfile.ZipInfo("../escape.md")
+		with tempfile.TemporaryDirectory() as directory:
+			with self.assertRaisesRegex(BenchmarkValidationError, "unsafe or duplicate path"):
+				self._download(Path(directory), self._archive(traversal, b"escape"))
+
+		symlink = zipfile.ZipInfo("prediction/cocoapdf/markdown/99999999999999.md")
+		symlink.create_system = 3
+		symlink.external_attr = (stat.S_IFLNK | 0o777) << 16
+		with tempfile.TemporaryDirectory() as directory:
+			with self.assertRaisesRegex(BenchmarkValidationError, "symbolic link"):
+				self._download(Path(directory), self._archive(symlink, b"target"))
+
+		with tempfile.TemporaryDirectory() as directory:
+			with self.assertRaisesRegex(BenchmarkValidationError, "size limit"):
+				self._download(
+					Path(directory),
+					self._archive(),
+					size=MAX_CANDIDATE_ARTIFACT_BYTES + 1,
+				)
+
+
 class ReporterSecurityTests(unittest.TestCase):
+	def test_main_badge_is_marked_pending_when_conversion_is_requested(self):
+		with tempfile.TemporaryDirectory() as directory:
+			event_path = Path(directory) / "event.json"
+			event_path.write_text(
+				json.dumps(workflow_event(action="requested", event_name="push")),
+				encoding="utf-8",
+			)
+			api = FakeApi({"/git/ref/heads/main": {"object": {"sha": SHA}}})
+			args = argparse.Namespace(
+				event_json=event_path,
+				policy=ROOT / "validation/benchmarks/opendataloader_bench/policy.json",
+				trusted_run_id=900,
+				trusted_run_attempt=1,
+			)
+			with patch(
+				"validation.benchmarks.opendataloader_bench.report.publish_badge",
+				return_value=True,
+			) as publish:
+				self.assertEqual(mark_main_pending(args, api), 0)
+			publish.assert_called_once()
+
 	def test_old_attempt_is_not_latest_for_odl_or_visual(self):
 		run = workflow_event(attempt=1)["workflow_run"]
 		latest = dict(run, run_attempt=2)
@@ -439,17 +605,25 @@ class ReporterSecurityTests(unittest.TestCase):
 
 class WorkflowBoundaryTests(unittest.TestCase):
 	def test_candidate_workflows_are_read_only_and_reporters_are_serialized(self):
-		trigger = (ROOT / ".github/workflows/opendataloader-benchmark.yml").read_text(encoding="utf-8")
+		caller = (ROOT / ".github/workflows/opendataloader-benchmark.yml").read_text(encoding="utf-8")
+		worker = (ROOT / ".github/workflows/opendataloader-worker.yml").read_text(encoding="utf-8")
 		odl = (ROOT / ".github/workflows/opendataloader-report.yml").read_text(encoding="utf-8")
 		visual = (ROOT / ".github/workflows/pr-visual-validation.yml").read_text(encoding="utf-8")
 		visual_report = (ROOT / ".github/workflows/pr-visual-report.yml").read_text(encoding="utf-8")
-		self.assertNotIn(": write", trigger)
-		self.assertNotIn("checkout@", trigger)
-		self.assertNotIn("upload-artifact", trigger)
+		self.assertNotIn(": write", caller + worker)
+		self.assertRegex(
+			caller,
+			r"uses: sayantandey/CocoaPDF/\.github/workflows/opendataloader-worker\.yml@[0-9a-f]{40}",
+		)
+		self.assertNotIn("runs-on:", caller)
+		self.assertIn("workflow_call:", worker)
+		self.assertIn("actions/cache/restore@", worker)
+		self.assertNotIn("actions/cache/save@", worker)
+		self.assertIn("cocoapdf-odl-candidate-${{ env.CANDIDATE_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}", worker)
 		self.assertNotIn(": write", visual)
-		self.assertNotIn("pull_request_target", trigger + odl + visual + visual_report)
-		self.assertIn("types: [completed]", odl)
-		self.assertNotIn("requested", odl)
+		self.assertNotIn("pull_request_target", caller + worker + odl + visual + visual_report)
+		self.assertIn("types: [requested, completed]", odl)
+		self.assertIn("github.event.action == 'requested'", odl)
 		self.assertNotIn("in_progress", odl)
 		stable_body_group = "group: pr-body-${{ github.event.workflow_run.head_repository.id }}-${{ github.event.workflow_run.head_branch }}"
 		self.assertIn(stable_body_group, odl)
@@ -459,7 +633,11 @@ class WorkflowBoundaryTests(unittest.TestCase):
 			odl,
 		)
 		self.assertIn("github.event.workflow_run.conclusion == 'success'", odl)
-		self.assertIn("verify-boundary", odl)
+		self.assertIn("verify-boundary-ref", odl)
+		self.assertIn("download-candidate-artifact", odl)
+		self.assertNotIn("path: candidate", odl)
+		self.assertNotIn("--candidate-root candidate", odl)
+		self.assertLess(odl.index("actions/cache/save@"), odl.index("download-candidate-artifact"))
 		trusted_group_line = next(line for line in odl.splitlines() if "group: odl-trusted-" in line)
 		self.assertIn("workflow_run.event", trusted_group_line)
 		self.assertIn("workflow_run.head_branch", trusted_group_line)
@@ -489,8 +667,9 @@ class WorkflowBoundaryTests(unittest.TestCase):
 		self.assertIn("_upsert_check", check_path)
 		self.assertNotIn("_upsert_check", body_path)
 
-	def test_trusted_container_has_no_host_path_or_network_escape(self):
-		workflow = (ROOT / ".github/workflows/opendataloader-report.yml").read_text(encoding="utf-8")
+	def test_candidate_container_has_no_host_path_or_network_escape(self):
+		worker = (ROOT / ".github/workflows/opendataloader-worker.yml").read_text(encoding="utf-8")
+		reporter = (ROOT / ".github/workflows/opendataloader-report.yml").read_text(encoding="utf-8")
 		for required in (
 			"--network none",
 			"--read-only",
@@ -501,21 +680,27 @@ class WorkflowBoundaryTests(unittest.TestCase):
 			"size=64m,nr_inodes=4096,nodev,nosuid,noexec",
 			"src=${GITHUB_WORKSPACE}/candidate,dst=/candidate,readonly",
 			"[[ ! -L \"${GITHUB_WORKSPACE}/candidate/src\" ]]",
-			"rev-parse --is-inside-work-tree",
 			"rev-parse HEAD)\" == \"${CANDIDATE_SHA}",
-			"src=${GITHUB_WORKSPACE}/trusted/validation/benchmarks/opendataloader_bench,dst=/harness,readonly",
+			"src=${GITHUB_WORKSPACE}/harness,dst=/harness,readonly",
 			"src=${RUNNER_TEMP}/cocoapdf-odl-corpus,dst=/corpus,readonly",
-			"Smoke-test minimal harness in the exact pinned container",
-			"python /harness/ci_runner.py --help",
+			"python /harness/validation/benchmarks/opendataloader_bench/ci_runner.py convert",
+			"python /harness/validation/benchmarks/opendataloader_bench/ci_runner.py stage-candidate",
 		):
-			self.assertIn(required, workflow)
-		self.assertNotIn("src=${GITHUB_WORKSPACE}/candidate/src", workflow)
-		self.assertNotIn("src=${GITHUB_WORKSPACE}/trusted,dst=/trusted", workflow)
-		docker_block = workflow[workflow.index("docker run --rm"):workflow.index("python trusted/validation", workflow.index("docker run --rm"))]
+			self.assertIn(required, worker)
+		self.assertNotIn("src=${GITHUB_WORKSPACE}/candidate/src", worker)
+		self.assertNotIn("python candidate/", worker)
+		self.assertNotIn("actions/cache/save@", worker)
+		docker_block = worker[worker.index("docker run --rm"):worker.index("Upload bounded predictions only")]
 		self.assertNotIn("_odl-benchmark", docker_block)
-		self.assertNotIn("/trusted/src", docker_block)
+		self.assertNotIn("ground-truth", docker_block)
 		self.assertNotIn("GITHUB_TOKEN", docker_block)
 		self.assertNotIn("GH_TOKEN", docker_block)
+		self.assertNotIn("docker run --rm", reporter)
+		self.assertNotIn("PYTHONPATH=/candidate/src", reporter)
+		score_block = reporter.split("- name: Score validated predictions on the trusted host", 1)[1].split(
+			"- name: Release bounded candidate artifact storage", 1
+		)[0]
+		self.assertNotIn("GH_TOKEN", score_block)
 		runner = (ROOT / "validation/benchmarks/opendataloader_bench/ci_runner.py").read_text(encoding="utf-8")
 		self.assertNotIn("Path(__file__).resolve().parents[3]", runner)
 		self.assertNotIn("environment = os.environ.copy()", runner)
@@ -525,7 +710,9 @@ class WorkflowBoundaryTests(unittest.TestCase):
 		workflows = "\n".join(
 			path.read_text(encoding="utf-8")
 			for path in (
+				ROOT / ".github/workflows/opendataloader-benchmark.yml",
 				ROOT / ".github/workflows/opendataloader-report.yml",
+				ROOT / ".github/workflows/opendataloader-worker.yml",
 				ROOT / ".github/workflows/pr-visual-validation.yml",
 				ROOT / ".github/workflows/pr-visual-report.yml",
 			)
