@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -27,8 +28,10 @@ def main() -> None:
         ],
         check=True,
     )
+    source_assets = Path(__file__).resolve().parents[2] / "src" / "cocoapdf" / "assets"
+    shutil.copytree(source_assets, output_dir / "assets")
     (output_dir / "review.html").write_text(
-        "<!doctype html><title>APTED wheel export</title>", encoding="utf-8"
+        "<!doctype html><title>Benchmark dependencies export</title>", encoding="utf-8"
     )
 
 
