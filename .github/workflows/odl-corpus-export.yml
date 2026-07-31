@@ -1,0 +1,46 @@
+name: ODL Corpus Export
+
+on:
+  push:
+    branches:
+      - odl-full-benchmark-temp
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out scaffold branch
+        uses: actions/checkout@v4
+
+      - name: Install Git LFS
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes git-lfs
+          git lfs install
+
+      - name: Clone official benchmark and materialize LFS corpus
+        run: |
+          git clone --depth 1 https://github.com/opendataloader-project/opendataloader-bench.git /tmp/opendataloader-bench
+          git -C /tmp/opendataloader-bench lfs pull
+          git -C /tmp/opendataloader-bench rev-parse HEAD > /tmp/opendataloader-bench/benchmark-commit.txt
+          test "$(find /tmp/opendataloader-bench/pdfs -maxdepth 1 -name '*.pdf' | wc -l)" -ge 200
+
+      - name: Export reproducible benchmark inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: odl-benchmark-corpus
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            /tmp/opendataloader-bench/pdfs
+            /tmp/opendataloader-bench/ground-truth
+            /tmp/opendataloader-bench/src
+            /tmp/opendataloader-bench/pyproject.toml
+            /tmp/opendataloader-bench/uv.lock
+            /tmp/opendataloader-bench/README.md
+            /tmp/opendataloader-bench/benchmark-commit.txt
