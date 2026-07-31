@@ -15,23 +15,32 @@ def main() -> None:
 
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    checkout = output_dir.parent / "cocoapdf-main"
+    if checkout.exists():
+        shutil.rmtree(checkout)
     subprocess.run(
         [
-            "python",
-            "-m",
-            "pip",
-            "download",
-            "--no-deps",
-            "--dest",
-            str(output_dir),
-            "apted==1.0.3",
+            "git",
+            "clone",
+            "--depth",
+            "1",
+            "--branch",
+            "main",
+            "https://github.com/sayantandey/CocoaPDF.git",
+            str(checkout),
         ],
         check=True,
     )
-    source_assets = Path(__file__).resolve().parents[2] / "src" / "cocoapdf" / "assets"
-    shutil.copytree(source_assets, output_dir / "assets")
+    for name in ("src", "tests", "scripts", "validation"):
+        shutil.copytree(checkout / name, output_dir / name)
+    for name in ("pyproject.toml", "README.md", "LICENSE"):
+        shutil.copy2(checkout / name, output_dir / name)
+    commit = subprocess.check_output(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+    ).strip()
+    (output_dir / "source-commit.txt").write_text(commit + "\n", encoding="utf-8")
     (output_dir / "review.html").write_text(
-        "<!doctype html><title>Benchmark dependencies export</title>", encoding="utf-8"
+        "<!doctype html><title>CocoaPDF main source export</title>", encoding="utf-8"
     )
 
 
