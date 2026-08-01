@@ -15,19 +15,19 @@
   "benchmark": {
     "commit": "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109",
     "corpus": {
-      "ground_truth_bytes": 443582,
+      "ground_truth_bytes": 428917,
       "ground_truth_count": 200,
-      "ground_truth_inventory_sha256": "35e88bc2e3a5954de7f8844cb929f606eab75888a951e00aeb2e7b7126b8030d",
+      "ground_truth_inventory_sha256": "aef65f4124de91020f35cab0943a5cdbad6923781c030e8f73b29315192da7e6",
       "pdf_bytes": 36873075,
       "pdf_count": 200,
       "pdf_inventory_sha256": "23db64a86a6d103797d10e74c48d79a3c49fc42b7c44f5e1b07076eae0eec0b4"
     },
     "evaluator_files": {
-      "src/converter_markdown_table.py": "7676c7e02705a3a082caf02f5c468433b4a4f34f21f4dc60050859d9d0e7d181",
-      "src/evaluator.py": "4c703a289496b2ba9053ed07c691815593c71ef6678648ebe9128d627b612a4f",
-      "src/evaluator_heading_level.py": "1c13186f8ffb2ed05380f8a92a5f5caef587c043bf6074ee81dcb4444ef6d684",
-      "src/evaluator_reading_order.py": "b42a725dd0518e53a34f44c5d0fbc32a891d495c2fd839ee28ef7d3e24c53b1c",
-      "src/evaluator_table.py": "d5b32b2c7e2c4b645b951929dbb2e48e175c7c2347164ebcf41b9b2bd629b2e0"
+      "src/converter_markdown_table.py": "48879a0a5033e26a0f59a34ebcaf29dc322f4947e019955767f38adfdf0b63c1",
+      "src/evaluator.py": "2f25d6075dc58c6ecc78b20e800cc3e369529543300340d92638440ef020ef5f",
+      "src/evaluator_heading_level.py": "839dd188a6f90eea30fd7e2f541e2431d51eb65a46500c9b1d08d619f2e1c173",
+      "src/evaluator_reading_order.py": "9417db70bb475216d1b702e1e85f6e0af1ed113357aa8131f61fd2bcb3d21334",
+      "src/evaluator_table.py": "ace546919aef56d2c911daa8f42229b572d6e49c337a0a82497aa30ebb4df082"
     },
     "repository": "https://github.com/opendataloader-project/opendataloader-bench",
     "tree": "749ede775f169461fb678754505274b6ad85134a"

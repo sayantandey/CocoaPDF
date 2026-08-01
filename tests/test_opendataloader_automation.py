@@ -34,12 +34,14 @@ from validation.benchmarks.opendataloader_bench.ci_runner import (
 from validation.benchmarks.opendataloader_bench.report import (
 	_check_payload,
 	_is_latest_run,
+	_report_state,
 	_report_markdown,
 	_trusted_artifact_metadata,
 	badge_document,
 	badge_provenance_document,
 	mark_main_pending,
 	publish_badge,
+	publish_main_badge,
 	report_pull_request_body,
 	report_pull_request_check,
 )
@@ -133,6 +135,11 @@ class BenchmarkPolicyTests(unittest.TestCase):
 
 	def test_exact_published_baseline_and_regression_gates(self):
 		policy = load_policy()
+		self.assertEqual(policy["benchmark"]["corpus"]["ground_truth_bytes"], 428917)
+		self.assertEqual(
+			policy["benchmark"]["evaluator_files"]["src/converter_markdown_table.py"],
+			"48879a0a5033e26a0f59a34ebcaf29dc322f4947e019955767f38adfdf0b63c1",
+		)
 		self.assertEqual(policy["baseline"]["scores"]["overall_mean"], 0.869665721357887)
 		self.assertEqual(policy["worker"]["commit"], "4a9a8f766da4b90f6f1f5f48c77d03456b9cd9b2")
 		self.assertEqual(policy["gates"]["overall_floor"], 0.8)
@@ -477,6 +484,68 @@ class CandidateArtifactDownloadTests(unittest.TestCase):
 
 
 class ReporterSecurityTests(unittest.TestCase):
+	def test_incomplete_failed_evaluation_is_failed_but_success_claim_is_unverified(self):
+		artifact = {
+			"digest": "sha256:" + "a" * 64,
+			"expired": False,
+			"id": 9,
+			"name": "cocoapdf-odl-trusted-900-1",
+			"workflow_run": {"id": 900},
+		}
+		api = FakeApi({"/artifacts?": {"artifacts": [artifact]}})
+		with tempfile.TemporaryDirectory() as directory:
+			root = Path(directory)
+			(root / "run-context.json").write_text("{}\n", encoding="utf-8")
+			args = argparse.Namespace(
+				artifact_root=root,
+				download_outcome="success",
+				evaluation_outcome="failure",
+				policy=ROOT / "validation/benchmarks/opendataloader_bench/policy.json",
+				trusted_run_id=900,
+				trusted_run_attempt=1,
+			)
+			run = workflow_event(event_name="push")["workflow_run"]
+			failed = _report_state(args, run, api)
+			self.assertEqual(failed["state"], "failed")
+			self.assertIn("before complete evidence", failed["reason"])
+			args.evaluation_outcome = "success"
+			self.assertEqual(_report_state(args, run, api)["state"], "unverified")
+
+	def test_successfully_published_red_badge_does_not_create_a_second_failure(self):
+		with tempfile.TemporaryDirectory() as directory:
+			event_path = Path(directory) / "event.json"
+			event_path.write_text(
+				json.dumps(workflow_event(event_name="push")),
+				encoding="utf-8",
+			)
+			api = FakeApi({"/git/ref/heads/main": {"object": {"sha": SHA}}})
+			args = argparse.Namespace(
+				artifact_root=Path(directory),
+				download_outcome="success",
+				evaluation_outcome="failure",
+				event_json=event_path,
+				policy=ROOT / "validation/benchmarks/opendataloader_bench/policy.json",
+				trusted_run_id=900,
+				trusted_run_attempt=1,
+			)
+			state = {
+				"artifact": None,
+				"reason": "trusted evaluation failed",
+				"result": None,
+				"state": "failed",
+				"trusted_run_id": 900,
+			}
+			with patch(
+				"validation.benchmarks.opendataloader_bench.report._report_state",
+				return_value=state,
+			), patch(
+				"validation.benchmarks.opendataloader_bench.report.publish_badge_bundle",
+				return_value=True,
+			):
+				self.assertEqual(publish_main_badge(args, api), 0)
+				state["state"] = "unverified"
+				self.assertEqual(publish_main_badge(args, api), 1)
+
 	def test_main_badge_is_marked_pending_when_conversion_is_requested(self):
 		with tempfile.TemporaryDirectory() as directory:
 			event_path = Path(directory) / "event.json"

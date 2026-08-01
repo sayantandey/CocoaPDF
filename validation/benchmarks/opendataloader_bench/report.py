@@ -308,7 +308,15 @@ def _report_state(args: argparse.Namespace, run: Mapping[str, Any], api: GhApi) 
 			state.update({"artifact": artifact, "result": result, "state": "passed"})
 	except (BenchmarkValidationError, OSError, ValueError, KeyError, TypeError) as exc:
 		print("trusted evidence validation error: %s" % exc, file=sys.stderr)
-		state.update({"state": "unverified", "reason": "The evidence failed default-branch validation."})
+		if args.evaluation_outcome != "success":
+			state.update(
+				{
+					"state": "failed",
+					"reason": "The trusted evaluation failed before complete evidence was produced.",
+				}
+			)
+		else:
+			state.update({"state": "unverified", "reason": "The evidence failed default-branch validation."})
 	return state
 
 
@@ -647,7 +655,11 @@ def publish_main_badge(args: argparse.Namespace, api: GhApi) -> int:
 		fail_closed_first=state["state"] != "passed",
 	):
 		return 0
-	return 0 if state["state"] == "passed" else 1
+	# The evaluate job remains authoritative for an explicit failed state, so a
+	# successfully published red failure must not create a second publisher
+	# failure. Unverified evidence remains a publisher failure because no other
+	# job necessarily represents that integrity problem.
+	return 1 if state["state"] == "unverified" else 0
 
 
 def mark_main_pending(args: argparse.Namespace, api: GhApi) -> int:
