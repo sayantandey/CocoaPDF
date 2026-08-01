@@ -7,27 +7,27 @@
     "missing_predictions": 0,
     "prediction_files": 200
   },
-  "engine_commit": "937c403ed3b265a14db802b2ced36b3819d20b0f",
+  "engine_commit": "59a544a3cfc6e94e72dce4f22f2b334819c818e8",
   "metrics": {
     "mhs_count": 107,
     "missing_predictions": 0,
     "nid_count": 200,
     "score": {
-      "mhs_mean": 0.8062168834231966,
-      "mhs_s_mean": 0.8889792725141817,
-      "nid_mean": 0.8993297819973527,
-      "nid_s_mean": 0.8822899267742511,
-      "overall_mean": 0.869665721357887,
-      "teds_mean": 0.806184123363159,
-      "teds_s_mean": 0.8110160459149278
+      "mhs_mean": 0.879198902242205,
+      "mhs_s_mean": 0.9415827438092419,
+      "nid_mean": 0.9086028983215642,
+      "nid_s_mean": 0.8897361669169763,
+      "overall_mean": 0.9020490607384589,
+      "teds_mean": 0.9251323350970053,
+      "teds_s_mean": 0.9300636649625469
     },
     "teds_count": 42
   },
   "schema": "cocoapdf.opendataloader-bench-result/v1",
   "speed": {
     "document_count": 200,
-    "elapsed_per_doc": 0.795267196893692,
+    "elapsed_per_doc": 1.020426423549652,
     "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
-    "total_elapsed": 159.0534393787384
+    "total_elapsed": 204.08528470993042
   }
 }

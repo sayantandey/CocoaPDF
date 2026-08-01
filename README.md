@@ -178,32 +178,33 @@ checked-in source or output becomes stale.
 
 ## Benchmark results
 
-CocoaPDF `0.1.0` at commit [`937c403`](https://github.com/sayantandey/CocoaPDF/commit/937c403ed3b265a14db802b2ced36b3819d20b0f)
+CocoaPDF `0.1.0` at commit [`59a544a`](https://github.com/sayantandey/CocoaPDF/commit/59a544a3cfc6e94e72dce4f22f2b334819c818e8)
 measured on **all 200 documents** of the DP-Bench corpus using the unmodified
 [OpenDataLoader-Bench evaluator at `7af1d8f4`](https://github.com/opendataloader-project/opendataloader-bench/tree/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109),
-run twice on 2026-08-01.
+run twice on 2026-08-02.
 
 | Metric | Mean | Eligible documents |
 | --- | ---: | ---: |
-| Overall document-macro score | `0.8696657214` | 200 |
-| NID (reading order) | `0.8993297820` | 200 |
-| NID-S (tables removed) | `0.8822899268` | 200 |
-| TEDS (table structure) | `0.8061841234` | 42 |
-| TEDS-S (structure only) | `0.8110160459` | 42 |
-| MHS (heading structure) | `0.8062168834` | 107 |
-| MHS-S (structure only) | `0.8889792725` | 107 |
+| Overall document-macro score | `0.9020490607` | 200 |
+| NID (reading order) | `0.9086028983` | 200 |
+| NID-S (tables removed) | `0.8897361669` | 200 |
+| TEDS (table structure) | `0.9251323351` | 42 |
+| TEDS-S (structure only) | `0.9300636650` | 42 |
+| MHS (heading structure) | `0.8791989022` | 107 |
+| MHS-S (structure only) | `0.9415827438` | 107 |
 
 200 evaluated, 200 prediction files, **0 missing, 0 empty, and 0 conversion
 failures**. TEDS is scored only on the 42 documents whose ground truth contains
 a table, and MHS only on the 107 that contain a heading; `overall_mean` is the
 mean of each document's available metrics, not the mean of the three aggregates.
 
-Overall, NID, TEDS, and MHS all clear the enforced `0.80` floors. Two full runs
+Overall, NID, TEDS, and MHS clear the enforced `0.80` floors, and the
+document-macro score clears `0.90`. Two full runs
 produced byte-identical Markdown for all 200 documents and identical aggregate
-and per-document scores; conversion timings were `175.0555 s` and `159.0534 s`.
+and per-document scores; conversion timings were `172.0491 s` and `204.0853 s`.
 See
 [`validation/benchmarks/opendataloader_bench/RESULTS.md`](validation/benchmarks/opendataloader_bench/RESULTS.md)
-for exact deltas and the remaining path toward `0.90`.
+for exact deltas, determinism evidence, and remaining no-OCR limitations.
 
 Evaluation artifacts — `result.json`, `evaluation.json`, `evaluation.csv`,
 `summary.json`, `provenance.json`, `prediction-hashes.json`,

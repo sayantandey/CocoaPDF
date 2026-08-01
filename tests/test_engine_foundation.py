@@ -684,6 +684,63 @@ class FoundationDiagnosticTests(unittest.TestCase):
 		self.assertIn("#### 3.2.6. Nested Numbered Section", markdown)
 		self.assertIn("###### 4. UPPERCASE SECTION LABEL", markdown)
 
+	def test_letter_number_section_heading_keeps_semantic_provenance(self):
+		stream = b"\n".join(
+			[
+				text_op(72, 760, "Opening prose establishes the ordinary document size.", "F1", 10),
+				text_op(72, 700, "B Related Work", "F2", 10),
+				text_op(72, 670, "B.1 Large Language Models", "F2", 10),
+				text_op(
+					72,
+					640,
+					"Following explanatory prose establishes this section content.",
+					"F1",
+					10,
+				),
+				text_op(72, 624, "A second ordinary line confirms the governed prose block.", "F1", 10),
+			]
+		)
+		result = convert(make_pdf([stream]), ConvertOptions())
+		self.assertIn("# B.1 Large Language Models", result.markdown)
+		self.assertIn("B.1 Large Language Models", result.html)
+		headings = [node for node in result.semantic.walk() if node.kind == "heading"]
+		targets = [
+			node
+			for node in headings
+			if "".join(child.text for child in node.walk() if child.kind == "text")
+			== "B.1 Large Language Models"
+		]
+		self.assertEqual(len(targets), 1)
+		self.assertEqual(targets[0].source_pages(), [1])
+		self.assertTrue(all(source.glyph_ids for source in targets[0].sources))
+		self.assertTrue(all(source.region_ids for source in targets[0].sources))
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+		self.assertEqual(result.semantic.validate(require_provenance=True), [])
+
+	def test_letter_number_legal_peers_remain_non_heading_content(self):
+		stream = b"\n".join(
+			[
+				text_op(72, 740, "Context before contractual subclauses.", "F1", 10),
+				text_op(72, 700, "B.1 Required records for each submitted claim", "F2", 10),
+				text_op(72, 686, "B.2 Supporting records for each submitted claim", "F2", 10),
+				text_op(72, 672, "B.3 Approval records for each submitted claim", "F2", 10),
+				text_op(72, 638, "Ordinary prose follows the contractual sequence.", "F1", 10),
+				text_op(72, 622, "A second ordinary line stabilizes the body size.", "F1", 10),
+			]
+		)
+		result = convert(make_pdf([stream]), ConvertOptions())
+		heading_text = " ".join(
+			child.text
+			for node in result.semantic.walk()
+			if node.kind == "heading"
+			for child in node.walk()
+			if child.kind == "text"
+		)
+		self.assertNotIn("B.1 Required records", heading_text)
+		self.assertNotIn("B.2 Supporting records", heading_text)
+		self.assertNotIn("B.3 Approval records", heading_text)
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+
 	def test_compact_section_labels_reject_list_peers_and_orphan_fragments(self):
 		list_stream = b"\n".join(
 			[
@@ -1246,6 +1303,263 @@ class FoundationDiagnosticTests(unittest.TestCase):
 		)
 		self.assertNotIn("prose.Right", markdown)
 
+	def test_ragged_compact_columns_share_one_whitespace_interval(self):
+		left = [
+			"Coastal surveys describe changing habitat patterns",
+			"Regional analysts document gradual shoreline recovery",
+			"Field researchers record diverse seasonal migration",
+			"Community observers report resilient wetland species",
+			"Ecology teams measure improving estuary conditions",
+			"Short field notes confirm habitat renewal",
+		]
+		right = [
+			"Marine scientists track separate offshore populations",
+			"Independent reports explain regional species movement",
+			"Archived observations preserve long term ocean trends",
+			"Seasonal reviews compare distinct migration evidence",
+			"Current studies follow measurable coastal restoration",
+			"Later surveys verify continuing ecosystem recovery",
+		]
+		parts = []
+		for index, (left_text, right_text) in enumerate(zip(left, right)):
+			y = 740 - index * 16
+			parts.extend(
+				[
+					text_op(60, y, left_text, "F1", 10),
+					text_op(330, y, right_text, "F1", 10),
+				]
+			)
+		result = convert(make_pdf([b"\n".join(parts)]), ConvertOptions())
+		self.assertLess(result.markdown.index(left[-1]), result.markdown.index(right[0]))
+		self.assertLess(result.html.index(left[-1]), result.html.index(right[0]))
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+		paragraphs = [node for node in result.semantic.walk() if node.kind == "paragraph"]
+		self.assertEqual(len(paragraphs), 2)
+		self.assertTrue(all(node.source_pages() == [1] for node in paragraphs))
+		self.assertTrue(
+			all(
+				source.glyph_ids and source.region_ids
+				for node in paragraphs
+				for source in node.sources
+			)
+		)
+		self.assertEqual(result.semantic.validate(require_provenance=True), [])
+
+	def test_ragged_repeated_cards_remain_row_major(self):
+		parts = []
+		for index in range(6):
+			y = 740 - index * 16
+			left = (
+				"Service card left %02d carries several descriptive words." % index
+				if index < 5
+				else "Service card left 05 remains descriptive."
+			)
+			right = "Service card right %02d carries several descriptive words." % index
+			parts.extend(
+				[
+					text_op(60, y, left, "F1", 10),
+					text_op(330, y, right, "F1", 10),
+				]
+			)
+		result = convert(make_pdf([b"\n".join(parts)]), ConvertOptions())
+		self.assertLess(
+			result.markdown.index("Service card right 00"),
+			result.markdown.index("Service card left 01"),
+		)
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+
+	def test_compact_caption_and_adjacent_prose_remain_row_major(self):
+		left = [
+			"Figure 7. Coastal habitat survey overview",
+			"The caption continues with descriptive source details",
+			"Separate narrative begins below the visual material",
+			"Additional narrative explains the observed conditions",
+			"Field notes preserve the independent source sequence",
+			"Final narrative wording closes the compact section",
+		]
+		right = [
+			"A neighboring article column starts with ordinary prose",
+			"Its next sentence remains aligned beside the caption",
+			"Further explanation continues in physical row order",
+			"Independent observations stay beside the left narrative",
+			"Later discussion retains the producer reading sequence",
+			"The neighboring article ends with a complete sentence",
+		]
+		parts = []
+		for index, (left_text, right_text) in enumerate(zip(left, right)):
+			y = 740 - index * 16
+			parts.extend(
+				[
+					text_op(60, y, left_text, "F1", 10),
+					text_op(330, y, right_text, "F1", 10),
+				]
+			)
+		result = convert(make_pdf([b"\n".join(parts)]), ConvertOptions())
+		self.assertLess(
+			result.markdown.index(right[0]),
+			result.markdown.index(left[1]),
+			result.markdown,
+		)
+		self.assertEqual(
+			[node for node in result.semantic.walk() if node.kind == "table"],
+			[],
+		)
+
+	def _academic_column_stream(self, prefix_parts: Iterable[bytes]) -> bytes:
+		parts = list(prefix_parts)
+		for index in range(10):
+			y = 700 - index * 28
+			parts.extend(
+				[
+					text_op(
+						60,
+						y,
+						"Left paper prose %02d carries several stable words." % index,
+						"F1",
+						10,
+					),
+					text_op(
+						316,
+						y,
+						"Right paper prose %02d carries several stable words." % index,
+						"F1",
+						10,
+					),
+				]
+			)
+		return b"\n".join(parts)
+
+	def test_proven_academic_band_extends_to_ragged_top_headings(self):
+		stream = self._academic_column_stream(
+			[
+				text_op(60, 748, "Research Notes", "F2", 12),
+				text_op(
+					316,
+					748,
+					"and related records remain available for review.",
+					"F1",
+					10,
+				),
+				text_op(60, 728, "Left discussion closes with ordinary prose.", "F1", 10),
+				text_op(316, 728, "Ethics Review", "F2", 12),
+				text_op(
+					60,
+					712,
+					"Final left continuation enters the body stream.",
+					"F1",
+					10,
+				),
+			]
+		)
+		first = convert(make_pdf([stream]), ConvertOptions())
+		second = convert(make_pdf([stream]), ConvertOptions())
+		for result in (first, second):
+			self.assertLess(result.markdown.index("Research Notes"), result.markdown.index("Left paper prose 09"))
+			self.assertLess(
+				result.markdown.index("Left paper prose 09"),
+				result.markdown.index("and related records remain available"),
+			)
+			self.assertLess(result.markdown.index("Ethics Review"), result.markdown.index("Right paper prose 00"))
+			self.assertLess(result.html.index("Research Notes"), result.html.index("Left paper prose 09"))
+			self.assertLess(result.html.index("Left paper prose 09"), result.html.index("Ethics Review"))
+			headings = [node for node in result.semantic.walk() if node.kind == "heading"]
+			heading_text = [
+				"".join(child.text for child in node.walk() if child.kind == "text")
+				for node in headings
+			]
+			self.assertEqual(heading_text, ["Research Notes", "Ethics Review"])
+			self.assertIn("<h4 id=\"research-notes\"", result.html)
+			self.assertIn("<h4 id=\"ethics-review\"", result.html)
+			self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+			self.assertTrue(
+				all(
+					node.source_pages() == [1]
+					and node.sources
+					and all(source.glyph_ids and source.region_ids for source in node.sources)
+					for node in headings
+				)
+			)
+			report_headings = [
+				node
+				for node in result.report.get("nodes", [])
+				if node.get("kind") == "heading"
+			]
+			self.assertEqual(len(report_headings), 2)
+			self.assertTrue(
+				all(
+					node.get("source_pages") == [1]
+					and node.get("evidence")
+					and all(
+						source.get("glyph_ids") and source.get("region_ids")
+						for source in node.get("sources", [])
+					)
+					for node in report_headings
+				)
+			)
+			self.assertEqual(result.semantic.validate(require_provenance=True), [])
+		self.assertEqual(first.markdown, second.markdown)
+		self.assertEqual(first.html, second.html)
+		self.assertEqual(first.semantic.to_dict(), second.semantic.to_dict())
+
+	def test_academic_band_extension_stops_at_full_width_text(self):
+		stream = self._academic_column_stream(
+			[
+				text_op(60, 748, "Research Notes", "F2", 10),
+				text_op(
+					316,
+					748,
+					"and related records remain available for review.",
+					"F1",
+					10,
+				),
+				text_op(
+					60,
+					728,
+					"This full width author affiliation crosses the central gutter without defining columns.",
+					"F1",
+					10,
+				),
+			]
+		)
+		result = convert(make_pdf([stream]), ConvertOptions())
+		self.assertIn("**Research Notes** and related records", result.markdown)
+		self.assertLess(
+			result.markdown.index("and related records"),
+			result.markdown.index("full width author affiliation"),
+		)
+		self.assertNotIn("Research Notes", " ".join(
+			child.text
+			for node in result.semantic.walk()
+			if node.kind == "heading"
+			for child in node.walk()
+			if child.kind == "text"
+		))
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+		self.assertEqual(result.semantic.validate(require_provenance=True), [])
+
+	def test_academic_band_extension_rejects_paired_bold_cards(self):
+		stream = self._academic_column_stream(
+			[
+				text_op(60, 748, "Service Profile", "F2", 8.5),
+				text_op(316, 748, "Account Profile", "F2", 8.5),
+				text_op(60, 734, "Service details summarize current records.", "F1", 10),
+				text_op(316, 734, "Account details summarize billing records.", "F1", 10),
+			]
+		)
+		result = convert(make_pdf([stream]), ConvertOptions())
+		self.assertLess(result.markdown.index("Account Profile"), result.markdown.index("Service details"))
+		heading_text = " ".join(
+			child.text
+			for node in result.semantic.walk()
+			if node.kind == "heading"
+			for child in node.walk()
+			if child.kind == "text"
+		)
+		self.assertNotIn("Service Profile", heading_text)
+		self.assertNotIn("Account Profile", heading_text)
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+		self.assertEqual(result.semantic.validate(require_provenance=True), [])
+
 	def test_qualified_columns_include_a_contiguous_one_sided_prose_tail(self):
 		parts = []
 		for index in range(18):
@@ -1683,6 +1997,145 @@ class FoundationDiagnosticTests(unittest.TestCase):
 				for source in node.get("sources", [])
 			)
 		)
+
+	def _labelled_list_triptych_parts(self, list_columns=(2, 2, 2, 2)):
+		parts = [
+			text_op(70, 430, "A practical AI platform", "F1", 22),
+			b"0.50 0.36 0.98 rg",
+			text_op(70, 300, "Our Purpose", "F1", 13),
+			text_op(313, 300, "Our Mission", "F1", 13),
+			text_op(545, 300, "What We Do", "F1", 13),
+			b"0 0 0 rg",
+			text_op(70, 265, "Making AI useful", "F1", 18),
+			text_op(313, 265, "Easy AI tools", "F1", 18),
+			text_op(545, 265, "Practical AI solutions", "F1", 18),
+			text_op(313, 239, "Everywhere", "F1", 18),
+		]
+		starts = (70, 313, 545)
+		for index, column in enumerate(list_columns):
+			parts.append(
+				text_op(
+					starts[column],
+					195 - index * 20,
+					"- Supported task number %d" % (index + 1),
+					"F1",
+					11,
+				)
+			)
+		return parts
+
+	def test_labelled_list_triptych_assigns_graph_native_panel_roles(self):
+		result = convert(
+			make_pdf(
+				[b"\n".join(self._labelled_list_triptych_parts())],
+				page_size=(960, 540),
+			),
+			ConvertOptions(),
+		)
+		markdown = result.markdown
+		expected_order = [
+			"Our Purpose",
+			"Making AI useful",
+			"Our Mission",
+			"Easy AI tools",
+			"What We Do",
+			"Practical AI solutions",
+			"Supported task number 1",
+		]
+		for left, right in zip(expected_order, expected_order[1:]):
+			self.assertLess(markdown.index(left), markdown.index(right), markdown)
+		for label in ("Our Purpose", "Our Mission", "What We Do"):
+			self.assertTrue(
+				any(
+					line.lstrip("# ") == label and line.startswith("#")
+					for line in markdown.splitlines()
+				),
+				markdown,
+			)
+		for payload in ("Making AI useful", "Easy AI tools", "Practical AI solutions"):
+			self.assertFalse(
+				any(payload in line and line.startswith("#") for line in markdown.splitlines()),
+				markdown,
+			)
+		self.assertIn("- Supported task number 1", markdown.splitlines())
+		self.assertNotIn("  - Supported task number 1", markdown.splitlines())
+
+		def node_text(node):
+			return "".join(child.text for child in node.walk() if child.kind == "text")
+
+		headings = {
+			node_text(node): node
+			for node in result.semantic.walk()
+			if node.kind == "heading"
+		}
+		for index, label in enumerate(("Our Purpose", "Our Mission", "What We Do")):
+			node = headings[label]
+			self.assertTrue(node.attrs["panel_local"])
+			self.assertEqual(node.attrs["panel_mode"], "labelled_list_triptych")
+			self.assertEqual(node.attrs["panel_index"], index)
+			self.assertEqual(node.attrs["panel_role"], "label")
+			self.assertIn("panel_local_flow", [item.kind for item in node.evidence])
+			self.assertTrue(all(source.glyph_ids and source.bbox for source in node.sources))
+		payloads = [
+			node
+			for node in result.semantic.walk()
+			if node.kind == "paragraph" and node.attrs.get("panel_role") == "payload"
+		]
+		self.assertEqual(len(payloads), 3, result.semantic.to_dict())
+		self.assertEqual({node.attrs["panel_index"] for node in payloads}, {0, 1, 2})
+		lists = [node for node in result.semantic.walk() if node.kind == "list"]
+		self.assertEqual(len(lists), 1, result.semantic.to_dict())
+		self.assertEqual(lists[0].attrs["panel_index"], 2)
+		self.assertEqual(lists[0].attrs["panel_role"], "list")
+		self.assertEqual(lists[0].attrs["level"], 0)
+		self.assertIn("Our Purpose</h", result.html)
+		self.assertIn(">Making AI useful</p>", result.html)
+		self.assertIn("<ul", result.html)
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+		self.assertEqual(result.semantic.validate(require_provenance=True), [])
+		self.assertEqual(
+			result.report["output_derivation"],
+			{"markdown": "semantic_graph", "html": "semantic_graph", "json": "semantic_graph"},
+		)
+		self.assertTrue(
+			any(
+				node.get("attrs", {}).get("panel_mode") == "labelled_list_triptych"
+				for node in result.report.get("nodes", [])
+			)
+		)
+
+	def test_label_payload_triplet_without_confined_list_stays_row_major(self):
+		result = convert(
+			make_pdf(
+				[b"\n".join(self._labelled_list_triptych_parts(list_columns=()))],
+				page_size=(960, 540),
+			),
+			ConvertOptions(),
+		)
+		self.assertLess(result.markdown.index("Our Mission"), result.markdown.index("Making AI useful"))
+		self.assertFalse(
+			any(node.attrs.get("panel_local") for node in result.semantic.walk()),
+			result.semantic.to_dict(),
+		)
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+
+	def test_label_payload_triplet_with_distributed_lists_is_not_a_panel_flow(self):
+		result = convert(
+			make_pdf(
+				[
+					b"\n".join(
+						self._labelled_list_triptych_parts(list_columns=(0, 1, 2, 0))
+					)
+				],
+				page_size=(960, 540),
+			),
+			ConvertOptions(),
+		)
+		self.assertFalse(
+			any(node.attrs.get("panel_local") for node in result.semantic.walk()),
+			result.semantic.to_dict(),
+		)
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
 
 	def test_landscape_three_stream_prose_without_display_labels_stays_row_ordered(self):
 		parts = []

@@ -9,7 +9,12 @@ from unittest.mock import patch
 from cocoapdf import convert
 from cocoapdf.cli import _format_payload
 from cocoapdf.content.runtime import _attach_marked_content
-from cocoapdf.core import ConvertOptions, Converter, MarkdownRenderer
+from cocoapdf.core import (
+    ConvertOptions,
+    Converter,
+    MarkdownRenderer,
+    painted_path_contains_point,
+)
 from cocoapdf.fonts.decoding import CMapMapping, decode_font, parse_tounicode
 from cocoapdf.html.sanitize import is_safe_generated_html
 from cocoapdf.html.semantic import render_semantic_html
@@ -1778,6 +1783,165 @@ class AdvancedTableTests(unittest.TestCase):
         self.assertNotIn("writing-mode: vertical-rl", result.html)
         self.assertNotIn("artifact", wrapped_text.casefold())
 
+    def test_fragmented_artifact_lattice_spans_only_empty_neighbours(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0 g",
+            # Per-band vertical rectangles reproduce the fragmented border
+            # dialect emitted by office-document producers.
+            b"72 450.5 0.5 49 re f 72 500.5 0.5 49 re f "
+            b"72 550.5 0.5 49 re f 72 600.5 0.5 49 re f "
+            b"72 650.5 0.5 49 re f",
+            b"260 450.5 0.5 49 re f 260 500.5 0.5 49 re f "
+            b"260 550.5 0.5 49 re f 260 600.5 0.5 49 re f "
+            b"260 650.5 0.5 49 re f",
+            b"540 450.5 0.5 49 re f 540 500.5 0.5 49 re f "
+            b"540 550.5 0.5 49 re f 540 600.5 0.5 49 re f "
+            b"540 650.5 0.5 49 re f",
+            b"72 700 468 0.5 re f 72 650 468 0.5 re f ",
+            b"260 600 280 0.5 re f 72 550 468 0.5 re f ",
+            b"260 500 280 0.5 re f 72 450 468 0.5 re f EMC",
+            b"BT /F2 10 Tf 1 0 0 1 82 675 Tm (Area) Tj "
+            b"1 0 0 1 270 675 Tm (Competence) Tj",
+            b"/F1 10 Tf 1 0 0 1 82 625 Tm (Group A) Tj "
+            b"1 0 0 1 270 625 Tm (A1) Tj",
+            b"1 0 0 1 82 575 Tm (Separate A) Tj "
+            b"1 0 0 1 270 575 Tm (A2) Tj",
+            b"1 0 0 1 82 525 Tm (Group B) Tj "
+            b"1 0 0 1 270 525 Tm (B1) Tj",
+            # This wrapped baseline straddles the detector's two-point row
+            # tolerance and therefore belongs to the originating cell.
+            b"1 0 0 1 82 496 Tm (continues here) Tj",
+            b"1 0 0 1 270 475 Tm (B2) Tj ET",
+        ])
+        resources = b"/Resources << /Font << /F1 1 0 R /F2 2 0 R >> >>"
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 612 792] " + resources + b" /Contents 3 0 R >>",
+            b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+            b"<< /Type /Catalog /Pages 5 0 R >>",
+        ]
+        result = convert(render_pdf(objects, 6))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        self.assertEqual(tables[0].attrs["row_count"], 5)
+        self.assertEqual(tables[0].attrs["column_count"], 2)
+        evidence = next(
+            item
+            for item in tables[0].evidence
+            if item.kind == "artifact_fragmented_lattice"
+        )
+        self.assertEqual(evidence.data["physical_spans"], 1)
+        cells = {
+            (cell.attrs["row"], cell.attrs["col"]): cell
+            for cell in semantic_nodes(result, "table_cell")
+        }
+        self.assertEqual(cells[(1, 0)].attrs["rowspan"], 1)
+        self.assertEqual(cells[(2, 0)].attrs["rowspan"], 1)
+        group_a = "".join(
+            node.text or ""
+            for node in cells[(1, 0)].walk()
+            if node.kind == "text"
+        )
+        separate_a = "".join(
+            node.text or ""
+            for node in cells[(2, 0)].walk()
+            if node.kind == "text"
+        )
+        self.assertEqual(group_a, "Group A")
+        self.assertEqual(separate_a, "Separate A")
+        self.assertTrue(any(source.glyph_ids for source in cells[(1, 0)].sources))
+        self.assertTrue(any(source.glyph_ids for source in cells[(2, 0)].sources))
+        self.assertNotIn('rowspan="2">Group A', result.markdown)
+        self.assertIn("<td>Separate A</td>", result.markdown)
+        self.assertIn(
+            '<td rowspan="2">Group B<br />continues here</td>',
+            result.markdown,
+        )
+        self.assertNotIn("Artifact", result.markdown)
+
+    def test_fragmented_artifact_lattice_infers_clipped_page_edge(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0 g",
+            b"72 450.5 0.5 49 re f 72 500.5 0.5 49 re f "
+            b"72 550.5 0.5 49 re f 72 600.5 0.5 49 re f "
+            b"72 650.5 0.5 49 re f",
+            b"240 450.5 0.5 49 re f 240 500.5 0.5 49 re f "
+            b"240 550.5 0.5 49 re f 240 600.5 0.5 49 re f "
+            b"240 650.5 0.5 49 re f",
+            b"410 450.5 0.5 49 re f 410 500.5 0.5 49 re f "
+            b"410 550.5 0.5 49 re f 410 600.5 0.5 49 re f",
+            b"72 700 540 0.5 re f 72 650 540 0.5 re f "
+            b"72 600 540 0.5 re f 72 550 540 0.5 re f "
+            b"72 500 540 0.5 re f 72 450 540 0.5 re f EMC",
+            b"BT /F1 10 Tf 1 0 0 1 250 675 Tm (Current) Tj "
+            b"1 0 0 1 420 675 Tm (Target) Tj",
+            b"1 0 0 1 82 625 Tm (Alpha) Tj",
+            b"1 0 0 1 82 575 Tm (Bravo) Tj",
+            b"1 0 0 1 82 525 Tm (Charlie) Tj",
+            b"1 0 0 1 82 475 Tm (Delta) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        self.assertEqual(tables[0].attrs["row_count"], 5)
+        self.assertEqual(tables[0].attrs["column_count"], 3)
+        evidence = next(
+            item
+            for item in tables[0].evidence
+            if item.kind == "artifact_fragmented_lattice"
+        )
+        self.assertEqual(evidence.data["inferred_outer_boundaries"], 1)
+        self.assertIn("<tr><td>Alpha</td><td></td><td></td></tr>", result.markdown)
+
+    def test_captioned_sparse_two_column_table_preserves_blank_response_cells(self) -> None:
+        parts = [
+            text_op(60, 720, "Table 9. Observation record.", font="F2", size=14),
+            text_op(60, 670, "Field", font="F2", size=8),
+            text_op(140, 670, "Recorded observation value", font="F2", size=8),
+        ]
+        for text, y in zip(("Aster", "Birch", "Cedar", "Dogwood", "Elm"), (650, 630, 610, 590, 570)):
+            parts.append(text_op(60, y, text, size=8))
+        result = convert(make_pdf([b" ".join(parts)]))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        self.assertEqual(tables[0].attrs["row_count"], 6)
+        self.assertEqual(tables[0].attrs["column_count"], 2)
+        self.assertEqual(tables[0].attrs["header_rows"], 1)
+        evidence = next(
+            item
+            for item in tables[0].evidence
+            if item.kind == "captioned_sparse_two_column"
+        )
+        self.assertTrue(evidence.data["blank_response_column"])
+        self.assertEqual(evidence.data["right_column_rows"], 0)
+        headers = [
+            cell for cell in semantic_nodes(result, "table_cell")
+            if cell.attrs["row"] == 0
+        ]
+        self.assertEqual([cell.attrs["role"] for cell in headers], ["th", "th"])
+        self.assertTrue(all(any(source.glyph_ids for source in cell.sources) for cell in headers))
+        self.assertIn("<thead>", result.markdown)
+        self.assertIn("<thead>", result.html)
+        self.assertIn('<th scope="col"', result.html)
+        self.assertIn("<tr><td>Aster</td><td></td></tr>", result.markdown)
+        self.assertIn("<caption>Table 9. Observation record.</caption>", result.markdown)
+
+    def test_sparse_two_column_run_without_caption_remains_prose(self) -> None:
+        parts = [
+            text_op(60, 670, "Field", font="F2", size=8),
+            text_op(140, 670, "Recorded observation value", font="F2", size=8),
+        ]
+        for text, y in zip(("Aster", "Birch", "Cedar", "Dogwood", "Elm"), (650, 630, 610, 590, 570)):
+            parts.append(text_op(60, y, text, size=8))
+        result = convert(make_pdf([b" ".join(parts)]))
+        self.assertFalse(any(
+            item.kind == "captioned_sparse_two_column"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
     def test_dense_complete_two_by_two_artifact_table_is_recovered(self) -> None:
         content = b" ".join([
             b"/Artifact BMC 0 g "
@@ -1947,6 +2111,111 @@ class AdvancedTableTests(unittest.TestCase):
         self.assertIn(
             "INVISIBLE_TEXT",
             {warning.code for warning in result.warnings},
+        )
+
+    def test_complex_pre_text_path_supplies_the_visible_background(self) -> None:
+        content = b" ".join([
+            b"0.05 0.3 0.7 rg "
+            b"60 500 m 60 650 300 650 300 500 c "
+            b"300 450 l 60 450 l h f",
+            b"BT /F1 12 Tf 1 g 1 0 0 1 100 540 Tm "
+            b"(Visible curved background) Tj ET",
+        ])
+        converter = Converter(one_page_pdf(content))
+        result = converter.convert()
+
+        self.assertIn("Visible curved background", result.markdown)
+        path = max(converter.painted_paths, key=lambda item: len(item.commands))
+        visible = next(
+            char for char in converter.chars
+            if char.text == "V" and not char.invisible
+        )
+        self.assertGreater(path.paint_order, 0)
+        self.assertLess(path.paint_order, visible.paint_order)
+        self.assertTrue(
+            painted_path_contains_point(
+                path,
+                (visible.x0 + visible.x1) / 2.0,
+                (visible.y0 + visible.y1) / 2.0,
+            )
+        )
+
+    def test_concave_path_bbox_does_not_paint_its_notch(self) -> None:
+        content = b" ".join([
+            b"0.05 0.3 0.7 rg "
+            b"60 450 m 300 450 l 300 700 l 220 700 l "
+            b"220 560 l 140 560 l 140 700 l 60 700 l h f",
+            b"BT /F1 12 Tf 1 g 1 0 0 1 80 620 Tm (Visible arm) Tj "
+            b"1 0 0 1 155 620 Tm (Hidden notch) Tj ET",
+        ])
+        converter = Converter(one_page_pdf(content))
+        result = converter.convert()
+
+        self.assertIn("Visible arm", result.markdown)
+        self.assertNotIn("Hidden notch", result.markdown)
+        path = max(converter.painted_paths, key=lambda item: len(item.commands))
+        hidden = next(
+            char for char in converter.chars
+            if char.text == "H" and char.invisible
+        )
+        center = ((hidden.x0 + hidden.x1) / 2.0, (hidden.y0 + hidden.y1) / 2.0)
+        self.assertTrue(
+            path.bbox[0] <= center[0] <= path.bbox[2]
+            and path.bbox[1] <= center[1] <= path.bbox[3]
+        )
+        self.assertFalse(painted_path_contains_point(path, *center))
+
+    def test_evenodd_complex_path_preserves_a_transparent_hole(self) -> None:
+        content = b" ".join([
+            b"0.05 0.3 0.7 rg "
+            b"60 450 m 300 450 l 300 700 l 60 700 l h "
+            b"130 540 m 230 540 l 230 640 l 130 640 l h f*",
+            b"BT /F1 12 Tf 1 g 1 0 0 1 75 580 Tm (Visible ring) Tj "
+            b"1 0 0 1 150 580 Tm (Hidden hole) Tj ET",
+        ])
+        converter = Converter(one_page_pdf(content))
+        result = converter.convert()
+
+        self.assertIn("Visible ring", result.markdown)
+        self.assertNotIn("Hidden hole", result.markdown)
+        path = max(converter.painted_paths, key=lambda item: len(item.commands))
+        self.assertEqual(path.fill_rule, "evenodd")
+        hidden = next(
+            char for char in converter.chars
+            if char.text == "H" and char.invisible
+        )
+        self.assertFalse(
+            painted_path_contains_point(
+                path,
+                (hidden.x0 + hidden.x1) / 2.0,
+                (hidden.y0 + hidden.y1) / 2.0,
+            )
+        )
+
+    def test_complex_path_painted_after_text_is_not_its_background(self) -> None:
+        content = b" ".join([
+            b"BT /F1 12 Tf 1 g 1 0 0 1 100 540 Tm "
+            b"(Hidden before path) Tj ET",
+            b"0.05 0.3 0.7 rg "
+            b"60 500 m 60 650 300 650 300 500 c "
+            b"300 450 l 60 450 l h f",
+        ])
+        converter = Converter(one_page_pdf(content))
+        result = converter.convert()
+
+        self.assertNotIn("Hidden before path", result.markdown)
+        path = max(converter.painted_paths, key=lambda item: len(item.commands))
+        hidden = next(
+            char for char in converter.chars
+            if char.text == "H" and char.invisible
+        )
+        self.assertGreater(path.paint_order, hidden.paint_order)
+        self.assertTrue(
+            painted_path_contains_point(
+                path,
+                (hidden.x0 + hidden.x1) / 2.0,
+                (hidden.y0 + hidden.y1) / 2.0,
+            )
         )
 
     def test_captioned_marked_bookend_table_preserves_span_and_mcids(self) -> None:
@@ -3490,6 +3759,591 @@ class ResidualPhysicalTableRecoveryTests(unittest.TestCase):
         )
 
 
+class FilledSidebarRecoveryTests(unittest.TestCase):
+    @staticmethod
+    def _node_text(node: SemanticNode) -> str:
+        return "".join(
+            child.text or "" for child in node.walk() if child.kind == "text"
+        )
+
+    @staticmethod
+    def _main_rows(prefix: str) -> list[bytes]:
+        return [
+            text_op(
+                72,
+                680 - index * 30,
+                "%s row %d carries ordinary explanatory words." % (prefix, index),
+                font="F1",
+                size=13,
+            )
+            for index in range(6)
+        ]
+
+    def test_fill_backed_sidebar_is_an_independent_provenanced_heading_stream(self) -> None:
+        parts = [
+            b"1 0.15 0 rg 454 80 118 630 re f 0 g",
+            # Repeated short rules are independent evidence that the narrow
+            # edge fill is a structured sidebar, not incidental decoration.
+            b"1 1 1 RG 1 w "
+            b"462 610 m 564 610 l 462 430 m 564 430 l "
+            b"462 250 m 564 250 l S 0 G",
+            text_op(72, 740, "Main Study Overview", font="F2", size=16),
+            *self._main_rows("Main narrative"),
+            text_op(462, 650, "Cellular Cycle", font="F2", size=10),
+            text_op(462, 635, "and Replication", font="F2", size=10),
+            text_op(462, 610, "A short sidebar", font="F1", size=11),
+            text_op(462, 594, "description follows", font="F1", size=11),
+            text_op(462, 560, "Mitosis and", font="F2", size=10),
+            text_op(462, 545, "Meiosis", font="F2", size=10),
+            text_op(462, 520, "Different results", font="F1", size=11),
+            text_op(462, 504, "are summarized here", font="F1", size=11),
+        ]
+        result = convert(make_pdf([b"\n".join(parts)]))
+
+        headings = {
+            self._node_text(node): node
+            for node in semantic_nodes(result, "heading")
+        }
+        for expected in (
+            "Main Study Overview",
+            "Cellular Cycle and Replication",
+            "Mitosis and Meiosis",
+        ):
+            self.assertIn(expected, headings, result.markdown)
+        self.assertLess(
+            result.markdown.index("Main narrative row 5"),
+            result.markdown.index("Cellular Cycle and Replication"),
+        )
+        self.assertLess(
+            result.markdown.index("description follows"),
+            result.markdown.index("Mitosis and Meiosis"),
+        )
+        for expected in ("Cellular Cycle and Replication", "Mitosis and Meiosis"):
+            heading = headings[expected]
+            self.assertEqual({source.page for source in heading.sources}, {1})
+            self.assertTrue(
+                {glyph_id for source in heading.sources for glyph_id in source.glyph_ids},
+                heading.to_dict(),
+            )
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertEqual(semantic_nodes(result, "list"), [])
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+
+    def test_unanchored_edge_fill_does_not_invent_a_sidebar_or_heading(self) -> None:
+        side_text = [
+            "Sidebar Emphasis",
+            "continues here",
+            "A short note follows",
+            "with ordinary wording",
+            "Another note remains",
+            "inside the decoration",
+        ]
+        parts = [
+            b"1 0.15 0 rg 454 80 118 630 re f 0 g",
+            text_op(72, 740, "Context before the decorative band.", size=13),
+        ]
+        for index, (main, side) in enumerate(
+            zip(self._main_rows("Main"), side_text)
+        ):
+            parts.append(main)
+            parts.append(
+                text_op(
+                    462,
+                    680 - index * 30,
+                    side,
+                    font="F2" if index < 2 else "F1",
+                    size=10 if index < 2 else 11,
+                )
+            )
+        result = convert(make_pdf([b"\n".join(parts)]))
+
+        heading_texts = {
+            self._node_text(node) for node in semantic_nodes(result, "heading")
+        }
+        self.assertNotIn("Sidebar Emphasis continues here", heading_texts)
+        paragraph_nodes = semantic_nodes(result, "paragraph")
+        paragraph_texts = [self._node_text(node) for node in paragraph_nodes]
+        self.assertLess(
+            next(index for index, text in enumerate(paragraph_texts) if "Sidebar Emphasis" in text),
+            next(index for index, text in enumerate(paragraph_texts) if "Main row 1" in text),
+            paragraph_texts,
+        )
+        paragraphs = [
+            node
+            for node in paragraph_nodes
+            if "Sidebar Emphasis" in self._node_text(node)
+        ]
+        self.assertTrue(paragraphs, result.semantic.to_dict())
+        self.assertTrue(any(source.glyph_ids for source in paragraphs[0].sources))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertEqual(semantic_nodes(result, "list"), [])
+
+    def test_ruled_edge_grid_is_not_reinterpreted_as_a_sidebar(self) -> None:
+        parts = [
+            b"0.2 0.6 0.9 rg 454 80 118 630 re f 0 g",
+            b"1 1 1 RG 1 w "
+            b"462 610 m 564 610 l 462 430 m 564 430 l "
+            b"462 250 m 564 250 l "
+            # Long internal verticals are grid/form evidence and veto the
+            # otherwise sidebar-like fill, text, and horizontal separators.
+            b"510 200 m 510 600 l 540 200 m 540 600 l S 0 G",
+            text_op(72, 740, "Context before the ruled edge panel.", size=13),
+        ]
+        side_text = [
+            "Panel Emphasis",
+            "continues here",
+            "Ruled panel note two",
+            "Ruled panel note three",
+            "Ruled panel note four",
+            "Ruled panel note five",
+        ]
+        for index, (main, side) in enumerate(
+            zip(self._main_rows("Main ruled"), side_text)
+        ):
+            parts.append(main)
+            parts.append(
+                text_op(
+                    462,
+                    680 - index * 30,
+                    side,
+                    font="F2" if index < 2 else "F1",
+                    size=10 if index < 2 else 11,
+                )
+            )
+        result = convert(make_pdf([b"\n".join(parts)]))
+
+        heading_texts = {
+            self._node_text(node) for node in semantic_nodes(result, "heading")
+        }
+        self.assertNotIn("Panel Emphasis continues here", heading_texts)
+        paragraph_texts = [
+            self._node_text(node) for node in semantic_nodes(result, "paragraph")
+        ]
+        self.assertLess(
+            next(index for index, text in enumerate(paragraph_texts) if "Panel Emphasis" in text),
+            next(index for index, text in enumerate(paragraph_texts) if "Main ruled row 1" in text),
+            paragraph_texts,
+        )
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertEqual(semantic_nodes(result, "list"), [])
+
+
+class NumberedHangingDisplayHeadingTests(unittest.TestCase):
+    @staticmethod
+    def _body() -> list[bytes]:
+        return [
+            text_op(
+                72,
+                678,
+                "According to the survey, ordinary explanatory prose follows here.",
+                font="F1",
+                size=11,
+            ),
+            text_op(
+                72,
+                662,
+                "A second body line confirms the regular reading flow.",
+                font="F1",
+                size=11,
+            ),
+            text_op(
+                72,
+                646,
+                "A third body line stabilizes the body font size.",
+                font="F1",
+                size=11,
+            ),
+        ]
+
+    @staticmethod
+    def _node_text(node: SemanticNode) -> str:
+        return "".join(
+            child.text or "" for child in node.walk() if child.kind == "text"
+        )
+
+    def test_numbered_hanging_display_wrap_is_one_provenanced_heading(self) -> None:
+        expected = (
+            "3. Perspective of supply and demand balance of wood pellets and cost "
+            "structure in Japan"
+        )
+        content = b" ".join([
+            # The marker occupies its own field. Both physical title lines begin
+            # at x=100, while the complete semantic heading begins at x=72.
+            text_op(72, 720, "3.", font="F2", size=13),
+            text_op(
+                100,
+                720,
+                "Perspective of supply and demand balance of wood pellets and cost",
+                font="F2",
+                size=13,
+            ),
+            text_op(100, 702, "structure in Japan", font="F2", size=13),
+            *self._body(),
+        ])
+        result = convert(make_pdf([content]))
+
+        headings = semantic_nodes(result, "heading")
+        self.assertEqual(len(headings), 1, result.markdown)
+        heading = headings[0]
+        self.assertEqual(self._node_text(heading), expected)
+        heading_lines = [
+            line for line in result.markdown.splitlines() if line.startswith("#")
+        ]
+        self.assertEqual(len(heading_lines), 1, result.markdown)
+        self.assertTrue(heading_lines[0].endswith(expected), result.markdown)
+        self.assertLess(
+            result.markdown.index(expected),
+            result.markdown.index("According to the survey"),
+        )
+        semantic_order = [
+            node.kind
+            for node in result.semantic.walk()
+            if node.kind in {"heading", "paragraph"}
+        ]
+        self.assertEqual(semantic_order[:2], ["heading", "paragraph"])
+        glyph_ids = {
+            glyph_id
+            for source in heading.sources
+            for glyph_id in source.glyph_ids
+        }
+        self.assertGreaterEqual(
+            len(glyph_ids),
+            len(expected.replace(" ", "")),
+            heading.to_dict(),
+        )
+        self.assertEqual({source.page for source in heading.sources}, {1})
+        self.assertEqual(semantic_nodes(result, "list"), [])
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+
+    def test_ordered_list_hanging_wrap_remains_a_list(self) -> None:
+        content = b" ".join([
+            text_op(72, 720, "3.", font="F2", size=13),
+            text_op(100, 720, "Required supporting documents", font="F2", size=13),
+            text_op(100, 702, "submitted with the application", font="F2", size=13),
+            text_op(72, 678, "4.", font="F2", size=13),
+            text_op(100, 678, "Approval records remain attached", font="F2", size=13),
+            text_op(100, 660, "for final review", font="F2", size=13),
+            text_op(
+                72,
+                630,
+                "Ordinary prose establishes the body size for this fixture.",
+                font="F1",
+                size=11,
+            ),
+            text_op(
+                72,
+                614,
+                "A second ordinary line keeps the body-size mode stable.",
+                font="F1",
+                size=11,
+            ),
+        ])
+        result = convert(make_pdf([content]))
+
+        self.assertEqual(semantic_nodes(result, "heading"), [], result.markdown)
+        lists = semantic_nodes(result, "list")
+        self.assertEqual(len(lists), 1, result.semantic.to_dict())
+        self.assertTrue(lists[0].attrs["ordered"])
+        items = semantic_nodes(result, "item")
+        self.assertEqual([item.attrs["marker"] for item in items], [3, 4])
+        self.assertLess(
+            result.markdown.index("submitted with the application"),
+            result.markdown.index("Approval records remain attached"),
+        )
+        self.assertTrue(all(source.glyph_ids for item in items for source in item.sources))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+    def test_wrapped_numbered_figure_caption_remains_figure_content(self) -> None:
+        content = b" ".join([
+            text_op(
+                72,
+                700,
+                "Figure 3. Perspective of supply and demand balance of wood pellets and cost",
+                font="F1",
+                size=11,
+            ),
+            text_op(126, 684, "structure in Japan", font="F1", size=11),
+            b"q 360 0 0 100 110 560 cm /Im1 Do Q",
+            text_op(
+                72,
+                520,
+                "Ordinary prose follows the preserved figure and its caption.",
+                font="F1",
+                size=11,
+            ),
+            text_op(
+                72,
+                504,
+                "A second body line keeps the document body size stable.",
+                font="F1",
+                size=11,
+            ),
+        ])
+        result = convert(
+            make_pdf(
+                [content],
+                xobjects={"Im1": image_xobject_rgb(2, 2, b"\x33\x66\x99" * 4)},
+            )
+        )
+
+        self.assertEqual(semantic_nodes(result, "heading"), [], result.markdown)
+        figures = semantic_nodes(result, "figure")
+        self.assertEqual(len(figures), 1, result.semantic.to_dict())
+        self.assertIn("Figure 3.", result.markdown)
+        self.assertLess(
+            result.markdown.index("Figure 3."),
+            result.markdown.index("Ordinary prose follows"),
+        )
+        self.assertEqual(semantic_nodes(result, "list"), [])
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+    def test_standalone_chapter_marker_joins_its_display_title(self) -> None:
+        content = b" ".join([
+            text_op(72, 740, "4", font="F2", size=25),
+            text_op(72, 706, "Basis Fields", font="F2", size=17),
+            text_op(72, 660, "Ordinary explanatory prose begins below the title.", size=11),
+            text_op(72, 644, "A second body line stabilizes the document font size.", size=11),
+            text_op(72, 628, "A third body line confirms the governed content block.", size=11),
+        ])
+        result = convert(make_pdf([content]))
+
+        headings = semantic_nodes(result, "heading")
+        self.assertEqual(len(headings), 1, result.markdown)
+        self.assertEqual(self._node_text(headings[0]), "4 Basis Fields")
+        self.assertTrue(all(source.glyph_ids for source in headings[0].sources))
+        self.assertIn('id="4-basis-fields"', result.html)
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+
+    def test_repeated_display_markers_do_not_merge_navigation_peers(self) -> None:
+        content = b" ".join([
+            text_op(72, 740, "1", font="F2", size=25),
+            text_op(72, 706, "Installation", font="F2", size=17),
+            text_op(72, 650, "2", font="F2", size=25),
+            text_op(72, 616, "Configuration", font="F2", size=17),
+            text_op(96, 570, "Ordinary prose uses a deliberately different content margin.", size=11),
+            text_op(96, 554, "A second ordinary line keeps the size mode stable.", size=11),
+        ])
+        result = convert(make_pdf([content]))
+
+        heading_texts = [self._node_text(node) for node in semantic_nodes(result, "heading")]
+        self.assertNotIn("1 Installation", heading_texts)
+        self.assertNotIn("2 Configuration", heading_texts)
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+    def test_numbered_outdented_title_continuation_is_one_heading(self) -> None:
+        expected = (
+            "1. Shipping as a vector for marine species "
+            "List of regional ports is provided in Appendix 3"
+        )
+        content = b" ".join([
+            text_op(90, 720, "1. Shipping as a vector for marine species", font="F2", size=12),
+            text_op(72, 698, "List of regional ports is provided in Appendix 3", font="F2", size=12),
+            text_op(72, 676, "Ordinary prose begins at the full content margin below it.", size=12),
+            text_op(72, 654, "A second body line confirms the producer's regular leading.", size=12),
+            text_op(72, 632, "A third ordinary line stabilizes the body-size mode.", size=12),
+        ])
+        result = convert(make_pdf([content]))
+
+        headings = semantic_nodes(result, "heading")
+        self.assertEqual(len(headings), 1, result.markdown)
+        self.assertEqual(self._node_text(headings[0]), expected)
+        self.assertTrue(all(source.glyph_ids for source in headings[0].sources))
+        self.assertEqual(semantic_nodes(result, "list"), [])
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+    def test_outdented_bold_subtitle_without_governed_margin_stays_separate(self) -> None:
+        content = b" ".join([
+            text_op(90, 720, "1. Shipping policy and operational controls", font="F2", size=12),
+            text_op(72, 698, "Background notes for participating organizations", font="F2", size=12),
+            text_op(108, 676, "Ordinary prose starts on a distinct nested content margin.", size=12),
+            text_op(108, 654, "A second body line confirms that independent margin.", size=12),
+            text_op(108, 632, "A third ordinary line keeps the body-size mode stable.", size=12),
+        ])
+        result = convert(make_pdf([content]))
+
+        heading_texts = [self._node_text(node) for node in semantic_nodes(result, "heading")]
+        self.assertNotIn(
+            "1. Shipping policy and operational controls Background notes for participating organizations",
+            heading_texts,
+        )
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+
+class SideDisplayProseColumnTests(unittest.TestCase):
+    @staticmethod
+    def _right_column() -> list[bytes]:
+        return [
+            text_op(
+                330,
+                740 - index * 20,
+                "Right article row %02d carries ordinary prose." % index,
+                size=10,
+            )
+            for index in range(28)
+        ]
+
+    @staticmethod
+    def _node_text(node: SemanticNode) -> str:
+        return "".join(child.text or "" for child in node.walk() if child.kind == "text")
+
+    def test_display_title_rail_precedes_the_independent_prose_stream(self) -> None:
+        content = b" ".join([
+            text_op(72, 740, "Executive", font="F2", size=30),
+            text_op(72, 700, "Summary", font="F2", size=30),
+            *self._right_column(),
+        ])
+        result = convert(make_pdf([content]))
+
+        headings = semantic_nodes(result, "heading")
+        self.assertEqual(len(headings), 1, result.markdown)
+        self.assertEqual(self._node_text(headings[0]), "Executive Summary")
+        self.assertLess(result.markdown.index("Executive Summary"), result.markdown.index("Right article row 00"))
+        self.assertIn('id="executive-summary"', result.html)
+        self.assertTrue(all(source.glyph_ids for source in headings[0].sources))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+
+    def test_left_prose_rows_veto_the_sparse_title_rail_model(self) -> None:
+        content = b" ".join([
+            text_op(72, 740, "Executive", font="F2", size=30),
+            text_op(72, 700, "Summary", font="F2", size=30),
+            *self._right_column(),
+            text_op(72, 620, "Left card row zero carries prose.", size=10),
+            text_op(72, 600, "Left card row one carries prose.", size=10),
+            text_op(72, 580, "Left card row two carries prose.", size=10),
+        ])
+        result = convert(make_pdf([content]))
+
+        self.assertLess(
+            result.markdown.index("Right article row 00"),
+            result.markdown.index("Left card row zero"),
+            result.markdown,
+        )
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+
+class TriFoldBrochureTests(unittest.TestCase):
+    @staticmethod
+    def _panel_text(x: float, y: float, text: str, *, font: str = "F1", size: float = 11) -> bytes:
+        color = b"1 g " if x < 264 else b"0 g "
+        return color + text_op(x, y, text, font=font, size=size)
+
+    @classmethod
+    def _brochure_pdf(
+        cls,
+        *,
+        complex_background: bool = True,
+        grid_rules: bool = False,
+    ) -> bytes:
+        if complex_background:
+            background = (
+                b"0.08 0.35 0.65 rg 0 0 m 245 0 l 250 35 l 244 70 l "
+                b"250 105 l 244 140 l 250 175 l 244 210 l 250 245 l "
+                b"244 280 l 250 315 l 244 350 l 250 385 l 244 420 l "
+                b"250 455 l 244 490 l 250 525 l 244 560 l 250 612 l "
+                b"0 612 l h f"
+            )
+        else:
+            background = b"0.08 0.35 0.65 rg 0 0 250 612 re f"
+        parts = [
+            background,
+            b"q 100 0 0 100 340 235 cm /ImMiddle Do Q",
+            b"q 100 0 0 150 630 60 cm /ImRight Do Q",
+            cls._panel_text(48, 560, "LOCAL ACTION", font="F2", size=18),
+            cls._panel_text(322, 560, "GARDEN FIELD", font="F2", size=18),
+            cls._panel_text(568, 560, "BUILD COMMUNITY", font="F2", size=18),
+            cls._panel_text(65, 536, "HANDBOOK", font="F2", size=18),
+            cls._panel_text(362, 536, "NOTES", font="F2", size=18),
+            cls._panel_text(650, 536, "&", font="F2", size=18),
+            cls._panel_text(40, 512, "Plan with care", size=11),
+            cls._panel_text(300, 512, "Practical methods", size=11),
+            cls._panel_text(588, 512, "SHARE SKILLS", font="F2", size=18),
+            cls._panel_text(38, 480, "Neighbors shape places.", size=11),
+            cls._panel_text(292, 480, "Soil supports healthy roots.", size=11),
+            cls._panel_text(558, 480, "Skills strengthen a block.", size=11),
+            cls._panel_text(38, 458, "Small steps build trust.", size=11),
+            cls._panel_text(292, 458, "Water carefully each week.", size=11),
+            cls._panel_text(558, 458, "Share tools with friends.", size=11),
+            cls._panel_text(38, 436, "For project leads:", font="F2", size=11),
+            cls._panel_text(292, 436, "Track seasonal changes.", size=11),
+            cls._panel_text(558, 436, "Meet local partners often.", size=11),
+            cls._panel_text(38, 414, "Invite every neighbor.", size=11),
+            cls._panel_text(292, 414, "Record lessons learned.", size=11),
+            cls._panel_text(620, 414, "CC BY-SA, 2024", size=8),
+        ]
+        if grid_rules:
+            parts.extend([
+                line_op(264, 40, 264, 572, width=1),
+                line_op(528, 40, 528, 572, width=1),
+            ])
+        return make_pdf(
+            [b"\n".join(parts)],
+            page_size=(792, 612),
+            xobjects={
+                "ImMiddle": image_xobject_rgb(2, 2, b"\x55\x99\x55" * 4),
+                "ImRight": image_xobject_rgb(2, 2, b"\x99\x77\x44" * 4),
+            },
+        )
+
+    @staticmethod
+    def _node_text(node: SemanticNode) -> str:
+        return "".join(child.text or "" for child in node.walk() if child.kind == "text").strip()
+
+    def test_landscape_brochure_recovers_panel_order_headings_images_and_provenance(self) -> None:
+        result = convert(
+            self._brochure_pdf(),
+            ConvertOptions(assets_dir="assets", image_markup="auto"),
+        )
+
+        headings = [self._node_text(node) for node in semantic_nodes(result, "heading")]
+        self.assertIn("LOCAL ACTION HANDBOOK", headings, result.markdown)
+        self.assertIn("GARDEN FIELD NOTES", headings, result.markdown)
+        self.assertIn("BUILD COMMUNITY & SHARE SKILLS", headings, result.markdown)
+        self.assertIn("For project leads:", headings, result.markdown)
+        self.assertNotIn("CC BY-SA, 2024", headings)
+        self.assertLess(result.markdown.index("Invite every neighbor"), result.markdown.index("GARDEN FIELD NOTES"))
+        self.assertLess(result.markdown.index("Record lessons learned"), result.markdown.index("BUILD COMMUNITY"))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertEqual(semantic_nodes(result, "list"), [])
+
+        images = semantic_nodes(result, "image")
+        self.assertEqual(len(images), 2, result.semantic.to_dict())
+        self.assertTrue(all(image.sources for image in images))
+        self.assertTrue(all(source.object_refs for image in images for source in image.sources))
+        self.assertEqual(len(result.assets), 2)
+        self.assertEqual(result.html.count("<img "), 2)
+        self.assertIn('id="build-community-share-skills"', result.html)
+        self.assertIn("&amp;", result.html)
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+        self.assertFalse(result.report["ocr_used"])
+        self.assertFalse(result.report["image_text_extraction_attempted"])
+        payload = json.loads(_format_payload(result, "json"))
+        self.assertTrue(payload["semantic_document"]["children"])
+        serialized = json.dumps(payload["semantic_document"], sort_keys=True)
+        self.assertIn('"anchor": "build-community-share-skills"', serialized)
+        self.assertIn('"text": "SHARE SKILLS"', serialized)
+        self.assertIn('"kind": "image"', serialized)
+
+    def test_ruled_three_column_dashboard_is_not_classified_as_a_brochure(self) -> None:
+        result = convert(self._brochure_pdf(grid_rules=True))
+
+        headings = [self._node_text(node) for node in semantic_nodes(result, "heading")]
+        self.assertNotIn("For project leads:", headings, result.markdown)
+        self.assertLess(result.markdown.index("GARDEN FIELD"), result.markdown.index("BUILD COMMUNITY"))
+        self.assertLess(result.markdown.index("BUILD COMMUNITY"), result.markdown.index("HANDBOOK"))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+    def test_plain_column_fill_is_insufficient_design_evidence(self) -> None:
+        result = convert(self._brochure_pdf(complex_background=False))
+
+        headings = [self._node_text(node) for node in semantic_nodes(result, "heading")]
+        self.assertNotIn("For project leads:", headings, result.markdown)
+        self.assertNotIn("BUILD COMMUNITY & SHARE SKILLS", headings, result.markdown)
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+
 class HeadingLevelModeTests(unittest.TestCase):
     def _heading_document(self) -> bytes:
         content = b" ".join([
@@ -3528,6 +4382,146 @@ class HeadingLevelModeTests(unittest.TestCase):
     def test_invalid_heading_level_mode_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             convert(self._heading_document(), ConvertOptions(heading_level_mode="H1"))
+
+
+class ArtifactDisplayHeadingRecoveryTests(unittest.TestCase):
+    @staticmethod
+    def _body() -> list[bytes]:
+        return [
+            text_op(72, 650, "The survey describes the participating firms.", size=10),
+            text_op(72, 630, "Responses were grouped by operating profile.", size=10),
+            text_op(72, 610, "Additional observations follow in this section.", size=10),
+        ]
+
+    def test_numbered_artifact_display_title_is_recovered_with_provenance(self) -> None:
+        content = b" ".join([
+            line_op(54, 732, 558, 732, width=0.75),
+            b"/Artifact BMC",
+            text_op(
+                72,
+                700,
+                "2. General Profile of Enterprises",
+                font="F2",
+                size=28,
+            ),
+            b"EMC",
+            line_op(54, 684, 558, 684, width=0.75),
+            *self._body(),
+        ])
+        result = convert(make_pdf([content]))
+
+        headings = semantic_nodes(result, "heading")
+        self.assertEqual(len(headings), 1, result.semantic.to_dict())
+        heading = headings[0]
+        heading_text = "".join(
+            node.text or "" for node in heading.walk() if node.kind == "text"
+        )
+        self.assertEqual(heading_text, "2. General Profile of Enterprises")
+        self.assertTrue(heading.attrs["artifact_text_recovered"])
+        self.assertTrue(heading.attrs["source_marked_artifact"])
+        self.assertEqual(heading.warnings, ["ARTIFACT_TEXT_RECOVERED"])
+        self.assertLessEqual(heading.confidence, 0.86)
+        self.assertTrue(heading.sources)
+        self.assertTrue(heading.sources[0].glyph_ids)
+        evidence = next(
+            item for item in heading.evidence
+            if item.kind == "artifact_text_recovery"
+        )
+        self.assertTrue(evidence.data["source_marked_artifact"])
+        self.assertGreater(evidence.data["glyph_count"], 20)
+        self.assertIn("numbered_display_title", evidence.data["admission_reasons"])
+        self.assertIn("paired_title_rules", evidence.data["admission_reasons"])
+        self.assertIn("# 2. General Profile of Enterprises", result.markdown)
+        self.assertIn("2. General Profile of Enterprises</h1>", result.html)
+        self.assertIn('data-warning-count="1"', result.html)
+        self.assertIn(
+            "ARTIFACT_TEXT_RECOVERED",
+            {warning.code for warning in result.warnings},
+        )
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+        report_heading = next(
+            node for node in result.report["semantic_nodes"]
+            if node["kind"] == "heading"
+        )
+        self.assertEqual(report_heading["warnings"], ["ARTIFACT_TEXT_RECOVERED"])
+        self.assertEqual(
+            next(
+                item for item in report_heading["evidence"]
+                if item["kind"] == "artifact_text_recovery"
+            )["data"]["source_marked_artifact"],
+            True,
+        )
+        self.assertFalse(result.report["ocr_used"])
+        self.assertFalse(result.report["image_text_extraction_attempted"])
+
+    def test_large_artifact_folio_is_not_recovered(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC",
+            text_op(285, 700, "14", font="F2", size=30),
+            b"EMC",
+            *self._body(),
+        ])
+        result = convert(make_pdf([content]))
+        self.assertNotIn("14", result.markdown)
+        self.assertEqual(semantic_nodes(result, "heading"), [])
+        self.assertNotIn(
+            "ARTIFACT_TEXT_RECOVERED",
+            {warning.code for warning in result.warnings},
+        )
+
+    def test_repeated_artifact_running_title_is_not_recovered(self) -> None:
+        page = b" ".join([
+            b"/Artifact BMC",
+            text_op(72, 700, "2. Quarterly Operations Overview", font="F2", size=28),
+            b"EMC",
+            *self._body(),
+        ])
+        result = convert(make_pdf([page, page]))
+        self.assertNotIn("Quarterly Operations Overview", result.markdown)
+        self.assertEqual(semantic_nodes(result, "heading"), [])
+        self.assertNotIn(
+            "ARTIFACT_TEXT_RECOVERED",
+            {warning.code for warning in result.warnings},
+        )
+
+    def test_artifact_logo_in_top_furniture_zone_is_not_recovered(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC",
+            text_op(72, 765, "2. ACME Global Brand", font="F2", size=28),
+            b"EMC",
+            *self._body(),
+        ])
+        result = convert(make_pdf([content]))
+        self.assertNotIn("ACME Global Brand", result.markdown)
+        self.assertEqual(semantic_nodes(result, "heading"), [])
+
+    def test_artifact_chart_label_over_raster_is_not_recovered(self) -> None:
+        content = b" ".join([
+            b"q 220 0 0 90 60 590 cm /Im1 Do Q",
+            b"/Artifact BMC",
+            text_op(82, 635, "2. Quarterly Revenue Growth", font="F2", size=28),
+            b"EMC",
+            text_op(72, 550, "The narrative beneath the chart remains authored text.", size=10),
+            text_op(72, 530, "It describes the measurements without reading the image.", size=10),
+            text_op(72, 510, "The original raster is preserved as a figure.", size=10),
+        ])
+        result = convert(
+            make_pdf(
+                [content],
+                xobjects={
+                    "Im1": image_xobject_rgb(
+                        2,
+                        2,
+                        b"\x33\x66\x99" * 4,
+                    )
+                },
+            )
+        )
+        self.assertNotIn("Quarterly Revenue Growth", result.markdown)
+        self.assertEqual(semantic_nodes(result, "heading"), [])
+        self.assertEqual(len(semantic_nodes(result, "image")), 1)
+        self.assertIn("<img ", result.html)
+        self.assertFalse(result.report["image_text_extraction_attempted"])
 
 
 if __name__ == "__main__":

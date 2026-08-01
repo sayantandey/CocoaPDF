@@ -983,12 +983,13 @@ def _write_review_files(
 				"This directory is the committed, reproducible capability demo. "
 				"Pull-request review artifacts are generated separately and are never written here.",
 				"",
-				"[Browse this revision's side-by-side PDF-to-HTML demo](review.html). GitHub displays "
-				"committed HTML files as source code; same-repository pull requests receive an "
-				"exact commit-pinned rendered link in their description.",
+				"[Open the rendered side-by-side PDF-to-HTML demo from `main`]"
+				"(https://raw.githack.com/sayantandey/CocoaPDF/main/examples/review.html). "
+				"[Browse this revision's committed demo source](review.html). Same-repository pull "
+				"requests receive an exact commit-pinned rendered link in their description.",
 				"",
-				"All links below are revision-relative, so browsing a branch or commit never "
-				"silently opens output from `main`.",
+				"All case and output links below are revision-relative, so browsing a branch or "
+				"commit never silently opens output from `main`.",
 				"",
 				"Full semantic JSON is committed. Report summaries omit only duplicate semantic graphs "
 				"and glyph-heavy internals; the temporary PR artifact retains every full report.",

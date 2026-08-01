@@ -29,7 +29,13 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-from cocoapdf import ConvertOptions, convert_file
+from cocoapdf import ConvertOptions, convert
+
+
+def _write_utf8_lf(path: Path, text: str) -> None:
+    """Write deterministic LF text on every supported Python version."""
+    with path.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(text)
 
 
 class _ODLTableParser(HTMLParser):
@@ -197,12 +203,14 @@ def to_markdown(doc_paths: Iterable[Path], input_path: Path, output_dir: Path) -
         doc_path = Path(doc_path)
         output_file = output_dir / ("%s.md" % doc_path.stem)
         try:
-            result = convert_file(doc_path, ConvertOptions(heading_level_mode="flat"))
-            output_file.write_text(
-                project_for_odl(result.markdown), encoding="utf-8", newline="\n"
-            )
+            # The benchmark consumes Markdown only. Keep conversion in memory so
+            # reference-mode image extraction cannot write an unscored ``assets/``
+            # directory beside the worker process (whose root filesystem is
+            # deliberately read-only).
+            result = convert(doc_path.read_bytes(), ConvertOptions(heading_level_mode="flat"))
+            _write_utf8_lf(output_file, project_for_odl(result.markdown))
         except Exception as exc:  # noqa: BLE001 - keep the corpus complete
-            output_file.write_text("", encoding="utf-8", newline="\n")
+            _write_utf8_lf(output_file, "")
             failures.append(
                 {
                     "document": doc_path.name,
@@ -212,8 +220,4 @@ def to_markdown(doc_paths: Iterable[Path], input_path: Path, output_dir: Path) -
             )
 
     failures_file = output_dir.parent / "failures.json"
-    failures_file.write_text(
-        json.dumps(failures, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-        newline="\n",
-    )
+    _write_utf8_lf(failures_file, json.dumps(failures, indent=2, ensure_ascii=False))

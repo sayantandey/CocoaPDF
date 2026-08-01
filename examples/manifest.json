@@ -2,47 +2,47 @@
   "benchmarks": [
     {
       "benchmark_commit": "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109",
-      "engine_commit": "937c403ed3b265a14db802b2ced36b3819d20b0f",
+      "engine_commit": "59a544a3cfc6e94e72dce4f22f2b334819c818e8",
       "files": {
         "adapter.py": {
-          "bytes": 8286,
-          "sha256": "5e8494171afa13b1341c816fe7726a6f5a75d686783ac5eca63046d3de5d4c91"
+          "bytes": 8646,
+          "sha256": "e6b7ce66c9fa917d5117a2e5aa58ae1ad612ea719930beaa2116266c4d170e63"
         },
         "determinism.json": {
-          "bytes": 909,
-          "sha256": "6887afb4f457ed4cbc8efffaac8b87869235568253cae76872438c54cd389cfd"
+          "bytes": 910,
+          "sha256": "92bd6899ce085ca2c6f74ddca33a6fde0311c14b4991a546f9177f676873c592"
         },
         "evaluation.csv": {
-          "bytes": 18945,
-          "sha256": "d81e63e95ef9c48e1169e053fca971fe2da0729292cc986cb00d3a05b140eaf3"
+          "bytes": 18855,
+          "sha256": "ee3e05798b80e2df29787e705eba12c267490557d029388611c7fc880fe8c62f"
         },
         "evaluation.json": {
-          "bytes": 65304,
-          "sha256": "bde9f4188aed3f50618e700cee8e7fd0ba062c0d6d61c75839b7464c5fc5e4de"
+          "bytes": 65217,
+          "sha256": "753e7e91d7136b75d56409f9eb79e76539613bfaa5fb0586a103aa5a02c3ee77"
         },
         "failures.json": {
           "bytes": 3,
           "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
         },
         "integration.patch": {
-          "bytes": 1825,
-          "sha256": "3007b31bf41111ae8a4f46438fb2e9b4954704b7c67f0f07cb453c0baecf003d"
+          "bytes": 6309,
+          "sha256": "8b7bcedb8004409a1d5d504118315bdbb6cda077376468f638f0ba7c26425d50"
         },
         "prediction-hashes.json": {
-          "bytes": 27186,
-          "sha256": "ae88c3f8602dd7fb8bd70294efd69e8ea3f6bf15263473efb3100312f3f89965"
+          "bytes": 27188,
+          "sha256": "8110ce9e4fe8854c917e9a59dcb9f8cea73cabd4e2d706fc7b68c335043a491e"
         },
         "provenance.json": {
           "bytes": 4637,
-          "sha256": "b2c15228ace18289c78e79f6c922f67ddb6ddc23abc3c9077732bd2dd2cb8275"
+          "sha256": "afcb27dbc90a68d76605500cf2fe0a6a6356a7630603e132a71935f02145cb72"
         },
         "result.json": {
-          "bytes": 960,
-          "sha256": "870416d96628ada2fbc87ad71f317923477ee378711897f0600d94f6152ea7cc"
+          "bytes": 962,
+          "sha256": "f9ac249c6e4454e57b1e8825c843d73d26306ff25677303b7a54dba773d20dc1"
         },
         "summary.json": {
-          "bytes": 261,
-          "sha256": "00fd7f775f3fcecde424d4a14b326a08c14f390d77967593c0a4583c0f2612ec"
+          "bytes": 262,
+          "sha256": "95147656ee1f7d5efea0f9e19db1b0a9f455bdbfc4b2e1c12efa37d405788ca9"
         }
       },
       "id": "opendataloader-bench",
@@ -60,28 +60,28 @@
           "missing_predictions": 0,
           "prediction_files": 200
         },
-        "engine_commit": "937c403ed3b265a14db802b2ced36b3819d20b0f",
+        "engine_commit": "59a544a3cfc6e94e72dce4f22f2b334819c818e8",
         "metrics": {
           "mhs_count": 107,
           "missing_predictions": 0,
           "nid_count": 200,
           "score": {
-            "mhs_mean": 0.8062168834231966,
-            "mhs_s_mean": 0.8889792725141817,
-            "nid_mean": 0.8993297819973527,
-            "nid_s_mean": 0.8822899267742511,
-            "overall_mean": 0.869665721357887,
-            "teds_mean": 0.806184123363159,
-            "teds_s_mean": 0.8110160459149278
+            "mhs_mean": 0.879198902242205,
+            "mhs_s_mean": 0.9415827438092419,
+            "nid_mean": 0.9086028983215642,
+            "nid_s_mean": 0.8897361669169763,
+            "overall_mean": 0.9020490607384589,
+            "teds_mean": 0.9251323350970053,
+            "teds_s_mean": 0.9300636649625469
           },
           "teds_count": 42
         },
         "schema": "cocoapdf.opendataloader-bench-result/v1",
         "speed": {
           "document_count": 200,
-          "elapsed_per_doc": 0.795267196893692,
+          "elapsed_per_doc": 1.020426423549652,
           "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
-          "total_elapsed": 159.0534393787384
+          "total_elapsed": 204.08528470993042
         }
       },
       "source_content_redistributed": false
@@ -117,8 +117,8 @@
               "sha256": "dcfdc573b87f61aaec466ca0a0c4771725a675b379ef41b90e3481036a863a59"
             },
             "output.json": {
-              "bytes": 2153319,
-              "sha256": "ec058cb67a7f761280956a6015b2034fac7d844f6c67e2097fd35fb341e07896"
+              "bytes": 2153412,
+              "sha256": "fc82c386780cb8f7c9b756e35bb0ab328aa0e9e6979fd9f344405e1bdf24405d"
             },
             "output.md": {
               "bytes": 20183,
@@ -221,8 +221,8 @@
               "sha256": "4bd3c40c17718e52742662e88ceba2c472d2097d08ba05bad28bb4102a61200e"
             },
             "output.json": {
-              "bytes": 91880,
-              "sha256": "45e90e6757b54fd52e82fb64df3101dc08b9fcf28cc2b85fe8e5b4f7508f877f"
+              "bytes": 91895,
+              "sha256": "dbd81d7859c511f8e2b100b70170f26483ecc0aead375ab0c812fc659c96d68b"
             },
             "output.md": {
               "bytes": 1015,
@@ -256,8 +256,8 @@
               "sha256": "511fde3fbe48a020dae77559b2b16ce8af745a3869ae59f1cfd6072a5fb6bbde"
             },
             "output.json": {
-              "bytes": 77009,
-              "sha256": "ee21f12a731a42d52f66424ffd228138135ade40561d5403e1a4a0c7e5b26c11"
+              "bytes": 77024,
+              "sha256": "8bb87508462021524bb4d167878554031dbaba07d9f8b1fed5d13f1849563859"
             },
             "output.md": {
               "bytes": 822,
@@ -303,7 +303,7 @@
     "reason": "Page concatenation would alter document-global evidence and weaken failure attribution."
   },
   "generator": "validation/pr_visual/build.py",
-  "generator_sha256": "ef8a91c70a241205065b7621de1e08e6b32e3b44dbe7ad1a50d39d2a56f57a5d",
+  "generator_sha256": "dd6f21ac31dc316cfdb9048b41b77644e759d108964ef989cbb0ce41f87faff6",
   "head_commit": null,
   "license": {
     "file": "LICENSE.txt",

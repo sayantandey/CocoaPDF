@@ -7,9 +7,9 @@ The three PDFs are intentionally isolated: Tagged-PDF structure trees, AcroForm 
 
 This directory is the committed, reproducible capability demo. Pull-request review artifacts are generated separately and are never written here.
 
-[Browse this revision's side-by-side PDF-to-HTML demo](review.html). GitHub displays committed HTML files as source code; same-repository pull requests receive an exact commit-pinned rendered link in their description.
+[Open the rendered side-by-side PDF-to-HTML demo from `main`](https://raw.githack.com/sayantandey/CocoaPDF/main/examples/review.html). [Browse this revision's committed demo source](review.html). Same-repository pull requests receive an exact commit-pinned rendered link in their description.
 
-All links below are revision-relative, so browsing a branch or commit never silently opens output from `main`.
+All case and output links below are revision-relative, so browsing a branch or commit never silently opens output from `main`.
 
 Full semantic JSON is committed. Report summaries omit only duplicate semantic graphs and glyph-heavy internals; the temporary PR artifact retains every full report.
 
@@ -21,24 +21,24 @@ Full semantic JSON is committed. Report summaries omit only duplicate semantic g
 
 ## OpenDataLoader-Bench results
 
-CocoaPDF `0.1.0` at [`937c403e`](https://github.com/sayantandey/CocoaPDF/commit/937c403ed3b265a14db802b2ced36b3819d20b0f) was evaluated on all 200 PDFs using [OpenDataLoader-Bench at `7af1d8f4`](https://github.com/opendataloader-project/opendataloader-bench/tree/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109). The benchmark is Apache-2.0 and identifies its DP-Bench corpus as MIT; no source PDFs, ground truth, or predicted Markdown are redistributed here.
+CocoaPDF `0.1.0` at [`59a544a3`](https://github.com/sayantandey/CocoaPDF/commit/59a544a3cfc6e94e72dce4f22f2b334819c818e8) was evaluated on all 200 PDFs using [OpenDataLoader-Bench at `7af1d8f4`](https://github.com/opendataloader-project/opendataloader-bench/tree/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109). The benchmark is Apache-2.0 and identifies its DP-Bench corpus as MIT; no source PDFs, ground truth, or predicted Markdown are redistributed here.
 
 | Metric | Mean | Eligible documents |
 | --- | ---: | ---: |
-| Overall document-macro score | `0.8696657214` | 200 |
-| NID | `0.8993297820` | 200 |
-| NID-S (tables removed) | `0.8822899268` | 200 |
-| TEDS | `0.8061841234` | 42 |
-| TEDS-S (structure only) | `0.8110160459` | 42 |
-| MHS | `0.8062168834` | 107 |
-| MHS-S (structure only) | `0.8889792725` | 107 |
+| Overall document-macro score | `0.9020490607` | 200 |
+| NID | `0.9086028983` | 200 |
+| NID-S (tables removed) | `0.8897361669` | 200 |
+| TEDS | `0.9251323351` | 42 |
+| TEDS-S (structure only) | `0.9300636650` | 42 |
+| MHS | `0.8791989022` | 107 |
+| MHS-S (structure only) | `0.9415827438` | 107 |
 
 Completeness: **200 evaluated, 200 prediction files, 0 missing, 0 empty, 0 conversion failures**.
 
-Two clean full runs took **175.055502** and **159.053439 seconds total** (**0.875278** and **0.795267 seconds/document**) on `Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz`, Windows 10 build 19045, CPython 3.13.14, uv 0.12.0, and 25.59 GB physical memory. This hardware-bound time covers CocoaPDF's complete default conversion, including semantic HTML generation, although this benchmark scores Markdown only.
+Two clean full runs took **172.049105** and **204.085285 seconds total** (**0.860246** and **1.020426 seconds/document**) on `Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz`, Windows 10 build 19045, CPython 3.13.14, uv 0.12.0, and 25.59 GB physical memory. This hardware-bound time covers CocoaPDF's complete default conversion, including semantic HTML generation, although this benchmark scores Markdown only.
 
 Raw evidence: [exact result](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/result.json), [evaluation JSON](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/evaluation.json), [evaluation CSV](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/evaluation.csv), [timing summary](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/summary.json), [provenance](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/provenance.json), [prediction hashes](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/prediction-hashes.json), [two-run determinism](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/determinism.json), [adapter](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/adapter.py), and [integration patch](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/integration.patch).
 
-> Scope: this table pins commit [`937c403e`](https://github.com/sayantandey/CocoaPDF/commit/937c403ed3b265a14db802b2ced36b3819d20b0f) and is regenerated only by importing a fresh run of that exact tree, which `tools/import_opendataloader_benchmark.py` verifies by tree hash. It therefore does not describe uncommitted work. A measurement of the current working tree, whenever it differs, belongs in [`validation/benchmarks/opendataloader_bench/RESULTS.md`](../validation/benchmarks/opendataloader_bench/RESULTS.md) and must never be published under this commit's identifier.
+> Scope: this table pins commit [`59a544a3`](https://github.com/sayantandey/CocoaPDF/commit/59a544a3cfc6e94e72dce4f22f2b334819c818e8) and is regenerated only by importing a fresh run of that exact tree, which `tools/import_opendataloader_benchmark.py` verifies by tree hash. It therefore does not describe uncommitted work. A measurement of the current working tree, whenever it differs, belongs in [`validation/benchmarks/opendataloader_bench/RESULTS.md`](../validation/benchmarks/opendataloader_bench/RESULTS.md) and must never be published under this commit's identifier.
 
 > Interpretation limits: NID is a whitespace-normalized Markdown text/order proxy; TEDS concatenates every extracted table into one synthetic comparison per eligible document; and this benchmark's MHS implementation flattens heading levels, so it measures heading boundaries/text rather than true hierarchy depth. `overall_mean` is the mean of per-document available metrics, not the mean of the three aggregate metric means. These numbers do not measure CocoaPDF's HTML fidelity. The upstream chart is not included because it relabels seconds/document as seconds/page and hardcodes different hardware.

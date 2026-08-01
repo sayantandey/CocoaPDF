@@ -5,11 +5,11 @@ index ecfc7a5..b8929f3 100644
 @@ -10,0 +11 @@
 +| CocoaPDF                  | 0.1.0       | MIT                                                          |
 diff --git a/pyproject.toml b/pyproject.toml
-index 1f9f730..dee94e3 100644
+index 1f9f730..644551d 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -21,0 +22 @@ dev = ["pytest>=9.0.3"]
-+cocoapdf = ["cocoapdf @ git+https://github.com/sayantandey/CocoaPDF.git@937c403ed3b265a14db802b2ced36b3819d20b0f"]
++cocoapdf = ["cocoapdf @ git+https://github.com/sayantandey/CocoaPDF.git@59a544a3cfc6e94e72dce4f22f2b334819c818e8"]
 @@ -50,0 +52,3 @@ constraint-dependencies = [
 +
 +[tool.hatch.metadata]
@@ -23,21 +23,102 @@ index 721c94e..465eef9 100644
 @@ -48,0 +50 @@ _ENGINE_MODULES: Dict[str, str] = {
 +    "cocoapdf": "pdf_parser_cocoapdf",
 diff --git a/uv.lock b/uv.lock
-index 0e7fbe1..a9176d2 100644
+index 0e7fbe1..27e4bb1 100644
 --- a/uv.lock
 +++ b/uv.lock
 @@ -226,0 +227,5 @@ wheels = [
 +[[package]]
 +name = "cocoapdf"
 +version = "0.1.0"
-+source = { git = "https://github.com/sayantandey/CocoaPDF.git?rev=937c403ed3b265a14db802b2ced36b3819d20b0f#937c403ed3b265a14db802b2ced36b3819d20b0f" }
++source = { git = "https://github.com/sayantandey/CocoaPDF.git?rev=59a544a3cfc6e94e72dce4f22f2b334819c818e8#59a544a3cfc6e94e72dce4f22f2b334819c818e8" }
 +
+@@ -373 +378 @@ dependencies = [
+-    { name = "cuda-pathfinder", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
++    { name = "cuda-pathfinder" },
+@@ -402 +407 @@ cublas = [
+-    { name = "nvidia-cublas", marker = "sys_platform == 'linux'" },
++    { name = "nvidia-cublas" },
+@@ -405 +410 @@ cudart = [
+-    { name = "nvidia-cuda-runtime", marker = "sys_platform == 'linux'" },
++    { name = "nvidia-cuda-runtime" },
+@@ -408 +413 @@ cufft = [
+-    { name = "nvidia-cufft", marker = "sys_platform == 'linux'" },
++    { name = "nvidia-cufft" },
+@@ -411 +416 @@ cufile = [
+-    { name = "nvidia-cufile", marker = "sys_platform == 'linux'" },
++    { name = "nvidia-cufile" },
+@@ -414 +419 @@ cupti = [
+-    { name = "nvidia-cuda-cupti", marker = "sys_platform == 'linux'" },
++    { name = "nvidia-cuda-cupti" },
+@@ -417 +422 @@ curand = [
+-    { name = "nvidia-curand", marker = "sys_platform == 'linux'" },
++    { name = "nvidia-curand" },
+@@ -420 +425 @@ cusolver = [
+-    { name = "nvidia-cusolver", marker = "sys_platform == 'linux'" },
++    { name = "nvidia-cusolver" },
+@@ -423 +428 @@ cusparse = [
+-    { name = "nvidia-cusparse", marker = "sys_platform == 'linux'" },
++    { name = "nvidia-cusparse" },
+@@ -426 +431 @@ nvjitlink = [
+-    { name = "nvidia-nvjitlink", marker = "sys_platform == 'linux'" },
++    { name = "nvidia-nvjitlink" },
+@@ -429 +434 @@ nvrtc = [
+-    { name = "nvidia-cuda-nvrtc", marker = "sys_platform == 'linux'" },
++    { name = "nvidia-cuda-nvrtc" },
+@@ -432 +437 @@ nvtx = [
+-    { name = "nvidia-nvtx", marker = "sys_platform == 'linux'" },
++    { name = "nvidia-nvtx" },
+@@ -1434 +1439 @@ dependencies = [
+-    { name = "nvidia-cublas", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
++    { name = "nvidia-cublas" },
+@@ -1446 +1451 @@ dependencies = [
+-    { name = "nvidia-nvjitlink", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
++    { name = "nvidia-nvjitlink" },
+@@ -1476,3 +1481,3 @@ dependencies = [
+-    { name = "nvidia-cublas", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+-    { name = "nvidia-cusparse", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+-    { name = "nvidia-nvjitlink", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
++    { name = "nvidia-cublas" },
++    { name = "nvidia-cusparse" },
++    { name = "nvidia-nvjitlink" },
+@@ -1490 +1495 @@ dependencies = [
+-    { name = "nvidia-nvjitlink", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
++    { name = "nvidia-nvjitlink" },
+@@ -1547,3 +1552,3 @@ dependencies = [
+-    { name = "click", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+-    { name = "pillow", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+-    { name = "pyobjc-framework-vision", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
++    { name = "click" },
++    { name = "pillow" },
++    { name = "pyobjc-framework-vision" },
 @@ -1648,0 +1654,3 @@ all-safe = [
 +cocoapdf = [
 +    { name = "cocoapdf" },
 +]
 @@ -1671,0 +1680 @@ requires-dist = [
-+    { name = "cocoapdf", marker = "extra == 'cocoapdf'", git = "https://github.com/sayantandey/CocoaPDF.git?rev=937c403ed3b265a14db802b2ced36b3819d20b0f" },
++    { name = "cocoapdf", marker = "extra == 'cocoapdf'", git = "https://github.com/sayantandey/CocoaPDF.git?rev=59a544a3cfc6e94e72dce4f22f2b334819c818e8" },
 @@ -1690 +1699 @@ requires-dist = [
 -provides-extras = ["dev", "opendataloader", "docling", "markitdown", "edgeparse", "liteparse", "all-safe"]
 +provides-extras = ["dev", "cocoapdf", "opendataloader", "docling", "markitdown", "edgeparse", "liteparse", "all-safe"]
+@@ -2091 +2100 @@ dependencies = [
+-    { name = "pyobjc-core", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
++    { name = "pyobjc-core" },
+@@ -2106,2 +2115,2 @@ dependencies = [
+-    { name = "pyobjc-core", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+-    { name = "pyobjc-framework-cocoa", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
++    { name = "pyobjc-core" },
++    { name = "pyobjc-framework-cocoa" },
+@@ -2122,2 +2131,2 @@ dependencies = [
+-    { name = "pyobjc-core", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+-    { name = "pyobjc-framework-cocoa", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
++    { name = "pyobjc-core" },
++    { name = "pyobjc-framework-cocoa" },
+@@ -2138,4 +2147,4 @@ dependencies = [
+-    { name = "pyobjc-core", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+-    { name = "pyobjc-framework-cocoa", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+-    { name = "pyobjc-framework-coreml", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+-    { name = "pyobjc-framework-quartz", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
++    { name = "pyobjc-core" },
++    { name = "pyobjc-framework-cocoa" },
++    { name = "pyobjc-framework-coreml" },
++    { name = "pyobjc-framework-quartz" },

@@ -22,8 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK_REPOSITORY = "https://github.com/opendataloader-project/opendataloader-bench"
 ENGINE_REPOSITORY = "https://github.com/sayantandey/CocoaPDF"
 EXPECTED_BENCHMARK_COMMIT = "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109"
-EXPECTED_ENGINE_COMMIT = "937c403ed3b265a14db802b2ced36b3819d20b0f"
-EXPECTED_ENGINE_TREE = "f01a809b4e4c48d17716be2ac510e67b66b6ff28"
+EXPECTED_ENGINE_COMMIT = "59a544a3cfc6e94e72dce4f22f2b334819c818e8"
+EXPECTED_ENGINE_TREE = "4ff2dda282ed2e530478851e1a4dc1b8c04c853a"
 EXPECTED_COUNTS = {
 	"document_count": 200,
 	"nid_count": 200,
@@ -474,7 +474,7 @@ def import_result(
 				"date": summary["date"],
 				"full_command": (
 					"uv run --locked --offline --extra cocoapdf --no-sync python "
-					"src/run.py --engine cocoapdf --force --history-date 260801 "
+					f"src/run.py --engine cocoapdf --force --history-date {archive_date} "
 					"--history-overwrite"
 				),
 				"full_run_count": 2,

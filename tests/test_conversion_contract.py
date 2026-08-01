@@ -117,6 +117,7 @@ class V14FixtureTests(unittest.TestCase):
 			cls.pdf_path,
 			ConvertOptions(
 				assets_dir=cls.asset_tmp.name,
+				asset_reference_dir="assets",
 				image_markup="auto",
 			),
 		)
@@ -354,6 +355,21 @@ class V14FixtureTests(unittest.TestCase):
 		self.assertTrue(raster_nodes[0].sources)
 		self.assertTrue(all(not source.glyph_ids for source in raster_nodes[0].sources))
 		self.assertFalse(raster_nodes[0].attrs.get("text_extraction_attempted"))
+		raster_asset_names = [
+			name for name in self.result.assets
+			if name.startswith("img-") and name.endswith(".png")
+		]
+		self.assertEqual(len(raster_asset_names), 1)
+		asset_name = raster_asset_names[0]
+		asset_source = raster_nodes[0].attrs["src"]
+		self.assertTrue(asset_source.replace("\\", "/").endswith("/" + asset_name))
+		self.assertIn('src="%s"' % asset_source, self.result.html)
+		self.assertEqual(self.result.html.count('src="%s"' % asset_source), 1)
+		self.assertTrue(self.result.assets[asset_name].startswith(b"\x89PNG\r\n\x1a\n"))
+		self.assertEqual(
+			self.result.report["output_derivation"]["html"],
+			"semantic_graph",
+		)
 		self.assertIn(
 			"VECTOR_FIGURE_APPROXIMATE",
 			{warning.code for warning in self.result.warnings},
