@@ -56,6 +56,7 @@ MAX_ARTIFACT_TOTAL_BYTES = 5 * 1024 * 1024
 MAX_PREDICTION_FILE_BYTES = 256 * 1024
 MAX_PREDICTION_TOTAL_BYTES = 8 * 1024 * 1024
 MAX_CANDIDATE_ARTIFACT_BYTES = 12 * 1024 * 1024
+MAX_BOUNDARY_FILE_BYTES = 1024 * 1024
 PRIVILEGED_BOUNDARY_PATHS = (
 	".github/workflows/opendataloader-benchmark.yml",
 	".github/workflows/opendataloader-report.yml",
@@ -167,6 +168,21 @@ def load_policy(path: Path = DEFAULT_POLICY) -> Dict[str, Any]:
 	_require(isinstance(baseline_scores, dict), "baseline scores must be an object")
 	for name in primary:
 		_finite_number(baseline_scores.get(name), "baseline.%s" % name)
+	worker = policy.get("worker")
+	_require(isinstance(worker, dict), "policy worker must be an object")
+	_require(
+		set(worker) == {"commit", "path", "repository"},
+		"unexpected worker policy fields",
+	)
+	_require(
+		isinstance(worker.get("commit"), str) and COMMIT_SHA.fullmatch(worker["commit"]) is not None,
+		"invalid worker commit",
+	)
+	_require(
+		worker.get("repository") == "sayantandey/CocoaPDF"
+		and worker.get("path") == ".github/workflows/opendataloader-worker.yml",
+		"unexpected worker identity",
+	)
 	return policy
 
 
@@ -341,6 +357,11 @@ def verify_privileged_boundary_ref(
 			entry.get("type") == "blob" and entry.get("mode") in {"100644", "100755"},
 			"candidate boundary is not a regular file: %s" % relative,
 		)
+		trusted_content = trusted.read_bytes()
+		_require(
+			entry.get("size") == len(trusted_content) <= MAX_BOUNDARY_FILE_BYTES,
+			"candidate boundary size mismatch: %s" % relative,
+		)
 		blob_sha = entry.get("sha")
 		_require(isinstance(blob_sha, str) and COMMIT_SHA.fullmatch(blob_sha) is not None, "invalid boundary blob SHA")
 		blob = getter("/repos/%s/git/blobs/%s" % (repository, blob_sha))
@@ -351,7 +372,7 @@ def verify_privileged_boundary_ref(
 		except (ValueError, TypeError) as exc:
 			raise BenchmarkValidationError("invalid boundary blob content") from exc
 		_require(blob.get("size") == len(content), "boundary blob size mismatch")
-		_require(content == trusted.read_bytes(), "candidate changed privileged boundary: %s" % relative)
+		_require(content == trusted_content, "candidate changed privileged boundary: %s" % relative)
 
 
 def candidate_artifact_name(context: Mapping[str, Any]) -> str:
@@ -368,14 +389,52 @@ def verify_candidate_artifact_metadata(
 	context_path: Path,
 	token: str,
 	*,
+	policy: Optional[Mapping[str, Any]] = None,
 	api_get: Optional[Callable[[str], Any]] = None,
 ) -> Mapping[str, Any]:
 	"""Authenticate and bound the prediction archive before extraction."""
 
 	context = load_run_context(context_path)
+	policy = load_policy() if policy is None else policy
 	_require(bool(token), "GitHub artifact token is missing")
 	getter = api_get if api_get is not None else lambda endpoint: _github_api_json(endpoint, token)
 	run_id = context["run"]["id"]
+	run = getter("/repos/sayantandey/CocoaPDF/actions/runs/%s" % run_id)
+	_require(isinstance(run, dict) and run.get("id") == run_id, "candidate workflow run identity mismatch")
+	_require(run.get("run_attempt") == context["run"]["attempt"], "candidate workflow attempt mismatch")
+	_require(run.get("name") == context["workflow"]["name"], "candidate workflow name mismatch")
+	_require(
+		str(run.get("path", "")).split("@", 1)[0] == context["workflow"]["path"],
+		"candidate workflow path mismatch",
+	)
+	_require(
+		run.get("event") == context["run"]["event"]
+		and run.get("head_sha") == context["candidate"]["head_sha"]
+		and run.get("conclusion") == "success",
+		"candidate workflow execution identity mismatch",
+	)
+	head_repository = run.get("head_repository")
+	_require(
+		isinstance(head_repository, dict)
+		and head_repository.get("full_name") == context["candidate"]["head_repository"],
+		"candidate workflow repository mismatch",
+	)
+	worker = policy["worker"]
+	expected_worker_path = "%s/%s@%s" % (
+		worker["repository"],
+		worker["path"],
+		worker["commit"],
+	)
+	referenced = run.get("referenced_workflows")
+	_require(isinstance(referenced, list), "candidate workflow references are missing")
+	matches = [
+		item
+		for item in referenced
+		if isinstance(item, dict)
+		and item.get("path") == expected_worker_path
+		and item.get("sha") == worker["commit"]
+	]
+	_require(len(matches) == 1, "candidate workflow did not use the pinned worker")
 	payload = getter(
 		"/repos/sayantandey/CocoaPDF/actions/runs/%s/artifacts?per_page=100" % run_id
 	)
@@ -520,7 +579,12 @@ def download_candidate_artifact(
 	archive_get: Optional[Callable[[str, str, int], bytes]] = None,
 ) -> Mapping[str, Any]:
 	policy = load_policy()
-	artifact = verify_candidate_artifact_metadata(context_path, token, api_get=api_get)
+	artifact = verify_candidate_artifact_metadata(
+		context_path,
+		token,
+		policy=policy,
+		api_get=api_get,
+	)
 	archive_url = artifact.get("archive_download_url")
 	_require(isinstance(archive_url, str), "candidate artifact download URL is missing")
 	getter = archive_get if archive_get is not None else _github_archive_bytes
@@ -941,6 +1005,7 @@ def score_predictions(args: argparse.Namespace) -> bool:
 			"head_sha": context["candidate"]["head_sha"],
 			"tested_sha": context["candidate"]["head_sha"],
 			"trusted_harness_sha": context["trusted_harness_sha"],
+			"worker_sha": policy["worker"]["commit"],
 		},
 		"gate": gate,
 		"metrics": evaluation["metrics"],
@@ -1033,15 +1098,16 @@ def validate_artifact_directory(artifact_root: Path, policy: Mapping[str, Any]) 
 	engine = result.get("engine")
 	_require(isinstance(engine, dict), "result engine must be an object")
 	_require(
-		set(engine) == {"adapter_sha256", "head_sha", "tested_sha", "trusted_harness_sha"},
+		set(engine) == {"adapter_sha256", "head_sha", "tested_sha", "trusted_harness_sha", "worker_sha"},
 		"unexpected result engine fields",
 	)
 	_require(engine.get("adapter_sha256") == policy["adapter"]["sha256"], "result adapter hash mismatch")
-	for name in ("head_sha", "tested_sha", "trusted_harness_sha"):
+	for name in ("head_sha", "tested_sha", "trusted_harness_sha", "worker_sha"):
 		_require(isinstance(engine.get(name), str) and COMMIT_SHA.fullmatch(engine[name]) is not None, "invalid engine %s" % name)
 	_require(engine["head_sha"] == engine["tested_sha"], "tested and candidate SHAs differ")
 	_require(engine["head_sha"] == context["candidate"]["head_sha"], "result/context candidate SHA mismatch")
 	_require(engine["trusted_harness_sha"] == context["trusted_harness_sha"], "result/context harness SHA mismatch")
+	_require(engine["worker_sha"] == policy["worker"]["commit"], "result worker SHA mismatch")
 	completeness = result.get("completeness")
 	_require(isinstance(completeness, dict), "result completeness must be an object")
 	_require(

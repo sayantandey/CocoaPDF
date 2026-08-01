@@ -545,6 +545,7 @@ def badge_provenance_document(
 			"attempt": trusted_run_attempt,
 			"run_id": trusted_run_id,
 		},
+		"worker_sha": policy["worker"]["commit"],
 	}
 
 

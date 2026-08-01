@@ -54,5 +54,10 @@
     "nid_count": 200,
     "teds_count": 42
   },
-  "schema": "cocoapdf.opendataloader-ci-policy/v1"
+  "schema": "cocoapdf.opendataloader-ci-policy/v1",
+  "worker": {
+    "commit": "be0fa9822aa968860ffa04d49629711b475d8d9c",
+    "path": ".github/workflows/opendataloader-worker.yml",
+    "repository": "sayantandey/CocoaPDF"
+  }
 }

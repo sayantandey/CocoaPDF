@@ -71,15 +71,28 @@ the failure count, and the runtime with any published number.
 
 ## Pull-request and main-branch gate
 
-`.github/workflows/opendataloader-benchmark.yml` is intentionally only a
-read-only trigger. A completed run starts `opendataloader-report.yml`, whose
-code is loaded from the default branch. That trusted workflow checks out the
-exact candidate SHA as data, mounts only its checkout and the verified PDFs
-read-only, and runs the canonical adapter in a pinned Python container with no
-network, token, capabilities, writable root, or access to ground truth. The
-prediction mount is a 64 MiB/4096-inode tmpfs. After the container stops, the
-trusted host rejects links, unexpected paths/files, non-UTF-8 data, and size or
-count violations, then runs the hash-pinned evaluator.
+`.github/workflows/opendataloader-benchmark.yml` delegates to
+`opendataloader-worker.yml` at the immutable commit recorded in `policy.json`.
+The caller and worker have read-only repository permissions. The worker checks
+out that exact harness commit and the exact candidate SHA separately, restores
+the immutable PDF cache without ever saving from a pull request, and runs only
+the candidate source in a pinned container with no network, token,
+capabilities, writable root, or access to the evaluator or ground truth. Its
+64 MiB/4096-inode output tmpfs is reduced to an exact 200-file, size-bounded
+prediction artifact before upload.
+
+A completed run starts `opendataloader-report.yml`, whose definition and code
+come only from the default branch. It never checks out or executes the
+candidate. For pull requests it compares every protected caller/worker,
+adapter, policy, and reporter blob through the Git API. It also authenticates
+the upstream run and immutable reusable-worker SHA. A trusted downloader first
+bounds the archive metadata, then verifies the downloaded archive digest and
+extracts only regular allowlisted paths into a 16 MiB/512-inode tmpfs; path
+traversal, links, duplicates, unsupported compression, invalid UTF-8, wrong
+IDs/counts, and per-file/total expansion limits fail closed. Only then does the
+hash-pinned evaluator read the predictions. The verified corpus cache is saved
+only by the trusted reporter for a successful `main` run, before any candidate
+artifact is downloaded.
 
 The authoritative check is `ODL 200 / trusted gate`. It requires all 200
 predictions, zero failures/missing/empty outputs, overall `>= 0.800`, and no
@@ -87,10 +100,11 @@ regression greater than `0.001` in overall, NID, TEDS, or MHS relative to the
 published `0.869665721357887` baseline. It also enforces independent `0.80`
 floors for NID, TEDS, and MHS. A separate least-privilege writer
 updates the informational PR block, or publishes the fixed-path main badge.
-Before a current-main run starts, the badge is changed to red `unverified`, so
-a cancelled or broken evaluation cannot leave the previous green score looking
-current. The retained evidence contains only scores, hashes, and
-provenance—not PDFs, ground truth, or predicted Markdown.
+The `workflow_run.requested` event changes the current-main badge to red
+`unverified` before conversion starts, so a cancelled or broken conversion or
+evaluation cannot leave the previous green score looking current. The retained
+evidence contains only scores, hashes, and provenance—not PDFs, ground truth,
+or predicted Markdown.
 The Shields endpoint remains a minimal custom-endpoint document; tested SHA,
 UTC publication time, trigger/reporter run identities, benchmark identity, and
 full scores are published separately at
@@ -98,9 +112,12 @@ full scores are published separately at
 on the fixed `odl-badge` branch.
 
 Because GitHub runs a `workflow_run` definition from the default branch, this
-gate begins operating only after these workflow files are first merged. Branch
-protection should then require exactly `ODL 200 / trusted gate`; deleting or
-renaming the read-only trigger leaves that check absent rather than bypassed.
+gate begins operating only after these workflow files are first merged. Enable
+protection only after observing the first successful `main` report. Prefer a
+ruleset-required workflow or a dedicated check-publishing GitHub App over a
+name-only required check: another workflow from the same GitHub Actions App can
+otherwise imitate a check name. Keep the caller, immutable worker pin, and
+reporter paths owner-reviewed and admin-enforced.
 
 This is a public-corpus regression gate, not proof against a deliberately
 dishonest submission. Isolation prevents candidate code from fetching ground

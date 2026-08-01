@@ -7,9 +7,9 @@ on:
   push:
     branches: [main]
 
-# Candidate code runs here with read-only repository permissions. The only
-# output crossing into the default-branch workflow_run is a bounded prediction
-# artifact; scoring and all writes happen in opendataloader-report.yml.
+# Candidate execution is delegated to an immutable, read-only worker. The
+# default-branch workflow_run independently authenticates that worker SHA before
+# accepting its bounded prediction artifact.
 permissions:
   contents: read
 
@@ -17,153 +17,13 @@ concurrency:
   group: opendataloader-candidate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  ODL_CACHE_KEY: odl-corpus-linux-v1-7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109-23db64a86a6d103797d10e74c48d79a3c49fc42b7c44f5e1b07076eae0eec0b4
-  ODL_PYTHON_IMAGE: python@sha256:dd86541a59b252667f4c12f8b2ee17216de37dd65ac773bf097bef996fa78860
-
 jobs:
   convert:
-    name: Convert pinned ODL corpus
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    name: Convert pinned 200-PDF corpus
     permissions:
       contents: read
-    env:
-      CANDIDATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-    steps:
-      - name: Check out the exact candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.CANDIDATE_REPOSITORY }}
-          ref: ${{ env.CANDIDATE_SHA }}
-          path: candidate
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Authenticate the candidate checkout
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$(git -C candidate rev-parse --is-inside-work-tree)" == "true" ]]
-          [[ "$(git -C candidate rev-parse HEAD)" == "${CANDIDATE_SHA}" ]]
-          [[ -d "${GITHUB_WORKSPACE}/candidate/src" ]]
-          [[ ! -L "${GITHUB_WORKSPACE}/candidate/src" ]]
-
-      - name: Restore immutable PDF corpus
-        id: corpus-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/cocoapdf-odl-corpus/pdfs
-          key: ${{ env.ODL_CACHE_KEY }}
-
-      - name: Fetch pinned PDFs on a cache miss
-        if: steps.corpus-cache.outputs.cache-hit != 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: opendataloader-project/opendataloader-bench
-          ref: 7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109
-          path: _odl-corpus-source
-          persist-credentials: false
-          sparse-checkout: pdfs
-          sparse-checkout-cone-mode: true
-
-      - name: Materialize cache-miss corpus
-        if: steps.corpus-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/cocoapdf-odl-corpus/pdfs"
-          cp -a _odl-corpus-source/pdfs/. "${RUNNER_TEMP}/cocoapdf-odl-corpus/pdfs/"
-
-      - name: Verify and convert without network, privilege, evaluator, or ground truth
-        shell: bash
-        run: |
-          set -euo pipefail
-          raw="${RUNNER_TEMP}/cocoapdf-odl-work/raw/cocoapdf"
-          staged="${RUNNER_TEMP}/cocoapdf-odl-candidate"
-          mkdir -p "${raw}" "${staged}"
-          sudo mount -t tmpfs \
-            -o size=64m,nr_inodes=4096,nodev,nosuid,noexec,mode=0700 \
-            tmpfs "${raw}"
-          sudo chown "$(id -u):$(id -g)" "${raw}"
-          docker pull --platform linux/amd64 "${ODL_PYTHON_IMAGE}"
-          docker run --rm --platform linux/amd64 \
-            --network none \
-            --read-only \
-            --cap-drop ALL \
-            --security-opt no-new-privileges \
-            --pids-limit 32 \
-            --memory 256m \
-            --cpus 1 \
-            --user "$(id -u):$(id -g)" \
-            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
-            --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/candidate,readonly" \
-            --mount "type=bind,src=${RUNNER_TEMP}/cocoapdf-odl-corpus,dst=/corpus,readonly" \
-            "${ODL_PYTHON_IMAGE}" \
-            python /candidate/validation/benchmarks/opendataloader_bench/ci_runner.py verify-pdf-corpus \
-              --corpus-root /corpus \
-              --policy /candidate/validation/benchmarks/opendataloader_bench/policy.json
-          docker run --rm --platform linux/amd64 \
-            --network none \
-            --read-only \
-            --cap-drop ALL \
-            --security-opt no-new-privileges \
-            --pids-limit 256 \
-            --memory 2g \
-            --cpus 2 \
-            --ulimit nofile=256:256 \
-            --user "$(id -u):$(id -g)" \
-            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
-            --env PYTHONPATH=/candidate/src \
-            --env PYTHONDONTWRITEBYTECODE=1 \
-            --env PYTHONHASHSEED=0 \
-            --env TZ=UTC \
-            --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/candidate,readonly" \
-            --mount "type=bind,src=${RUNNER_TEMP}/cocoapdf-odl-corpus,dst=/corpus,readonly" \
-            --mount "type=bind,src=${raw},dst=/output" \
-            "${ODL_PYTHON_IMAGE}" \
-            python /candidate/validation/benchmarks/opendataloader_bench/ci_runner.py convert \
-              --corpus-root /corpus \
-              --output-root /output \
-              --adapter /candidate/validation/benchmarks/opendataloader_bench/adapter.py \
-              --policy /candidate/validation/benchmarks/opendataloader_bench/policy.json
-          docker run --rm --platform linux/amd64 \
-            --network none \
-            --read-only \
-            --cap-drop ALL \
-            --security-opt no-new-privileges \
-            --pids-limit 32 \
-            --memory 256m \
-            --cpus 1 \
-            --user "$(id -u):$(id -g)" \
-            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
-            --mount "type=bind,src=${GITHUB_WORKSPACE}/candidate,dst=/candidate,readonly" \
-            --mount "type=bind,src=${RUNNER_TEMP}/cocoapdf-odl-corpus,dst=/corpus,readonly" \
-            --mount "type=bind,src=${RUNNER_TEMP}/cocoapdf-odl-work/raw,dst=/raw,readonly" \
-            --mount "type=bind,src=${staged},dst=/artifact" \
-            "${ODL_PYTHON_IMAGE}" \
-            python /candidate/validation/benchmarks/opendataloader_bench/ci_runner.py stage-candidate \
-              --corpus-root /corpus \
-              --candidate-output /raw/cocoapdf \
-              --artifact-root /artifact \
-              --policy /candidate/validation/benchmarks/opendataloader_bench/policy.json
-
-      - name: Upload bounded predictions only
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cocoapdf-odl-candidate-${{ env.CANDIDATE_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/cocoapdf-odl-candidate
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-
-      - name: Release bounded prediction storage
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          raw="${RUNNER_TEMP}/cocoapdf-odl-work/raw/cocoapdf"
-          if mountpoint -q "${raw}"; then
-            sudo umount "${raw}"
-          fi
+    uses: sayantandey/CocoaPDF/.github/workflows/opendataloader-worker.yml@be0fa9822aa968860ffa04d49629711b475d8d9c
+    with:
+      candidate_repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      candidate_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      worker_sha: be0fa9822aa968860ffa04d49629711b475d8d9c

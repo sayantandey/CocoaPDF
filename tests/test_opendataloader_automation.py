@@ -111,6 +111,7 @@ class BenchmarkPolicyTests(unittest.TestCase):
 	def test_exact_published_baseline_and_regression_gates(self):
 		policy = load_policy()
 		self.assertEqual(policy["baseline"]["scores"]["overall_mean"], 0.869665721357887)
+		self.assertEqual(policy["worker"]["commit"], "be0fa9822aa968860ffa04d49629711b475d8d9c")
 		self.assertEqual(policy["gates"]["overall_floor"], 0.8)
 		self.assertEqual(
 			policy["gates"]["component_floors"],
@@ -206,7 +207,7 @@ class BenchmarkPolicyTests(unittest.TestCase):
 			blob_sha = "3" * 40
 			tree_sha = "4" * 40
 			entries = [
-				{"mode": "100644", "path": relative, "sha": blob_sha, "type": "blob"}
+				{"mode": "100644", "path": relative, "sha": blob_sha, "size": len(content), "type": "blob"}
 				for relative in PRIVILEGED_BOUNDARY_PATHS
 			]
 
@@ -346,7 +347,15 @@ class CandidateArtifactDownloadTests(unittest.TestCase):
 				archive.writestr(extra, extra_data)
 		return stream.getvalue()
 
-	def _download(self, root: Path, data: bytes, *, digest: Optional[str] = None, size: Optional[int] = None):
+	def _download(
+		self,
+		root: Path,
+		data: bytes,
+		*,
+		digest: Optional[str] = None,
+		size: Optional[int] = None,
+		worker_sha: Optional[str] = None,
+	):
 		event_path = root / "event.json"
 		event_path.write_text(json.dumps(workflow_event()), encoding="utf-8")
 		artifact_root = root / "trusted-artifact"
@@ -369,6 +378,25 @@ class CandidateArtifactDownloadTests(unittest.TestCase):
 		}
 
 		def api_get(endpoint: str):
+			if endpoint.endswith("/actions/runs/101"):
+				worker = load_policy()["worker"]
+				reported_worker_sha = worker_sha or worker["commit"]
+				return {
+					"conclusion": "success",
+					"event": context["run"]["event"],
+					"head_repository": {"full_name": context["candidate"]["head_repository"]},
+					"head_sha": context["candidate"]["head_sha"],
+					"id": context["run"]["id"],
+					"name": context["workflow"]["name"],
+					"path": context["workflow"]["path"],
+					"referenced_workflows": [
+						{
+							"path": "%s/%s@%s" % (worker["repository"], worker["path"], reported_worker_sha),
+							"sha": reported_worker_sha,
+						}
+					],
+					"run_attempt": context["run"]["attempt"],
+				}
 			self.assertIn("/actions/runs/101/artifacts", endpoint)
 			return {"artifacts": [artifact], "total_count": 1}
 
@@ -396,6 +424,10 @@ class CandidateArtifactDownloadTests(unittest.TestCase):
 			self.assertEqual(len(list(markdown.glob("*.md"))), 200)
 
 	def test_download_rejects_digest_traversal_symlink_and_oversize_metadata(self):
+		with tempfile.TemporaryDirectory() as directory:
+			with self.assertRaisesRegex(BenchmarkValidationError, "pinned worker"):
+				self._download(Path(directory), self._archive(), worker_sha="9" * 40)
+
 		with tempfile.TemporaryDirectory() as directory:
 			with self.assertRaisesRegex(BenchmarkValidationError, "digest mismatch"):
 				self._download(Path(directory), self._archive(), digest="sha256:" + "0" * 64)
@@ -601,6 +633,7 @@ class ReporterSecurityTests(unittest.TestCase):
 		self.assertEqual(provenance["trigger"], {"attempt": 1, "event": "push", "run_id": 101})
 		self.assertEqual(provenance["trusted_reporter"], {"attempt": 2, "run_id": 900})
 		self.assertEqual(provenance["result_artifact"]["id"], 77)
+		self.assertEqual(provenance["worker_sha"], load_policy()["worker"]["commit"])
 
 
 class WorkflowBoundaryTests(unittest.TestCase):
