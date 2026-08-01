@@ -3,7 +3,7 @@
     "engine_version": "0.1.0",
     "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
     "document_count": 200,
-    "total_elapsed": 159.0534393787384,
-    "elapsed_per_doc": 0.795267196893692,
-    "date": "2026-08-01"
+    "total_elapsed": 204.08528470993042,
+    "elapsed_per_doc": 1.020426423549652,
+    "date": "2026-08-02"
 }

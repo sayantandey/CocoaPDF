@@ -4,24 +4,24 @@
   "runs": [
     {
       "label": "run-1",
-      "prediction_bytes": 389266,
-      "prediction_sha256": "f391c951c935cefac6ffc64dd15a267a9de8292e9c35a36c094732588774730a",
+      "prediction_bytes": 390317,
+      "prediction_sha256": "baf27effd492430710ba4ef67d6dc483cef6f4e0562bf6881dc8e0e1eccf4971",
       "speed": {
         "document_count": 200,
-        "elapsed_per_doc": 0.8752775084972382,
+        "elapsed_per_doc": 0.8602455234527588,
         "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
-        "total_elapsed": 175.05550169944763
+        "total_elapsed": 172.04910469055176
       }
     },
     {
       "label": "run-2",
-      "prediction_bytes": 389266,
-      "prediction_sha256": "f391c951c935cefac6ffc64dd15a267a9de8292e9c35a36c094732588774730a",
+      "prediction_bytes": 390317,
+      "prediction_sha256": "baf27effd492430710ba4ef67d6dc483cef6f4e0562bf6881dc8e0e1eccf4971",
       "speed": {
         "document_count": 200,
-        "elapsed_per_doc": 0.795267196893692,
+        "elapsed_per_doc": 1.020426423549652,
         "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
-        "total_elapsed": 159.0534393787384
+        "total_elapsed": 204.08528470993042
       }
     }
   ],

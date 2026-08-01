@@ -3,13 +3,13 @@
     "sha256": "e6b7ce66c9fa917d5117a2e5aa58ae1ad612ea719930beaa2116266c4d170e63"
   },
   "baseline": {
-    "engine_commit": "937c403ed3b265a14db802b2ced36b3819d20b0f",
-    "engine_tree": "f01a809b4e4c48d17716be2ac510e67b66b6ff28",
+    "engine_commit": "59a544a3cfc6e94e72dce4f22f2b334819c818e8",
+    "engine_tree": "4ff2dda282ed2e530478851e1a4dc1b8c04c853a",
     "scores": {
-      "mhs_mean": 0.8062168834231966,
-      "nid_mean": 0.8993297819973527,
-      "overall_mean": 0.869665721357887,
-      "teds_mean": 0.806184123363159
+      "mhs_mean": 0.879198902242205,
+      "nid_mean": 0.9086028983215642,
+      "overall_mean": 0.9020490607384589,
+      "teds_mean": 0.9251323350970053
     }
   },
   "benchmark": {

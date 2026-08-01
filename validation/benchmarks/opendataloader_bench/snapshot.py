@@ -11,16 +11,16 @@ from typing import Any, Dict, List, Optional
 
 
 BENCHMARK_COMMIT = "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109"
-ENGINE_COMMIT = "937c403ed3b265a14db802b2ced36b3819d20b0f"
+ENGINE_COMMIT = "59a544a3cfc6e94e72dce4f22f2b334819c818e8"
 SNAPSHOT_ROOT = Path(__file__).resolve().parent / "results" / BENCHMARK_COMMIT
 EXPECTED_SCORES = {
-	"overall_mean": 0.869665721357887,
-	"nid_mean": 0.8993297819973527,
-	"nid_s_mean": 0.8822899267742511,
-	"teds_mean": 0.806184123363159,
-	"teds_s_mean": 0.8110160459149278,
-	"mhs_mean": 0.8062168834231966,
-	"mhs_s_mean": 0.8889792725141817,
+	"overall_mean": 0.9020490607384589,
+	"nid_mean": 0.9086028983215642,
+	"nid_s_mean": 0.8897361669169763,
+	"teds_mean": 0.9251323350970053,
+	"teds_s_mean": 0.9300636649625469,
+	"mhs_mean": 0.879198902242205,
+	"mhs_s_mean": 0.9415827438092419,
 }
 EXPECTED_COUNTS = {
 	"nid_count": 200,
