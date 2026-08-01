@@ -14,6 +14,9 @@ The caller pins the reusable worker by full commit SHA. Worker anchor commits
 are retained by an immutable `odl-worker-v*` tag so a squash merge cannot make
 the pinned workflow unreachable.
 
+Evaluator and ground-truth digests are computed from the pinned repository's
+LF Git blobs, not from a platform-converted working tree.
+
 ## What the adapter does and does not do
 
 The adapter performs **output-schema projection only**. CocoaPDF's detectors,
