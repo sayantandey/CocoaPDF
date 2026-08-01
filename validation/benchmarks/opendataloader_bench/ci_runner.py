@@ -949,6 +949,7 @@ def score_predictions(args: argparse.Namespace) -> bool:
 	policy = load_policy(args.policy)
 	verify_benchmark(args.benchmark_root, policy)
 	document_ids = verify_corpus(args.corpus_root, args.benchmark_root, policy)
+	benchmark_root = args.benchmark_root.resolve()
 	_require(_sha256(args.adapter) == policy["adapter"]["sha256"], "canonical adapter hash changed")
 	context = load_run_context(args.artifact_root / "run-context.json")
 	engine_root = args.candidate_output
@@ -961,7 +962,7 @@ def score_predictions(args: argparse.Namespace) -> bool:
 		"PATH": os.environ.get("PATH", os.defpath),
 		"PYTHONDONTWRITEBYTECODE": "1",
 		"PYTHONHASHSEED": "0",
-		"PYTHONPATH": str(args.benchmark_root / "src"),
+		"PYTHONPATH": str(benchmark_root / "src"),
 		"TZ": "UTC",
 	}
 	for name in ("SYSTEMROOT", "WINDIR"):
@@ -970,15 +971,15 @@ def score_predictions(args: argparse.Namespace) -> bool:
 	subprocess.run(
 		[
 			sys.executable,
-			str(args.benchmark_root / "src" / "evaluator.py"),
+			str(benchmark_root / "src" / "evaluator.py"),
 			"--ground-truth-dir",
-			str((args.benchmark_root / "ground-truth" / "markdown").resolve()),
+			str(benchmark_root / "ground-truth" / "markdown"),
 			"--prediction-root",
 			str(prediction_root.resolve()),
 			"--engine",
 			"cocoapdf",
 		],
-		cwd=str(args.benchmark_root),
+		cwd=str(benchmark_root),
 		env=environment,
 		check=True,
 	)
