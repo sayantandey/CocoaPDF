@@ -173,6 +173,7 @@ class Char:
 	render_mode: int = 0
 	mc: Tuple[Dict[str, Any], ...] = field(default_factory=tuple)
 	artifact: bool = False
+	paint_order: int = 0
 
 	@property
 	def bold(self) -> bool:
@@ -222,6 +223,7 @@ class Fill:
 	page: int
 	seq: int
 	clip_bbox: Optional[Tuple[float, float, float, float]] = None
+	paint_order: int = 0
 
 
 @dataclass(frozen=True)
@@ -236,6 +238,7 @@ class PaintedPath:
 	fill_rule: str = "nonzero"
 	tags: Tuple[str, ...] = field(default_factory=tuple)
 	actual_text: Tuple[str, ...] = field(default_factory=tuple)
+	paint_order: int = 0
 
 
 @dataclass
@@ -261,6 +264,7 @@ class ImageItem:
 	glyph_ids: Tuple[int, ...] = field(default_factory=tuple, repr=False)
 	object_ref: Optional[str] = None
 	link_object_ref: Optional[str] = None
+	paint_order: int = 0
 
 
 @dataclass
@@ -1208,6 +1212,10 @@ class Converter:
 		self.links: List[LinkItem] = []
 		self.seq = 0
 		self.paint_seq = 0
+		# A content-operator clock is independent from glyph/source IDs.  It lets
+		# visibility reconciliation compare complex paths, rectangles, images, and
+		# text without perturbing provenance identifiers used by existing outputs.
+		self.content_order = 0
 		self.paint_path_counts: Dict[int, int] = {}
 		self.page_sizes: Dict[int, Tuple[float, float]] = {}
 		self.lines_by_page: Dict[int, List[Line]] = {}
@@ -1882,35 +1890,57 @@ class Converter:
 			and page_background.y0 <= cy <= page_background.y1
 		):
 			fallback = page_background.color
-		painted: List[Tuple[int, str, Any]] = []
+		painted: List[Tuple[Tuple[int, int], str, Any]] = []
+
+		def painted_before_text(item: Any) -> bool:
+			item_order = int(getattr(item, "paint_order", 0) or 0)
+			if char.paint_order > 0 and item_order > 0:
+				return item_order < char.paint_order
+			return item.seq < char.seq
+
+		def ordering(item: Any) -> Tuple[int, int]:
+			item_order = int(getattr(item, "paint_order", 0) or 0)
+			if char.paint_order > 0 and item_order > 0:
+				return (item_order, int(item.seq))
+			return (int(item.seq), 0)
+
 		for fill in self._artifact_local_backgrounds:
 			if (
 				fill.page == char.page
-				and fill.seq < char.seq
+				and painted_before_text(fill)
 				and fill.x0 <= cx <= fill.x1
 				and fill.y0 <= cy <= fill.y1
 			):
-				painted.append((fill.seq, "fill", fill))
+				painted.append((ordering(fill), "fill", fill))
 		for fill in self.fills:
 			if (
 				fill.page == char.page
-				and fill.seq < char.seq
+				and painted_before_text(fill)
 				and fill.x0 <= cx <= fill.x1
 				and fill.y0 <= cy <= fill.y1
 			):
-				painted.append((fill.seq, "fill", fill))
+				painted.append((ordering(fill), "fill", fill))
+		for path in self.painted_paths:
+			if (
+				path.page == char.page
+				and painted_before_text(path)
+				and path.bbox[0] <= cx <= path.bbox[2]
+				and path.bbox[1] <= cy <= path.bbox[3]
+				and painted_path_contains_point(path, cx, cy)
+			):
+				painted.append((ordering(path), "path", path))
 		for image in self.images:
 			if (
 				image.page == char.page
-				and image.seq < char.seq
+				and painted_before_text(image)
 				and image.x0 <= cx <= image.x1
 				and image.y0 <= cy <= image.y1
 			):
-				painted.append((image.seq, "image", image))
+				painted.append((ordering(image), "image", image))
 		if not painted:
 			return fallback
 		_seq, kind, item = max(painted, key=lambda entry: entry[0])
-		if kind == "fill":
+		if kind in ("fill", "path"):
 			return item.color
 		return self._sample_image_color(item, cx, cy)
 
@@ -1990,6 +2020,7 @@ class ContentInterpreter:
 		self.invisible_count = 0
 		self.depth = 0
 		self.form_stack: Tuple[Any, ...] = ()
+		self.content_order = conv.content_order
 		
 
 	def run(self, data: bytes) -> None:
@@ -1998,6 +2029,8 @@ class ContentInterpreter:
 		operands: List[Any] = []
 		for tok in content_tokens(data):
 			if isinstance(tok, InlineImageToken):
+				self.conv.content_order += 1
+				self.content_order = self.conv.content_order
 				self._do_inline_image(tok.attrs, tok.data)
 				operands = []
 			elif isinstance(tok, Operator):
@@ -2012,6 +2045,8 @@ class ContentInterpreter:
 	def _op(self, op: str, a: List[Any]) -> None:
 		from .content.runtime import handle_operator
 
+		self.conv.content_order += 1
+		self.content_order = self.conv.content_order
 		if handle_operator(self, op, a):
 			return
 		try:
@@ -2293,6 +2328,7 @@ class ContentInterpreter:
 				fill_rule=fill_rule,
 				tags=tags,
 				actual_text=actual_text,
+				paint_order=self.content_order,
 			)
 		)
 		self.conv.paint_path_counts[self.page] = count + 1
@@ -2435,6 +2471,7 @@ class ContentInterpreter:
 					self.page,
 					self.conv.seq,
 					clip_bbox=self.clip_bbox,
+					paint_order=self.content_order,
 				)
 			)
 			self.page_fill_count += 1
@@ -2661,6 +2698,7 @@ class ContentInterpreter:
 			page=self.page,
 			seq=self.conv.seq,
 			clip_bbox=self.clip_bbox,
+			paint_order=self.content_order,
 		)
 
 	def _retain_artifact_local_background(
@@ -2718,6 +2756,7 @@ class ContentInterpreter:
 				page=self.page,
 				seq=self.conv.seq,
 				clip_bbox=self.clip_bbox,
+				paint_order=self.content_order,
 			)
 		)
 
@@ -2893,6 +2932,7 @@ class ContentInterpreter:
 			intrinsic_width=w, intrinsic_height=h,
 			placed_width=placed_width, placed_height=placed_height,
 			quad=tuple(points), mcids=marked_mcids, tags=marked_tags, object_ref=object_ref,
+			paint_order=self.content_order,
 		))
 
 
@@ -4057,8 +4097,202 @@ class MarkdownRenderer:
 		lines: List[Line],
 	) -> List[Dict[str, Any]]:
 		if page not in self._inferred_panel_bands:
-			self._inferred_panel_bands[page] = self._three_panel_bands(page, lines)
+			tri_fold = self._tri_fold_panel_bands(page, lines)
+			self._inferred_panel_bands[page] = (
+				tri_fold if tri_fold else self._three_panel_bands(page, lines)
+			)
 		return [dict(band) for band in self._inferred_panel_bands[page]]
+
+	def _tri_fold_panel_bands(
+		self,
+		page: int,
+		lines: List[Line],
+	) -> List[Dict[str, Any]]:
+		"""Recognize a full-page landscape tri-fold brochure composition.
+
+		This is intentionally narrower than generic column inference. Each page
+		third must own real text and a display label; multiple physical baselines
+		must mix otherwise well-separated panels; and independent design evidence
+		must pair a complex painted background in the first panel with raster
+		anchors across the other two. Grid and numeric-dashboard geometry vetoes
+		the model before it can affect reading order.
+		"""
+		page_width, page_height = self.conv.page_sizes.get(page, (612.0, 792.0))
+		if not (page_height > 0 and 1.20 <= page_width / page_height <= 1.75):
+			return []
+		body = self._body_font_size(lines)
+		if body <= 0:
+			return []
+		boundaries = (page_width / 3.0, page_width * 2.0 / 3.0)
+		panel_runs: List[List[Tuple[Line, List[Char]]]] = [[], [], []]
+		mixed_baselines = 0
+		boundary_gaps: List[List[float]] = [[], []]
+		crossing_glyphs = [0, 0]
+		visible_chars: List[Char] = []
+
+		def alpha_count(chars: Sequence[Char]) -> int:
+			return sum(character.isalpha() for char in chars for character in char.text)
+
+		for line in lines:
+			visible = [
+				char
+				for char in line.chars
+				if char.text.strip() and not char.invisible and not char.artifact
+			]
+			if not visible:
+				continue
+			visible_chars.extend(visible)
+			groups: List[List[Char]] = [[], [], []]
+			for char in visible:
+				center = (char.x0 + char.x1) / 2.0
+				groups[sum(center >= boundary for boundary in boundaries)].append(char)
+			for index, group in enumerate(groups):
+				if alpha_count(group) >= 3:
+					panel_runs[index].append((line, group))
+			if sum(alpha_count(group) >= 3 for group in groups) >= 2:
+				mixed_baselines += 1
+			for index, boundary in enumerate(boundaries):
+				left = [char for char in visible if (char.x0 + char.x1) / 2.0 < boundary]
+				right = [char for char in visible if (char.x0 + char.x1) / 2.0 >= boundary]
+				if alpha_count(left) >= 3 and alpha_count(right) >= 3:
+					boundary_gaps[index].append(
+						min(char.x0 for char in right) - max(char.x1 for char in left)
+					)
+				crossing_glyphs[index] += sum(
+					char.x0 + 0.5 < boundary < char.x1 - 0.5
+					for char in visible
+				)
+
+		if mixed_baselines < 4 or any(len(runs) < 4 for runs in panel_runs):
+			return []
+		if any(
+			alpha_count([char for _line, run in runs for char in run]) < 40
+			for runs in panel_runs
+		):
+			return []
+		if any(crossing_glyphs) or any(
+			len(gaps) < 2 or median(gaps) < max(20.0, page_width * 0.035)
+			for gaps in boundary_gaps
+		):
+			return []
+
+		for runs in panel_runs:
+			has_display = False
+			for _line, chars in runs:
+				local_size = median([char.size for char in chars if char.size > 0])
+				bold_ratio = sum(char.bold for char in chars) / len(chars)
+				text = cleanup_spaces("".join(char.text for char in sorted(chars, key=lambda item: (item.x0, item.seq))))
+				if (
+					4 <= sum(character.isalpha() for character in text)
+					and len(text) <= 90
+					and (bold_ratio >= 0.50 or local_size >= body * 1.45)
+				):
+					has_display = True
+					break
+			if not has_display:
+				return []
+
+		page_area = max(page_width * page_height, 1.0)
+		left_backgrounds = []
+		for path in self.conv.painted_paths:
+			if path.page != page or len(path.commands) < 16:
+				continue
+			x0, y0, x1, y1 = path.bbox
+			if (
+				x0 > boundaries[0] * 0.18
+				or x1 > boundaries[0] + page_width * 0.025
+				or x1 - x0 < page_width * 0.16
+				or y1 - y0 < page_height * 0.18
+				or (x1 - x0) * (y1 - y0) < page_area * 0.035
+			):
+				continue
+			covered_alpha = sum(
+				character.isalpha()
+				for char in visible_chars
+				if char.paint_order > path.paint_order > 0
+				and x0 <= (char.x0 + char.x1) / 2.0 <= x1
+				and y0 <= (char.y0 + char.y1) / 2.0 <= y1
+				and painted_path_contains_point(
+					path,
+					(char.x0 + char.x1) / 2.0,
+					(char.y0 + char.y1) / 2.0,
+				)
+				for character in char.text
+			)
+			if covered_alpha >= 24:
+				left_backgrounds.append(path)
+		if not left_backgrounds:
+			return []
+
+		images = [
+			image
+			for image in self.conv.images
+			if image.page == page
+			and max(0.0, min(image.x1, page_width) - max(image.x0, 0.0))
+				* max(0.0, min(image.y1, page_height) - max(image.y0, 0.0))
+				>= page_area * 0.012
+		]
+		middle_images = [
+			image
+			for image in images
+			if boundaries[0] <= (image.x0 + image.x1) / 2.0 <= boundaries[1]
+		]
+		right_images = [
+			image
+			for image in images
+			if min(image.x1, page_width) - max(image.x0, boundaries[1])
+				>= page_width * 0.10
+			and min(image.y1, page_height) - max(image.y0, 0.0)
+				>= page_height * 0.20
+		]
+		if not middle_images or not right_images or len({id(image) for image in middle_images + right_images}) < 2:
+			return []
+
+		long_vertical = [
+			segment
+			for segment in self.conv.segments
+			if segment.page == page and segment.vertical and segment.length >= page_height * 0.22
+		]
+		long_horizontal = [
+			segment
+			for segment in self.conv.segments
+			if segment.page == page and segment.horizontal and segment.length >= page_width * 0.28
+		]
+		if len(long_vertical) >= 2 or len(long_horizontal) >= 3:
+			return []
+		plain_lines = []
+		for line in lines:
+			line_text = plain_text(line_text_tokens(line)).strip()
+			if line_text:
+				plain_lines.append(line_text)
+		plain = cleanup_spaces(" ".join(plain_lines))
+		if re.search(r"(?:^|\s)(?:table|tab\.|exhibit)\s+[A-Z0-9IVXLCDM]+\b", plain, re.I):
+			return []
+		alphanumeric = [character for character in plain if character.isalnum()]
+		if alphanumeric and sum(character.isdigit() for character in alphanumeric) / len(alphanumeric) > 0.16:
+			return []
+
+		return [
+			{
+				"kind": "tri_fold",
+				"separators": list(boundaries),
+				"x0": 0.0,
+				"x1": page_width,
+				"y0": 0.0,
+				"y1": page_height,
+				"panel_bounds": (
+					(0.0, boundaries[0]),
+					(boundaries[0], boundaries[1]),
+					(boundaries[1], page_width),
+				),
+				"evidence": {
+					"mixed_baselines": mixed_baselines,
+					"complex_left_backgrounds": len(left_backgrounds),
+					"middle_images": len(middle_images),
+					"right_images": len(right_images),
+				},
+			}
+		]
 
 	def _cached_filled_sidebar_separator_infos(
 		self,
@@ -7303,6 +7537,134 @@ class MarkdownRenderer:
 					levels.add(int(match.group(1)))
 		return next(iter(levels)) if len(levels) == 1 else None
 
+	def _tri_fold_band_and_panel(
+		self,
+		line: Optional[Line],
+	) -> Optional[Tuple[Dict[str, Any], int]]:
+		if line is None:
+			return None
+		visible = [char for char in line.chars if char.text.strip()]
+		if not visible:
+			return None
+		center_x = median([(char.x0 + char.x1) / 2.0 for char in visible])
+		center_y = median([(char.y0 + char.y1) / 2.0 for char in visible])
+		for band in self._inferred_panel_bands.get(line.page, []):
+			if band.get("kind") != "tri_fold":
+				continue
+			if not (
+				band["x0"] - 2.0 <= center_x <= band["x1"] + 2.0
+				and band["y0"] - 2.0 <= center_y <= band["y1"] + 2.0
+			):
+				continue
+			return band, sum(center_x >= separator for separator in band["separators"])
+		return None
+
+	def _is_tri_fold_attribution(self, line: Line, body_size: float, text: str) -> bool:
+		if self._tri_fold_band_and_panel(line) is None:
+			return False
+		if line.size > body_size * 1.15 or len(text) > 70 or len(text.split()) > 9:
+			return False
+		if re.search(r"\b(?:18|19|20|21)\d{2}\b", text) is None:
+			return False
+		return re.search(
+			r"(?:\u00a9|copyright|copyleft|creative\s+commons|public\s+domain|"
+			r"\bcc\s*(?:0|by(?:[-\s](?:sa|nc|nd))*)\b)",
+			text,
+			re.I,
+		) is not None
+
+	def _is_tri_fold_colon_heading(
+		self,
+		line: Line,
+		body_size: float,
+		text: str,
+	) -> bool:
+		return (
+			self._tri_fold_band_and_panel(line) is not None
+			and line.bold_ratio >= 0.75
+			and body_size * 0.84 <= line.size <= body_size * 1.40
+			and text.endswith(":")
+			and 2 <= len(text.split()) <= 10
+			and len(text) <= 80
+			and any(character.isalpha() for character in text)
+			and next((character for character in text if character.isalpha()), "").isupper()
+			and list_marker(text) is None
+			and not self._is_explicit_caption_label(text)
+			and not self._is_toc_navigation_row(line, text)
+		)
+
+	def _is_tri_fold_ampersand_bridge(
+		self,
+		line: Line,
+		body_size: float,
+		prev: Optional[Line],
+		nxt: Optional[Line],
+		text: str,
+	) -> bool:
+		owner = self._tri_fold_band_and_panel(line)
+		if owner is None or text.strip() != "&" or prev is None or nxt is None:
+			return False
+		for neighbor in (prev, nxt):
+			neighbor_owner = self._tri_fold_band_and_panel(neighbor)
+			neighbor_text = plain_text(line_text_tokens(neighbor)).strip()
+			if (
+				neighbor_owner is None
+				or neighbor_owner[0] is not owner[0]
+				or neighbor_owner[1] != owner[1]
+				or neighbor.size < body_size * 1.35
+				or abs(neighbor.size - line.size) > max(1.0, line.size * 0.12)
+				or not 2 <= len(neighbor_text.split()) <= 9
+				or neighbor_text.upper() != neighbor_text
+			):
+				return False
+		upper_gap = line_flow_gap(prev, line)
+		lower_gap = line_flow_gap(line, nxt)
+		return (
+			0 < upper_gap <= max(18.0, line.size * 1.55)
+			and 0 < lower_gap <= max(18.0, line.size * 1.55)
+		)
+
+	def _is_tri_fold_heading_continuation(self, upper: Line, lower: Line) -> bool:
+		upper_owner = self._tri_fold_band_and_panel(upper)
+		lower_owner = self._tri_fold_band_and_panel(lower)
+		if (
+			upper_owner is None
+			or lower_owner is None
+			or upper_owner[0] is not lower_owner[0]
+			or upper_owner[1] != lower_owner[1]
+		):
+			return False
+		upper_text = plain_text(line_text_tokens(upper)).strip()
+		lower_text = plain_text(line_text_tokens(lower)).strip()
+		if not upper_text or not lower_text:
+			return False
+		if upper_text == "&" or lower_text == "&":
+			other = lower if upper_text == "&" else upper
+			other_text = lower_text if upper_text == "&" else upper_text
+			return (
+				other_text.upper() == other_text
+				and other.size >= self._body_font_size(self.lines_by_page.get(other.page, [])) * 1.35
+				and abs(upper.size - lower.size) <= max(1.0, other.size * 0.12)
+				and 0 < line_flow_gap(upper, lower) <= max(18.0, other.size * 1.55)
+			)
+		if (
+			upper_text.upper() != upper_text
+			or lower_text.upper() != lower_text
+			or sum(character.isalpha() for character in upper_text) < 3
+			or sum(character.isalpha() for character in lower_text) < 3
+			or len((upper_text + " " + lower_text).split()) > 12
+		):
+			return False
+		upper_center = (upper.x0 + upper.x1) / 2.0
+		lower_center = (lower.x0 + lower.x1) / 2.0
+		if abs(upper_center - lower_center) > max(12.0, min(upper.size, lower.size) * 0.75):
+			return False
+		ratio = min(upper.size, lower.size) / max(upper.size, lower.size)
+		if ratio < 0.65:
+			return False
+		gap = line_flow_gap(upper, lower)
+		return 0 < gap <= min(upper.size, lower.size) * 1.42
+
 	def _is_filled_sidebar_heading(
 		self,
 		line: Line,
@@ -7435,6 +7797,12 @@ class MarkdownRenderer:
 			# Standalone machine identifiers are safer as emphasized prose than
 			# invented document-outline entries when tags provide no heading role.
 			return False
+		if self._is_tri_fold_attribution(line, body_size, text):
+			return False
+		if self._is_tri_fold_colon_heading(line, body_size, text):
+			return True
+		if self._is_tri_fold_ampersand_bridge(line, body_size, prev, nxt, text):
+			return True
 		if self._is_filled_sidebar_heading(line, body_size, prev, nxt, text):
 			return True
 		if line.size < body_size * 0.88:
@@ -8410,6 +8778,8 @@ class MarkdownRenderer:
 		if self._is_standalone_display_marker_continuation(prev, cur, nxt):
 			return True
 		if self._is_numbered_outdented_display_continuation(prev, cur, nxt):
+			return True
+		if self._is_tri_fold_heading_continuation(prev, cur):
 			return True
 		if self._is_numbered_hanging_display_continuation(prev, cur, nxt):
 			return True
@@ -18074,6 +18444,161 @@ def rect_contains(inner: Tuple[float, float, float, float], outer: Tuple[float, 
 	ix0, iy0, ix1, iy1 = inner
 	ox0, oy0, ox1, oy1 = outer
 	return ox0 - pad <= ix0 <= ox1 + pad and ox0 - pad <= ix1 <= ox1 + pad and oy0 - pad <= iy0 <= oy1 + pad and oy0 - pad <= iy1 <= oy1 + pad
+
+
+def painted_path_contains_point(path: PaintedPath, x: float, y: float) -> bool:
+	"""Evaluate PDF nonzero/even-odd fill membership at one page-space point.
+
+	Curves are flattened with a fixed geometric tolerance and recursion limit,
+	which keeps the result deterministic across platforms while preserving
+	concave edges and compound-path holes. Open subpaths are implicitly closed,
+	as required by PDF fill painting operators.
+	"""
+	if not (path.bbox[0] <= x <= path.bbox[2] and path.bbox[1] <= y <= path.bbox[3]):
+		return False
+
+	def point_line_distance(
+		point: Tuple[float, float],
+		start: Tuple[float, float],
+		end: Tuple[float, float],
+	) -> float:
+		dx = end[0] - start[0]
+		dy = end[1] - start[1]
+		if abs(dx) + abs(dy) <= 1e-12:
+			return math.hypot(point[0] - start[0], point[1] - start[1])
+		return abs(
+			dy * point[0]
+			- dx * point[1]
+			+ end[0] * start[1]
+			- end[1] * start[0]
+		) / math.hypot(dx, dy)
+
+	def flatten_cubic(
+		start: Tuple[float, float],
+		control1: Tuple[float, float],
+		control2: Tuple[float, float],
+		end: Tuple[float, float],
+		depth: int = 0,
+	) -> List[Tuple[float, float]]:
+		flatness = max(
+			point_line_distance(control1, start, end),
+			point_line_distance(control2, start, end),
+		)
+		if flatness <= 0.25 or depth >= 12:
+			return [end]
+		start_control = (
+			(start[0] + control1[0]) / 2.0,
+			(start[1] + control1[1]) / 2.0,
+		)
+		control_mid = (
+			(control1[0] + control2[0]) / 2.0,
+			(control1[1] + control2[1]) / 2.0,
+		)
+		control_end = (
+			(control2[0] + end[0]) / 2.0,
+			(control2[1] + end[1]) / 2.0,
+		)
+		left_control = (
+			(start_control[0] + control_mid[0]) / 2.0,
+			(start_control[1] + control_mid[1]) / 2.0,
+		)
+		right_control = (
+			(control_mid[0] + control_end[0]) / 2.0,
+			(control_mid[1] + control_end[1]) / 2.0,
+		)
+		midpoint = (
+			(left_control[0] + right_control[0]) / 2.0,
+			(left_control[1] + right_control[1]) / 2.0,
+		)
+		return flatten_cubic(
+			start,
+			start_control,
+			left_control,
+			midpoint,
+			depth + 1,
+		) + flatten_cubic(
+			midpoint,
+			right_control,
+			control_end,
+			end,
+			depth + 1,
+		)
+
+	subpaths: List[List[Tuple[float, float]]] = []
+	current_path: List[Tuple[float, float]] = []
+	current: Optional[Tuple[float, float]] = None
+	start: Optional[Tuple[float, float]] = None
+
+	def finish() -> None:
+		nonlocal current_path
+		if len(current_path) >= 3:
+			if current_path[-1] != current_path[0]:
+				current_path.append(current_path[0])
+			subpaths.append(current_path)
+		current_path = []
+
+	for command, values in path.commands:
+		if command == "M" and len(values) >= 2:
+			finish()
+			current = (values[0], values[1])
+			start = current
+			current_path = [current]
+		elif command == "L" and len(values) >= 2:
+			point = (values[0], values[1])
+			if current is None:
+				start = point
+				current_path = [point]
+			else:
+				current_path.append(point)
+			current = point
+		elif command == "C" and len(values) >= 6 and current is not None:
+			control1 = (values[0], values[1])
+			control2 = (values[2], values[3])
+			end = (values[4], values[5])
+			current_path.extend(flatten_cubic(current, control1, control2, end))
+			current = end
+		elif command == "Z":
+			finish()
+			current = start
+			current_path = [start] if start is not None else []
+	finish()
+	if not subpaths:
+		return False
+
+	def on_segment(
+		point: Tuple[float, float],
+		start_point: Tuple[float, float],
+		end_point: Tuple[float, float],
+	) -> bool:
+		if point_line_distance(point, start_point, end_point) > 1e-7:
+			return False
+		return (
+			min(start_point[0], end_point[0]) - 1e-7
+			<= point[0]
+			<= max(start_point[0], end_point[0]) + 1e-7
+			and min(start_point[1], end_point[1]) - 1e-7
+			<= point[1]
+			<= max(start_point[1], end_point[1]) + 1e-7
+		)
+
+	point = (x, y)
+	crossings = 0
+	winding = 0
+	for subpath in subpaths:
+		for start_point, end_point in zip(subpath, subpath[1:]):
+			if on_segment(point, start_point, end_point):
+				return True
+			y0, y1 = start_point[1], end_point[1]
+			if not ((y0 <= y < y1) or (y1 <= y < y0)):
+				continue
+			intersection_x = start_point[0] + (
+				(y - y0) * (end_point[0] - start_point[0]) / (y1 - y0)
+			)
+			if intersection_x <= x:
+				continue
+			crossings += 1
+			winding += 1 if y0 < y1 else -1
+	return crossings % 2 == 1 if path.fill_rule == "evenodd" else winding != 0
 
 
 def rects_intersect(a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]) -> bool:

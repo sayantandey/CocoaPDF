@@ -106,6 +106,7 @@ def show_text(interpreter: Any, value: Any) -> None:
 			fill_color=interpreter.fill_rgb,
 			stroke_color=interpreter.stroke_rgb,
 			render_mode=interpreter.render_mode,
+			paint_order=interpreter.content_order,
 		)
 		_attach_marked_content(character, interpreter.marked_content)
 		interpreter.conv.chars.append(character)
@@ -173,6 +174,7 @@ def _show_actual_text(
 				fill_color=interpreter.fill_rgb,
 				stroke_color=interpreter.stroke_rgb,
 				render_mode=interpreter.render_mode,
+				paint_order=interpreter.content_order,
 			)
 			_attach_marked_content(character, interpreter.marked_content)
 			interpreter.conv.chars.append(character)

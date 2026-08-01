@@ -9,7 +9,12 @@ from unittest.mock import patch
 from cocoapdf import convert
 from cocoapdf.cli import _format_payload
 from cocoapdf.content.runtime import _attach_marked_content
-from cocoapdf.core import ConvertOptions, Converter, MarkdownRenderer
+from cocoapdf.core import (
+    ConvertOptions,
+    Converter,
+    MarkdownRenderer,
+    painted_path_contains_point,
+)
 from cocoapdf.fonts.decoding import CMapMapping, decode_font, parse_tounicode
 from cocoapdf.html.sanitize import is_safe_generated_html
 from cocoapdf.html.semantic import render_semantic_html
@@ -2108,6 +2113,111 @@ class AdvancedTableTests(unittest.TestCase):
             {warning.code for warning in result.warnings},
         )
 
+    def test_complex_pre_text_path_supplies_the_visible_background(self) -> None:
+        content = b" ".join([
+            b"0.05 0.3 0.7 rg "
+            b"60 500 m 60 650 300 650 300 500 c "
+            b"300 450 l 60 450 l h f",
+            b"BT /F1 12 Tf 1 g 1 0 0 1 100 540 Tm "
+            b"(Visible curved background) Tj ET",
+        ])
+        converter = Converter(one_page_pdf(content))
+        result = converter.convert()
+
+        self.assertIn("Visible curved background", result.markdown)
+        path = max(converter.painted_paths, key=lambda item: len(item.commands))
+        visible = next(
+            char for char in converter.chars
+            if char.text == "V" and not char.invisible
+        )
+        self.assertGreater(path.paint_order, 0)
+        self.assertLess(path.paint_order, visible.paint_order)
+        self.assertTrue(
+            painted_path_contains_point(
+                path,
+                (visible.x0 + visible.x1) / 2.0,
+                (visible.y0 + visible.y1) / 2.0,
+            )
+        )
+
+    def test_concave_path_bbox_does_not_paint_its_notch(self) -> None:
+        content = b" ".join([
+            b"0.05 0.3 0.7 rg "
+            b"60 450 m 300 450 l 300 700 l 220 700 l "
+            b"220 560 l 140 560 l 140 700 l 60 700 l h f",
+            b"BT /F1 12 Tf 1 g 1 0 0 1 80 620 Tm (Visible arm) Tj "
+            b"1 0 0 1 155 620 Tm (Hidden notch) Tj ET",
+        ])
+        converter = Converter(one_page_pdf(content))
+        result = converter.convert()
+
+        self.assertIn("Visible arm", result.markdown)
+        self.assertNotIn("Hidden notch", result.markdown)
+        path = max(converter.painted_paths, key=lambda item: len(item.commands))
+        hidden = next(
+            char for char in converter.chars
+            if char.text == "H" and char.invisible
+        )
+        center = ((hidden.x0 + hidden.x1) / 2.0, (hidden.y0 + hidden.y1) / 2.0)
+        self.assertTrue(
+            path.bbox[0] <= center[0] <= path.bbox[2]
+            and path.bbox[1] <= center[1] <= path.bbox[3]
+        )
+        self.assertFalse(painted_path_contains_point(path, *center))
+
+    def test_evenodd_complex_path_preserves_a_transparent_hole(self) -> None:
+        content = b" ".join([
+            b"0.05 0.3 0.7 rg "
+            b"60 450 m 300 450 l 300 700 l 60 700 l h "
+            b"130 540 m 230 540 l 230 640 l 130 640 l h f*",
+            b"BT /F1 12 Tf 1 g 1 0 0 1 75 580 Tm (Visible ring) Tj "
+            b"1 0 0 1 150 580 Tm (Hidden hole) Tj ET",
+        ])
+        converter = Converter(one_page_pdf(content))
+        result = converter.convert()
+
+        self.assertIn("Visible ring", result.markdown)
+        self.assertNotIn("Hidden hole", result.markdown)
+        path = max(converter.painted_paths, key=lambda item: len(item.commands))
+        self.assertEqual(path.fill_rule, "evenodd")
+        hidden = next(
+            char for char in converter.chars
+            if char.text == "H" and char.invisible
+        )
+        self.assertFalse(
+            painted_path_contains_point(
+                path,
+                (hidden.x0 + hidden.x1) / 2.0,
+                (hidden.y0 + hidden.y1) / 2.0,
+            )
+        )
+
+    def test_complex_path_painted_after_text_is_not_its_background(self) -> None:
+        content = b" ".join([
+            b"BT /F1 12 Tf 1 g 1 0 0 1 100 540 Tm "
+            b"(Hidden before path) Tj ET",
+            b"0.05 0.3 0.7 rg "
+            b"60 500 m 60 650 300 650 300 500 c "
+            b"300 450 l 60 450 l h f",
+        ])
+        converter = Converter(one_page_pdf(content))
+        result = converter.convert()
+
+        self.assertNotIn("Hidden before path", result.markdown)
+        path = max(converter.painted_paths, key=lambda item: len(item.commands))
+        hidden = next(
+            char for char in converter.chars
+            if char.text == "H" and char.invisible
+        )
+        self.assertGreater(path.paint_order, hidden.paint_order)
+        self.assertTrue(
+            painted_path_contains_point(
+                path,
+                (hidden.x0 + hidden.x1) / 2.0,
+                (hidden.y0 + hidden.y1) / 2.0,
+            )
+        )
+
     def test_captioned_marked_bookend_table_preserves_span_and_mcids(self) -> None:
         content = b" ".join([
             b"/Artifact BMC 0 g 72 700 240 0.75 re f EMC",
@@ -4111,6 +4221,126 @@ class SideDisplayProseColumnTests(unittest.TestCase):
             result.markdown.index("Left card row zero"),
             result.markdown,
         )
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+
+class TriFoldBrochureTests(unittest.TestCase):
+    @staticmethod
+    def _panel_text(x: float, y: float, text: str, *, font: str = "F1", size: float = 11) -> bytes:
+        color = b"1 g " if x < 264 else b"0 g "
+        return color + text_op(x, y, text, font=font, size=size)
+
+    @classmethod
+    def _brochure_pdf(
+        cls,
+        *,
+        complex_background: bool = True,
+        grid_rules: bool = False,
+    ) -> bytes:
+        if complex_background:
+            background = (
+                b"0.08 0.35 0.65 rg 0 0 m 245 0 l 250 35 l 244 70 l "
+                b"250 105 l 244 140 l 250 175 l 244 210 l 250 245 l "
+                b"244 280 l 250 315 l 244 350 l 250 385 l 244 420 l "
+                b"250 455 l 244 490 l 250 525 l 244 560 l 250 612 l "
+                b"0 612 l h f"
+            )
+        else:
+            background = b"0.08 0.35 0.65 rg 0 0 250 612 re f"
+        parts = [
+            background,
+            b"q 100 0 0 100 340 235 cm /ImMiddle Do Q",
+            b"q 100 0 0 150 630 60 cm /ImRight Do Q",
+            cls._panel_text(48, 560, "LOCAL ACTION", font="F2", size=18),
+            cls._panel_text(322, 560, "GARDEN FIELD", font="F2", size=18),
+            cls._panel_text(568, 560, "BUILD COMMUNITY", font="F2", size=18),
+            cls._panel_text(65, 536, "HANDBOOK", font="F2", size=18),
+            cls._panel_text(362, 536, "NOTES", font="F2", size=18),
+            cls._panel_text(650, 536, "&", font="F2", size=18),
+            cls._panel_text(40, 512, "Plan with care", size=11),
+            cls._panel_text(300, 512, "Practical methods", size=11),
+            cls._panel_text(588, 512, "SHARE SKILLS", font="F2", size=18),
+            cls._panel_text(38, 480, "Neighbors shape places.", size=11),
+            cls._panel_text(292, 480, "Soil supports healthy roots.", size=11),
+            cls._panel_text(558, 480, "Skills strengthen a block.", size=11),
+            cls._panel_text(38, 458, "Small steps build trust.", size=11),
+            cls._panel_text(292, 458, "Water carefully each week.", size=11),
+            cls._panel_text(558, 458, "Share tools with friends.", size=11),
+            cls._panel_text(38, 436, "For project leads:", font="F2", size=11),
+            cls._panel_text(292, 436, "Track seasonal changes.", size=11),
+            cls._panel_text(558, 436, "Meet local partners often.", size=11),
+            cls._panel_text(38, 414, "Invite every neighbor.", size=11),
+            cls._panel_text(292, 414, "Record lessons learned.", size=11),
+            cls._panel_text(620, 414, "CC BY-SA, 2024", size=8),
+        ]
+        if grid_rules:
+            parts.extend([
+                line_op(264, 40, 264, 572, width=1),
+                line_op(528, 40, 528, 572, width=1),
+            ])
+        return make_pdf(
+            [b"\n".join(parts)],
+            page_size=(792, 612),
+            xobjects={
+                "ImMiddle": image_xobject_rgb(2, 2, b"\x55\x99\x55" * 4),
+                "ImRight": image_xobject_rgb(2, 2, b"\x99\x77\x44" * 4),
+            },
+        )
+
+    @staticmethod
+    def _node_text(node: SemanticNode) -> str:
+        return "".join(child.text or "" for child in node.walk() if child.kind == "text").strip()
+
+    def test_landscape_brochure_recovers_panel_order_headings_images_and_provenance(self) -> None:
+        result = convert(
+            self._brochure_pdf(),
+            ConvertOptions(assets_dir="assets", image_markup="auto"),
+        )
+
+        headings = [self._node_text(node) for node in semantic_nodes(result, "heading")]
+        self.assertIn("LOCAL ACTION HANDBOOK", headings, result.markdown)
+        self.assertIn("GARDEN FIELD NOTES", headings, result.markdown)
+        self.assertIn("BUILD COMMUNITY & SHARE SKILLS", headings, result.markdown)
+        self.assertIn("For project leads:", headings, result.markdown)
+        self.assertNotIn("CC BY-SA, 2024", headings)
+        self.assertLess(result.markdown.index("Invite every neighbor"), result.markdown.index("GARDEN FIELD NOTES"))
+        self.assertLess(result.markdown.index("Record lessons learned"), result.markdown.index("BUILD COMMUNITY"))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertEqual(semantic_nodes(result, "list"), [])
+
+        images = semantic_nodes(result, "image")
+        self.assertEqual(len(images), 2, result.semantic.to_dict())
+        self.assertTrue(all(image.sources for image in images))
+        self.assertTrue(all(source.object_refs for image in images for source in image.sources))
+        self.assertEqual(len(result.assets), 2)
+        self.assertEqual(result.html.count("<img "), 2)
+        self.assertIn('id="build-community-share-skills"', result.html)
+        self.assertIn("&amp;", result.html)
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+        self.assertFalse(result.report["ocr_used"])
+        self.assertFalse(result.report["image_text_extraction_attempted"])
+        payload = json.loads(_format_payload(result, "json"))
+        self.assertTrue(payload["semantic_document"]["children"])
+        serialized = json.dumps(payload["semantic_document"], sort_keys=True)
+        self.assertIn('"anchor": "build-community-share-skills"', serialized)
+        self.assertIn('"text": "SHARE SKILLS"', serialized)
+        self.assertIn('"kind": "image"', serialized)
+
+    def test_ruled_three_column_dashboard_is_not_classified_as_a_brochure(self) -> None:
+        result = convert(self._brochure_pdf(grid_rules=True))
+
+        headings = [self._node_text(node) for node in semantic_nodes(result, "heading")]
+        self.assertNotIn("For project leads:", headings, result.markdown)
+        self.assertLess(result.markdown.index("GARDEN FIELD"), result.markdown.index("BUILD COMMUNITY"))
+        self.assertLess(result.markdown.index("BUILD COMMUNITY"), result.markdown.index("HANDBOOK"))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+    def test_plain_column_fill_is_insufficient_design_evidence(self) -> None:
+        result = convert(self._brochure_pdf(complex_background=False))
+
+        headings = [self._node_text(node) for node in semantic_nodes(result, "heading")]
+        self.assertNotIn("For project leads:", headings, result.markdown)
+        self.assertNotIn("BUILD COMMUNITY & SHARE SKILLS", headings, result.markdown)
         self.assertEqual(semantic_nodes(result, "table"), [])
 
 
