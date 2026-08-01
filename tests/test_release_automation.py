@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -20,6 +21,7 @@ from scripts.build_onefile import (
 from scripts.package_release import EXPECTED_BINARIES, load_release_inputs, package
 from scripts.release_version import classify_release, compute_next_version, parse_tag
 from scripts.stamp_version import stamp
+from tools.update_strategic_raster_fixture import PDF_PATH, SOURCE_PATH, _legacy_pdf, build_pdf
 from validation.pr_visual.build import (
 	build_scope_and_adversarial_pdf,
 	build_tagged_semantics_pdf,
@@ -69,6 +71,17 @@ class ReleaseVersionTests(unittest.TestCase):
 
 
 class BuildAutomationTests(unittest.TestCase):
+	def test_strategic_raster_fixture_is_reproducible_and_source_matched(self):
+		committed_pdf = PDF_PATH.read_bytes()
+		rebuilt_pdf, rebuilt_png = build_pdf(_legacy_pdf(committed_pdf))
+		self.assertEqual(rebuilt_pdf, committed_pdf)
+		source = SOURCE_PATH.read_text(encoding="utf-8")
+		match = re.search(r"data:image/png;base64,([A-Za-z0-9+/=]+)", source)
+		self.assertIsNotNone(match)
+		self.assertEqual(base64.b64decode(match.group(1)), rebuilt_png)
+		self.assertIn("Raster image preservation sentinel RASTER-001", source)
+		self.assertNotIn("OCR-ONLY", source)
+
 	def test_pr_visual_inputs_are_first_party_and_deterministic(self):
 		for builder in (
 			build_tagged_semantics_pdf,
@@ -85,20 +98,26 @@ class BuildAutomationTests(unittest.TestCase):
 		visual = (root / ".github" / "workflows" / "pr-visual-validation.yml").read_text(
 			encoding="utf-8"
 		)
+		visual_report = (root / ".github" / "workflows" / "pr-visual-report.yml").read_text(
+			encoding="utf-8"
+		)
+		visual_reporter = (root / "validation" / "pr_visual" / "report.py").read_text(
+			encoding="utf-8"
+		)
 		release = (root / ".github" / "workflows" / "ci-release.yml").read_text(
 			encoding="utf-8"
 		)
 		pages_path = root / ".github" / "workflows" / "pages.yml"
 		self.assertIn("branches: [main]", visual)
 		self.assertIn("retention-days: 7", visual)
-		self.assertIn("retained for up to seven days", visual)
-		self.assertNotIn("available while the PR is open", visual)
-		self.assertIn("github.event.action == 'closed'", visual)
-		self.assertIn("actions: write", visual)
-		self.assertIn("pull-requests: write", visual)
-		self.assertIn("no stale download link is retained", visual)
-		self.assertIn("tree/main/examples", visual)
-		self.assertIn("tree/${HEAD_SHA}/examples", visual)
+		self.assertNotIn("actions: write", visual)
+		self.assertNotIn("pull-requests: write", visual)
+		self.assertNotIn("closed", visual)
+		self.assertIn("workflow_run:", visual_report)
+		self.assertIn("types: [completed]", visual_report)
+		self.assertIn("actions: read", visual_report)
+		self.assertIn("pull-requests: write", visual_report)
+		self.assertNotIn("actions: write", visual_report)
 		self.assertIn(
 			"rawcdn.githack.com/${HEAD_REPOSITORY}/${HEAD_SHA}/examples/review.html",
 			visual,
@@ -115,6 +134,9 @@ class BuildAutomationTests(unittest.TestCase):
 			"External HTML preview is intentionally omitted for fork pull requests",
 			visual,
 		)
+		self.assertIn('WORKFLOW_PATH = ".github/workflows/pr-visual-validation.yml"', visual_reporter)
+		self.assertIn("MAX_ARTIFACT_BYTES", visual_reporter)
+		self.assertNotIn("download-artifact", visual_report)
 		self.assertNotIn("pull_request_target:", visual)
 		self.assertIn("queue: max", release)
 		self.assertIn("if: github.event_name == 'push'", release)
@@ -133,11 +155,15 @@ class BuildAutomationTests(unittest.TestCase):
 		root = Path(__file__).resolve().parents[1]
 		examples = root / "examples"
 		manifest = json.loads((examples / "manifest.json").read_text(encoding="utf-8"))
-		self.assertEqual(manifest["schema"], "cocoapdf.capability-demo/v1")
+		self.assertEqual(manifest["schema"], "cocoapdf.capability-demo/v2")
 		self.assertEqual(manifest["profile"], "permanent")
 		self.assertEqual(manifest["license"]["spdx"], "MIT")
-		self.assertFalse(manifest["license"]["third_party_content_added"])
+		self.assertTrue(manifest["license"]["third_party_content_added"])
 		self.assertEqual(manifest["license"]["network_fetches"], 0)
+		self.assertEqual(len(manifest["license"]["third_party"]), 1)
+		self.assertFalse(
+			manifest["license"]["third_party"][0]["source_content_redistributed"]
+		)
 		self.assertFalse(manifest["fixture_isolation"]["combined_pdf"])
 		self.assertEqual(
 			manifest["fixture_isolation"]["catalog_scoped_features"],
@@ -165,6 +191,61 @@ class BuildAutomationTests(unittest.TestCase):
 			"[Report](cases/strategic_corner_cases/full/output.report.summary.json)",
 			examples_readme,
 		)
+		self.assertIn("## OpenDataLoader-Bench results", examples_readme)
+		self.assertIn("`0.8696657214`", examples_readme)
+		self.assertIn("`0.8993297820`", examples_readme)
+		self.assertIn("`0.8061841234`", examples_readme)
+		self.assertIn("`0.8062168834`", examples_readme)
+		self.assertIn("**200 evaluated, 200 prediction files, 0 missing, 0 empty, 0 conversion failures**", examples_readme)
+		self.assertIn("These numbers do not measure CocoaPDF's HTML fidelity.", examples_readme)
+		# The published table is provenance for one commit. Keep it explicit that
+		# it says nothing about an uncommitted working tree, so a reader never
+		# mistakes a pinned historical score for the current implementation.
+		self.assertIn("> Scope: this table pins commit", examples_readme)
+		self.assertIn(
+			"must never be published under this commit's identifier.",
+			examples_readme,
+		)
+		self.assertEqual(len(manifest["benchmarks"]), 1)
+		benchmark = manifest["benchmarks"][0]
+		self.assertEqual(benchmark["id"], "opendataloader-bench")
+		self.assertEqual(
+			benchmark["benchmark_commit"],
+			"7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109",
+		)
+		self.assertEqual(
+			benchmark["engine_commit"],
+			"937c403ed3b265a14db802b2ced36b3819d20b0f",
+		)
+		self.assertFalse(benchmark["source_content_redistributed"])
+		self.assertEqual(
+			benchmark["result"]["metrics"]["nid_count"],
+			200,
+		)
+		self.assertEqual(
+			benchmark["result"]["metrics"]["teds_count"],
+			42,
+		)
+		self.assertEqual(
+			benchmark["result"]["metrics"]["mhs_count"],
+			107,
+		)
+		benchmark_root = (
+			examples
+			/ "benchmarks"
+			/ "opendataloader-bench"
+			/ benchmark["benchmark_commit"]
+		)
+		self.assertFalse(any(benchmark_root.rglob("*.pdf")))
+		self.assertFalse(any(benchmark_root.rglob("*.md")))
+		self.assertFalse(any(benchmark_root.rglob("*.pyc")))
+		self.assertFalse(any(path.name == "__pycache__" for path in benchmark_root.rglob("*")))
+		for name, record in benchmark["files"].items():
+			data = (benchmark_root / name).read_bytes()
+			self.assertEqual(len(data), record["bytes"])
+			self.assertEqual(hashlib.sha256(data).hexdigest(), record["sha256"])
+		from validation.benchmarks.opendataloader_bench.snapshot import validate_snapshot
+		validate_snapshot()
 		for index_name in ("README.md", "review.html"):
 			text = (examples / index_name).read_text(encoding="utf-8")
 			links = re.findall(r"\]\(([^)]+)\)", text)

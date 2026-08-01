@@ -1,7 +1,7 @@
 # CocoaPDF conversion examples
 
-All inputs and fixture prose are first-party project material under the bundled MIT license.
-No network content, OCR, AI, or ML was used.
+The three capability-demo inputs and their fixture prose are first-party project material under the bundled MIT license.
+No network content, OCR, AI, or ML was used to create or convert those fixtures.
 
 The three PDFs are intentionally isolated: Tagged-PDF structure trees, AcroForm fields, and outlines are document-catalog semantics. Concatenating their pages would alter the evidence being tested and make failures less diagnostic.
 
@@ -18,3 +18,27 @@ Full semantic JSON is committed. Report summaries omit only duplicate semantic g
 | `strategic_corner_cases` | Broad V1-V4 formatting, Unicode, lists, tables, figures, forms, columns, security, and fallback coverage. | [PDF](cases/strategic_corner_cases/input.pdf) | [Markdown](cases/strategic_corner_cases/full/output.md)<br/>[HTML](cases/strategic_corner_cases/full/output.html)<br/>[Semantic JSON](cases/strategic_corner_cases/full/output.json)<br/>[Report](cases/strategic_corner_cases/full/output.report.summary.json) |
 | `tagged_semantics` | Tagged heading, sibling ordered-list isolation, MCID provenance, and tagged table structure. | [PDF](cases/tagged_semantics/input.pdf) | [Markdown](cases/tagged_semantics/full/output.md)<br/>[HTML](cases/tagged_semantics/full/output.html)<br/>[Semantic JSON](cases/tagged_semantics/full/output.json)<br/>[Report](cases/tagged_semantics/full/output.report.summary.json) |
 | `scope_and_adversarial` | Page-range outline/AcroForm scope, valid heading anchors, dot-leader finance recovery, and two-sided diagram-versus-form/table fidelity. | [PDF](cases/scope_and_adversarial/input.pdf) | [Markdown](cases/scope_and_adversarial/full/output.md)<br/>[HTML](cases/scope_and_adversarial/full/output.html)<br/>[Semantic JSON](cases/scope_and_adversarial/full/output.json)<br/>[Report](cases/scope_and_adversarial/full/output.report.summary.json)<br/>[Page 2 Markdown](cases/scope_and_adversarial/page-2/output.md)<br/>[Page 2 HTML](cases/scope_and_adversarial/page-2/output.html)<br/>[Page 2 Semantic JSON](cases/scope_and_adversarial/page-2/output.json)<br/>[Page 2 Report](cases/scope_and_adversarial/page-2/output.report.summary.json) |
+
+## OpenDataLoader-Bench results
+
+CocoaPDF `0.1.0` at [`937c403e`](https://github.com/sayantandey/CocoaPDF/commit/937c403ed3b265a14db802b2ced36b3819d20b0f) was evaluated on all 200 PDFs using [OpenDataLoader-Bench at `7af1d8f4`](https://github.com/opendataloader-project/opendataloader-bench/tree/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109). The benchmark is Apache-2.0 and identifies its DP-Bench corpus as MIT; no source PDFs, ground truth, or predicted Markdown are redistributed here.
+
+| Metric | Mean | Eligible documents |
+| --- | ---: | ---: |
+| Overall document-macro score | `0.8696657214` | 200 |
+| NID | `0.8993297820` | 200 |
+| NID-S (tables removed) | `0.8822899268` | 200 |
+| TEDS | `0.8061841234` | 42 |
+| TEDS-S (structure only) | `0.8110160459` | 42 |
+| MHS | `0.8062168834` | 107 |
+| MHS-S (structure only) | `0.8889792725` | 107 |
+
+Completeness: **200 evaluated, 200 prediction files, 0 missing, 0 empty, 0 conversion failures**.
+
+Two clean full runs took **175.055502** and **159.053439 seconds total** (**0.875278** and **0.795267 seconds/document**) on `Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz`, Windows 10 build 19045, CPython 3.13.14, uv 0.12.0, and 25.59 GB physical memory. This hardware-bound time covers CocoaPDF's complete default conversion, including semantic HTML generation, although this benchmark scores Markdown only.
+
+Raw evidence: [exact result](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/result.json), [evaluation JSON](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/evaluation.json), [evaluation CSV](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/evaluation.csv), [timing summary](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/summary.json), [provenance](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/provenance.json), [prediction hashes](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/prediction-hashes.json), [two-run determinism](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/determinism.json), [adapter](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/adapter.py), and [integration patch](benchmarks/opendataloader-bench/7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109/integration.patch).
+
+> Scope: this table pins commit [`937c403e`](https://github.com/sayantandey/CocoaPDF/commit/937c403ed3b265a14db802b2ced36b3819d20b0f) and is regenerated only by importing a fresh run of that exact tree, which `tools/import_opendataloader_benchmark.py` verifies by tree hash. It therefore does not describe uncommitted work. A measurement of the current working tree, whenever it differs, belongs in [`validation/benchmarks/opendataloader_bench/RESULTS.md`](../validation/benchmarks/opendataloader_bench/RESULTS.md) and must never be published under this commit's identifier.
+
+> Interpretation limits: NID is a whitespace-normalized Markdown text/order proxy; TEDS concatenates every extracted table into one synthetic comparison per eligible document; and this benchmark's MHS implementation flattens heading levels, so it measures heading boundaries/text rather than true hierarchy depth. `overall_mean` is the mean of per-document available metrics, not the mean of the three aggregate metric means. These numbers do not measure CocoaPDF's HTML fidelity. The upstream chart is not included because it relabels seconds/document as seconds/page and hardcodes different hardware.

@@ -1,0 +1,63 @@
+{
+  "adapter": {
+    "sha256": "5e8494171afa13b1341c816fe7726a6f5a75d686783ac5eca63046d3de5d4c91"
+  },
+  "baseline": {
+    "engine_commit": "937c403ed3b265a14db802b2ced36b3819d20b0f",
+    "engine_tree": "f01a809b4e4c48d17716be2ac510e67b66b6ff28",
+    "scores": {
+      "mhs_mean": 0.8062168834231966,
+      "nid_mean": 0.8993297819973527,
+      "overall_mean": 0.869665721357887,
+      "teds_mean": 0.806184123363159
+    }
+  },
+  "benchmark": {
+    "commit": "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109",
+    "corpus": {
+      "ground_truth_bytes": 443582,
+      "ground_truth_count": 200,
+      "ground_truth_inventory_sha256": "35e88bc2e3a5954de7f8844cb929f606eab75888a951e00aeb2e7b7126b8030d",
+      "pdf_bytes": 36873075,
+      "pdf_count": 200,
+      "pdf_inventory_sha256": "23db64a86a6d103797d10e74c48d79a3c49fc42b7c44f5e1b07076eae0eec0b4"
+    },
+    "evaluator_files": {
+      "src/converter_markdown_table.py": "7676c7e02705a3a082caf02f5c468433b4a4f34f21f4dc60050859d9d0e7d181",
+      "src/evaluator.py": "4c703a289496b2ba9053ed07c691815593c71ef6678648ebe9128d627b612a4f",
+      "src/evaluator_heading_level.py": "1c13186f8ffb2ed05380f8a92a5f5caef587c043bf6074ee81dcb4444ef6d684",
+      "src/evaluator_reading_order.py": "b42a725dd0518e53a34f44c5d0fbc32a891d495c2fd839ee28ef7d3e24c53b1c",
+      "src/evaluator_table.py": "d5b32b2c7e2c4b645b951929dbb2e48e175c7c2347164ebcf41b9b2bd629b2e0"
+    },
+    "repository": "https://github.com/opendataloader-project/opendataloader-bench",
+    "tree": "749ede775f169461fb678754505274b6ad85134a"
+  },
+  "gates": {
+    "component_floors": {
+      "mhs_mean": 0.8,
+      "nid_mean": 0.8,
+      "teds_mean": 0.8
+    },
+    "material_regression": 0.001,
+    "overall_floor": 0.8,
+    "primary_scores": [
+      "overall_mean",
+      "nid_mean",
+      "teds_mean",
+      "mhs_mean"
+    ]
+  },
+  "required_counts": {
+    "document_count": 200,
+    "mhs_count": 107,
+    "missing_predictions": 0,
+    "nid_count": 200,
+    "teds_count": 42
+  },
+  "schema": "cocoapdf.opendataloader-ci-policy/v1",
+  "worker": {
+    "commit": "be0fa9822aa968860ffa04d49629711b475d8d9c",
+    "path": ".github/workflows/opendataloader-worker.yml",
+    "repository": "sayantandey/CocoaPDF"
+  }
+}

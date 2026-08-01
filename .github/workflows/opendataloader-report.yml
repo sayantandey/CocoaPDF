@@ -1,0 +1,400 @@
+name: OpenDataLoader trusted reporting
+
+on:
+  workflow_run:
+    workflows: [OpenDataLoader benchmark]
+    types: [requested, completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: odl-trusted-${{ github.event.workflow_run.event }}-${{ github.event.workflow_run.head_repository.id }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+env:
+  ODL_CACHE_KEY: odl-corpus-linux-v1-7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109-23db64a86a6d103797d10e74c48d79a3c49fc42b7c44f5e1b07076eae0eec0b4
+
+jobs:
+  mark-main-pending:
+    name: Mark current main score unverified
+    if: github.event.action == 'requested' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: odl-main-badge
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Check out default-branch publisher only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Replace any previous green score before evaluation starts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python validation/benchmarks/opendataloader_bench/report.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            mark-pending \
+            --event-json "${GITHUB_EVENT_PATH}" \
+            --trusted-run-id "${GITHUB_RUN_ID}" \
+            --trusted-run-attempt "${GITHUB_RUN_ATTEMPT}"
+
+  evaluate:
+    name: Evaluate exact head in trusted isolation
+    needs: mark-main-pending
+    if: >-
+      always() &&
+      github.event.action == 'completed' &&
+      github.repository == 'sayantandey/CocoaPDF' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out default-branch harness only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Authenticate the completed trigger and record immutable context
+        id: context
+        env:
+          TRUSTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git -C trusted rev-parse --is-inside-work-tree)" == "true" ]]
+          [[ "$(git -C trusted rev-parse HEAD)" == "${TRUSTED_SHA}" ]]
+          python trusted/validation/benchmarks/opendataloader_bench/ci_runner.py init-context \
+            --artifact-root "${RUNNER_TEMP}/cocoapdf-odl-artifact" \
+            --event-json "${GITHUB_EVENT_PATH}" \
+            --github-output "${GITHUB_OUTPUT}" \
+            --trusted-sha "${TRUSTED_SHA}"
+
+      - name: Verify the candidate boundary without checking it out
+        if: steps.context.outputs.upstream_event == 'pull_request'
+        env:
+          CANDIDATE_REPOSITORY: ${{ steps.context.outputs.candidate_repository }}
+          CANDIDATE_SHA: ${{ steps.context.outputs.candidate_sha }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python trusted/validation/benchmarks/opendataloader_bench/ci_runner.py verify-boundary-ref \
+            --trusted-root trusted \
+            --candidate-repository "${CANDIDATE_REPOSITORY}" \
+            --candidate-sha "${CANDIDATE_SHA}"
+
+      - name: Check out pinned evaluator and ground truth
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: opendataloader-project/opendataloader-bench
+          ref: 7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109
+          path: _odl-benchmark
+          persist-credentials: false
+          sparse-checkout: |
+            ground-truth/markdown
+            src
+            tests
+          sparse-checkout-cone-mode: true
+
+      - name: Set up pinned trusted Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Install hash-locked evaluator-only dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --require-hashes
+          -r trusted/validation/benchmarks/opendataloader_bench/evaluator-requirements.txt
+
+      - name: Verify the pinned evaluator's own unit suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/_odl-benchmark/src
+        run: python -m pytest -q _odl-benchmark/tests
+
+      - name: Restore immutable PDF corpus
+        id: corpus-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/cocoapdf-odl-corpus/pdfs
+          key: ${{ env.ODL_CACHE_KEY }}
+
+      - name: Fetch pinned PDFs on a cache miss
+        if: steps.corpus-cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: opendataloader-project/opendataloader-bench
+          ref: 7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109
+          path: _odl-corpus-source
+          persist-credentials: false
+          sparse-checkout: pdfs
+          sparse-checkout-cone-mode: true
+
+      - name: Materialize cache-miss corpus
+        if: steps.corpus-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/cocoapdf-odl-corpus/pdfs"
+          cp -a _odl-corpus-source/pdfs/. "${RUNNER_TEMP}/cocoapdf-odl-corpus/pdfs/"
+
+      - name: Verify evaluator identity and every corpus byte
+        shell: bash
+        run: |
+          set -euo pipefail
+          python trusted/validation/benchmarks/opendataloader_bench/ci_runner.py verify-corpus \
+            --benchmark-root _odl-benchmark \
+            --corpus-root "${RUNNER_TEMP}/cocoapdf-odl-corpus"
+
+      - name: Save verified corpus only for a trusted main push
+        if: >-
+          steps.corpus-cache.outputs.cache-hit != 'true' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/cocoapdf-odl-corpus/pdfs
+          key: ${{ env.ODL_CACHE_KEY }}
+
+      - name: Prepare quota-bounded candidate artifact storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="${RUNNER_TEMP}/cocoapdf-odl-candidate"
+          mkdir -p "${candidate}"
+          sudo mount -t tmpfs \
+            -o size=16m,nr_inodes=512,nodev,nosuid,noexec,mode=0700 \
+            tmpfs "${candidate}"
+          sudo chown "$(id -u):$(id -g)" "${candidate}"
+
+      - name: Download and validate the bounded prediction artifact
+        id: candidate-download
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python trusted/validation/benchmarks/opendataloader_bench/ci_runner.py download-candidate-artifact \
+            --context "${RUNNER_TEMP}/cocoapdf-odl-artifact/run-context.json" \
+            --destination "${RUNNER_TEMP}/cocoapdf-odl-candidate"
+
+      - name: Score validated predictions on the trusted host
+        id: odl
+        if: steps.candidate-download.outcome == 'success'
+        continue-on-error: true
+        env:
+          CACHE_HIT: ${{ steps.corpus-cache.outputs.cache-hit == 'true' && 'true' || 'false' }}
+          PYTHONHASHSEED: "0"
+          TZ: UTC
+        shell: bash
+        run: |
+          set -euo pipefail
+          python trusted/validation/benchmarks/opendataloader_bench/ci_runner.py score \
+            --benchmark-root _odl-benchmark \
+            --corpus-root "${RUNNER_TEMP}/cocoapdf-odl-corpus" \
+            --candidate-output "${RUNNER_TEMP}/cocoapdf-odl-candidate/prediction/cocoapdf" \
+            --artifact-root "${RUNNER_TEMP}/cocoapdf-odl-artifact" \
+            --cache-hit "${CACHE_HIT}" \
+            --cache-key "${ODL_CACHE_KEY}"
+
+      - name: Release bounded candidate artifact storage
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="${RUNNER_TEMP}/cocoapdf-odl-candidate"
+          if mountpoint -q "${candidate}"; then
+            sudo umount "${candidate}"
+          fi
+
+      - name: Upload trusted scores, hashes, and provenance
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cocoapdf-odl-trusted-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cocoapdf-odl-artifact
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+
+      - name: Enforce trusted gate and complete evidence
+        if: always()
+        env:
+          BENCHMARK_OUTCOME: ${{ steps.odl.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python trusted/validation/benchmarks/opendataloader_bench/ci_runner.py assert-workflow \
+            --artifact-root "${RUNNER_TEMP}/cocoapdf-odl-artifact" \
+            --benchmark-outcome "${BENCHMARK_OUTCOME}" \
+            --upload-outcome "${UPLOAD_OUTCOME}"
+
+  report-pr-check:
+    name: Publish authoritative SHA check
+    if: always() && github.event.action == 'completed' && github.event.workflow_run.event == 'pull_request'
+    needs: evaluate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+    steps:
+      - name: Check out default-branch reporter only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Download this trusted run's evidence
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cocoapdf-odl-trusted-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cocoapdf-odl-downloaded
+
+      - name: Validate evidence and publish the authoritative SHA-bound check
+        env:
+          DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}
+          EVALUATION_OUTCOME: ${{ needs.evaluate.result }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python validation/benchmarks/opendataloader_bench/report.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            report-pr-check \
+            --event-json "${GITHUB_EVENT_PATH}" \
+            --artifact-root "${RUNNER_TEMP}/cocoapdf-odl-downloaded" \
+            --download-outcome "${DOWNLOAD_OUTCOME}" \
+            --evaluation-outcome "${EVALUATION_OUTCOME}" \
+            --trusted-run-id "${GITHUB_RUN_ID}" \
+            --trusted-run-attempt "${GITHUB_RUN_ATTEMPT}"
+
+  report-pr-body:
+    name: Publish informational PR summary
+    if: always() && github.event.action == 'completed' && github.event.workflow_run.event == 'pull_request'
+    needs: evaluate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: pr-body-${{ github.event.workflow_run.head_repository.id }}-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out default-branch reporter only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Download this trusted run's evidence
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cocoapdf-odl-trusted-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cocoapdf-odl-downloaded
+
+      - name: Validate evidence and replace only the informational PR block
+        env:
+          DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}
+          EVALUATION_OUTCOME: ${{ needs.evaluate.result }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python validation/benchmarks/opendataloader_bench/report.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            report-pr-body \
+            --event-json "${GITHUB_EVENT_PATH}" \
+            --artifact-root "${RUNNER_TEMP}/cocoapdf-odl-downloaded" \
+            --download-outcome "${DOWNLOAD_OUTCOME}" \
+            --evaluation-outcome "${EVALUATION_OUTCOME}" \
+            --trusted-run-id "${GITHUB_RUN_ID}" \
+            --trusted-run-attempt "${GITHUB_RUN_ATTEMPT}"
+
+  publish-main:
+    name: Publish verified main badge
+    if: always() && github.event.action == 'completed' && github.event.workflow_run.event == 'push'
+    needs: [mark-main-pending, evaluate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: odl-main-badge
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Check out default-branch publisher only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Download this trusted run's evidence
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cocoapdf-odl-trusted-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cocoapdf-odl-downloaded
+
+      - name: Publish verified numeric score or explicit red failure state
+        env:
+          DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}
+          EVALUATION_OUTCOME: ${{ needs.evaluate.result }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python validation/benchmarks/opendataloader_bench/report.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            publish-badge \
+            --event-json "${GITHUB_EVENT_PATH}" \
+            --artifact-root "${RUNNER_TEMP}/cocoapdf-odl-downloaded" \
+            --download-outcome "${DOWNLOAD_OUTCOME}" \
+            --evaluation-outcome "${EVALUATION_OUTCOME}" \
+            --trusted-run-id "${GITHUB_RUN_ID}" \
+            --trusted-run-attempt "${GITHUB_RUN_ATTEMPT}"

@@ -35,11 +35,91 @@
     },
     {
       "passed": true,
-      "detail": "task-list state is preserved"
+      "detail": "all Markdown task-list states are preserved"
+    },
+    {
+      "passed": true,
+      "detail": "HTML retains the strategic task list"
+    },
+    {
+      "passed": true,
+      "detail": "native task checkboxes suppress all three redundant list markers"
+    },
+    {
+      "passed": true,
+      "detail": "native task checkboxes retain explicit accessible state labels"
+    },
+    {
+      "passed": true,
+      "detail": "HTML ships the task-item-only marker suppression rule"
     },
     {
       "passed": true,
       "detail": "complex table fallback remains structural"
+    },
+    {
+      "passed": true,
+      "detail": "matrix fixture maps to exactly one semantic table"
+    },
+    {
+      "passed": true,
+      "detail": "matrix semantic graph contains exactly two columns across three rows"
+    },
+    {
+      "passed": true,
+      "detail": "matrix sliver correction remains explicit and evidenced"
+    },
+    {
+      "passed": true,
+      "detail": "pruned matrix geometry remains preserved in table provenance"
+    },
+    {
+      "passed": true,
+      "detail": "HTML retains the strategic matrix table"
+    },
+    {
+      "passed": true,
+      "detail": "matrix HTML contains exactly two columns across three rows"
+    },
+    {
+      "passed": true,
+      "detail": "matrix HTML has no synthetic empty edge cells"
+    },
+    {
+      "passed": true,
+      "detail": "matrix Markdown remains the validated two-column projection"
+    },
+    {
+      "passed": true,
+      "detail": "raster-preservation fixture copy survives both semantic projections"
+    },
+    {
+      "passed": true,
+      "detail": "obsolete raster-fixture wording is absent from both projections"
+    },
+    {
+      "passed": true,
+      "detail": "strategic raster is extracted as exactly one PNG asset"
+    },
+    {
+      "passed": true,
+      "detail": "raster bytes are content-addressed and retain their 900x220 pixels"
+    },
+    {
+      "passed": true,
+      "detail": "Markdown and HTML both reference the extracted raster asset"
+    },
+    {
+      "passed": true,
+      "detail": "semantic JSON records exactly one raster image"
+    },
+    {
+      "passed": true,
+      "detail": "raster stays opaque body content and remains traceable to its PDF XObject"
+    },
+    {
+      "passed": true,
+      "detail": "report confirms raster preservation without OCR or image-text extraction"
     }
   ]
 }

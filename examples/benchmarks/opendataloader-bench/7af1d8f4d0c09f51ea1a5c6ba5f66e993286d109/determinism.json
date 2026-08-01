@@ -1,0 +1,30 @@
+{
+  "document_count": 200,
+  "prediction_mismatches": 0,
+  "runs": [
+    {
+      "label": "run-1",
+      "prediction_bytes": 389266,
+      "prediction_sha256": "f391c951c935cefac6ffc64dd15a267a9de8292e9c35a36c094732588774730a",
+      "speed": {
+        "document_count": 200,
+        "elapsed_per_doc": 0.8752775084972382,
+        "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
+        "total_elapsed": 175.05550169944763
+      }
+    },
+    {
+      "label": "run-2",
+      "prediction_bytes": 389266,
+      "prediction_sha256": "f391c951c935cefac6ffc64dd15a267a9de8292e9c35a36c094732588774730a",
+      "speed": {
+        "document_count": 200,
+        "elapsed_per_doc": 0.795267196893692,
+        "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
+        "total_elapsed": 159.0534393787384
+      }
+    }
+  ],
+  "schema": "cocoapdf.opendataloader-determinism/v1",
+  "score_mismatches": 0
+}

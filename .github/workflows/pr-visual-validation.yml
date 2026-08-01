@@ -3,8 +3,11 @@ name: PR visual validation
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review]
 
+# Candidate code may generate the review corpus, but this workflow has no write
+# authority. The default-branch workflow_run reporter publishes only validated
+# artifact metadata and never downloads or executes this artifact.
 permissions:
   contents: read
 
@@ -15,15 +18,10 @@ concurrency:
 jobs:
   build:
     name: Generate review corpus
-    if: github.event.action != 'closed'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
-    outputs:
-      artifact_name: ${{ steps.names.outputs.artifact_name }}
-      artifact_url: ${{ steps.upload.outputs.artifact-url }}
-      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
       - name: Check out the pull-request merge
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -34,13 +32,6 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-
-      - name: Resolve artifact identity
-        id: names
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "artifact_name=cocoapdf-pr-visual-pr-${{ github.event.pull_request.number }}" >> "${GITHUB_OUTPUT}"
 
       - name: Generate inputs, CocoaPDF outputs, hashes, and review index
         env:
@@ -58,13 +49,13 @@ jobs:
         id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.names.outputs.artifact_name }}
+          name: cocoapdf-pr-visual-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cocoapdf-pr-visual
           if-no-files-found: error
           retention-days: 7
           compression-level: 6
 
-      - name: Publish the manual-review summary
+      - name: Publish the unprivileged job summary
         env:
           ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
@@ -89,128 +80,3 @@ jobs:
               echo "External HTML preview is intentionally omitted for fork pull requests; review the generated artifact instead."
             fi
           } >> "${GITHUB_STEP_SUMMARY}"
-
-  link:
-    name: Link artifact in PR description
-    if: >-
-      github.event.action != 'closed' &&
-      needs.build.result == 'success' &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    needs: build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    continue-on-error: true
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Replace the delimited visual-review block
-        env:
-          ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact_digest }}
-          ARTIFACT_URL: ${{ needs.build.outputs.artifact_url }}
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPOSITORY: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh api "/repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""' > current-body.md
-          awk '
-            /<!-- cocoapdf-pr-visual:start -->/ { skip = 1; next }
-            /<!-- cocoapdf-pr-visual:end -->/ { skip = 0; next }
-            !skip { print }
-          ' current-body.md > base-body.md
-          sed -i -e ':a' -e '/^[[:space:]]*$/{$d;N;ba}' base-body.md
-          {
-            cat base-body.md
-            echo
-            echo
-            echo "<!-- cocoapdf-pr-visual:start -->"
-            echo "## PR visual-validation artifact"
-            echo
-            echo "[Download three input PDFs and their CocoaPDF Markdown/HTML/JSON outputs](${ARTIFACT_URL})."
-            echo
-            echo "- Head commit: \`${HEAD_SHA}\`"
-            echo "- Artifact SHA-256: \`${ARTIFACT_DIGEST}\`"
-            echo "- Open \`review.html\` after unzipping for side-by-side inspection."
-            echo "- This temporary artifact is retained for up to seven days and deleted immediately when the PR closes."
-            echo "- A new commit, reopen, or ready-for-review event generates a fresh artifact."
-            echo
-            echo "No external content, OCR, AI, or ML is used; provenance and licensing are included in \`manifest.json\`."
-            echo
-            echo "[Open this exact commit's rendered capability demo](https://rawcdn.githack.com/${HEAD_REPOSITORY}/${HEAD_SHA}/examples/review.html)."
-            echo
-            echo "[Browse this revision's committed capability demo](https://github.com/${REPOSITORY}/tree/${HEAD_SHA}/examples); it is separate from this PR artifact."
-            echo "<!-- cocoapdf-pr-visual:end -->"
-          } > updated-body.md
-          jq -n --rawfile body updated-body.md '{body: $body}' > payload.json
-          gh api --method PATCH "/repos/${REPOSITORY}/pulls/${PR_NUMBER}" --input payload.json > /dev/null
-
-  cleanup:
-    name: Delete closed-PR artifacts
-    if: github.event.action == 'closed'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      actions: write
-      pull-requests: write
-    steps:
-      - name: Delete every artifact retained for this PR
-        continue-on-error: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
-        env:
-          ARTIFACT_NAME: cocoapdf-pr-visual-pr-${{ github.event.pull_request.number }}
-          REPOSITORY: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh api --method GET "/repos/${REPOSITORY}/actions/artifacts" \
-            -f "name=${ARTIFACT_NAME}" --paginate --jq '.artifacts[].id' > artifact-ids.txt
-          while IFS= read -r artifact_id; do
-            [[ -z "${artifact_id}" ]] && continue
-            gh api --method DELETE "/repos/${REPOSITORY}/actions/artifacts/${artifact_id}"
-          done < artifact-ids.txt
-
-      - name: Replace the deleted download with a closed-state notice
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          MERGED: ${{ github.event.pull_request.merged }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPOSITORY: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${MERGED}" == "true" ]]; then
-            disposition="merged"
-          else
-            disposition="closed without merge"
-          fi
-          gh api "/repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""' > current-body.md
-          awk '
-            /<!-- cocoapdf-pr-visual:start -->/ { skip = 1; next }
-            /<!-- cocoapdf-pr-visual:end -->/ { skip = 0; next }
-            !skip { print }
-          ' current-body.md > base-body.md
-          sed -i -e ':a' -e '/^[[:space:]]*$/{$d;N;ba}' base-body.md
-          {
-            cat base-body.md
-            echo
-            echo
-            echo "<!-- cocoapdf-pr-visual:start -->"
-            echo "## PR visual-validation artifact"
-            echo
-            echo "The temporary review artifact was deleted automatically after this PR was ${disposition}; no stale download link is retained."
-            echo
-            echo "- Reviewed head commit: \`${HEAD_SHA}\`"
-            echo "- [Review workflow close/cleanup run](https://github.com/${REPOSITORY}/actions/runs/${RUN_ID})"
-            echo "- [Browse the permanent capability demo](https://github.com/${REPOSITORY}/tree/main/examples)"
-            echo
-            echo "Reopening the PR generates a fresh artifact and restores a live download link."
-            echo "<!-- cocoapdf-pr-visual:end -->"
-          } > updated-body.md
-          jq -n --rawfile body updated-body.md '{body: $body}' > payload.json
-          gh api --method PATCH "/repos/${REPOSITORY}/pulls/${PR_NUMBER}" --input payload.json > /dev/null

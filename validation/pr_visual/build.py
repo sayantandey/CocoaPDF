@@ -24,6 +24,8 @@ VALID_PROFILES = (PULL_REQUEST_PROFILE, PERMANENT_PROFILE)
 
 
 def _source_imports() -> None:
+	if str(ROOT) not in sys.path:
+		sys.path.insert(0, str(ROOT))
 	if str(SOURCE_ROOT) not in sys.path:
 		sys.path.insert(0, str(SOURCE_ROOT))
 
@@ -32,6 +34,11 @@ _source_imports()
 
 from cocoapdf._textio import write_utf8_lf  # noqa: E402
 from cocoapdf.synthetic import line_op, text_op  # noqa: E402
+from validation.benchmarks.opendataloader_bench.snapshot import (  # noqa: E402
+	BENCHMARK_COMMIT,
+	SNAPSHOT_ROOT,
+	validate_snapshot,
+)
 
 
 def render_pdf(objects: Iterable[bytes], root: int) -> bytes:
@@ -409,6 +416,19 @@ def _semantic_nodes(
 	return found
 
 
+def _semantic_text(node: Dict[str, Any]) -> str:
+	parts: List[str] = []
+	text = node.get("text")
+	if isinstance(text, str) and text:
+		parts.append(text)
+	children = node.get("children")
+	if isinstance(children, list):
+		for child in children:
+			if isinstance(child, dict):
+				parts.append(_semantic_text(child))
+	return "".join(parts)
+
+
 def _verify_scope_diagram(
 	output_dir: Path,
 	markdown: str,
@@ -593,15 +613,226 @@ def _verify_second_field_appearance(
 
 def verify_strategic(output_dir: Path) -> List[Dict[str, Any]]:
 	results: List[Dict[str, Any]] = []
-	markdown, _semantic, _report = _common_contract(output_dir, results)
+	markdown, semantic, report = _common_contract(output_dir, results)
+	html_output = (output_dir / "output.html").read_text(encoding="utf-8")
 	source = STRATEGIC_SOURCE.read_text(encoding="utf-8")
 	sentinels = sorted(set(re.findall(r"SENTINEL-[A-Z0-9-]+", source)))
 	missing = [sentinel for sentinel in sentinels if sentinel not in markdown]
 	_require(not missing, "all %d strategic sentinels survive" % len(sentinels), results)
 	_require("## <u>**" not in markdown, "headings do not acquire redundant inline styles", results)
 	_require(r"`inline\_code()`" not in markdown, "code spans are not over-escaped", results)
-	_require("- [x] checked task item" in markdown, "task-list state is preserved", results)
+	_require(
+		all(
+			item in markdown
+			for item in (
+				"- [x] checked task item",
+				"- [ ] unchecked task item",
+				"- [x] uppercase checked task item",
+			)
+		),
+		"all Markdown task-list states are preserved",
+		results,
+	)
+	task_match = re.search(
+		r"SENTINEL-LIST-006.*?(<ul\b.*?</ul>)\s*<p\b[^>]*>SENTINEL-LIST-007",
+		html_output,
+		re.S,
+	)
+	_require(task_match is not None, "HTML retains the strategic task list", results)
+	if task_match is not None:
+		task_html = task_match.group(1)
+		_require(
+			task_html.count('class="cocoapdf-task-item"') == 3
+			and task_html.count('<input type="checkbox" disabled') == 3,
+			"native task checkboxes suppress all three redundant list markers",
+			results,
+		)
+		_require(
+			task_html.count('aria-label="Checked task:') == 2
+			and task_html.count('aria-label="Unchecked task:') == 1,
+			"native task checkboxes retain explicit accessible state labels",
+			results,
+		)
+	_require(
+		".cocoapdf-task-item { list-style-type: none; }" in html_output,
+		"HTML ships the task-item-only marker suppression rule",
+		results,
+	)
 	_require("<caption>Complex semantic table" in markdown, "complex table fallback remains structural", results)
+
+	matrix_tables = [
+		node
+		for node in _semantic_nodes(semantic, "table")
+		if "A = [[1, 2], [3, 4]]" in _semantic_text(node)
+	]
+	_require(
+		len(matrix_tables) == 1,
+		"matrix fixture maps to exactly one semantic table",
+		results,
+	)
+	if len(matrix_tables) == 1:
+		matrix = matrix_tables[0]
+		attrs = matrix.get("attrs") if isinstance(matrix.get("attrs"), dict) else {}
+		rows = [
+			child
+			for child in matrix.get("children", [])
+			if isinstance(child, dict) and child.get("kind") == "table_row"
+		]
+		row_cells = [
+			[
+				cell
+				for cell in row.get("children", [])
+				if isinstance(cell, dict) and cell.get("kind") == "table_cell"
+			]
+			for row in rows
+		]
+		_require(
+			attrs.get("column_count") == 2
+			and len(rows) == 3
+			and all(len(cells) == 2 for cells in row_cells),
+			"matrix semantic graph contains exactly two columns across three rows",
+			results,
+		)
+		pruned = attrs.get("pruned_vacuous_edge_columns")
+		evidence = matrix.get("evidence") if isinstance(matrix.get("evidence"), list) else []
+		_require(
+			isinstance(pruned, list)
+			and len(pruned) == 1
+			and isinstance(pruned[0], dict)
+			and pruned[0].get("side") == "left"
+			and any(
+				isinstance(item, dict)
+				and item.get("kind") == "vacuous_narrow_edge_column_pruned"
+				for item in evidence
+			),
+			"matrix sliver correction remains explicit and evidenced",
+			results,
+		)
+		sources = matrix.get("sources") if isinstance(matrix.get("sources"), list) else []
+		semantic_bbox = attrs.get("bbox")
+		_require(
+			bool(sources)
+			and isinstance(sources[0], dict)
+			and isinstance(sources[0].get("bbox"), list)
+			and isinstance(semantic_bbox, list)
+			and float(sources[0]["bbox"][0]) < float(semantic_bbox[0]),
+			"pruned matrix geometry remains preserved in table provenance",
+			results,
+		)
+	matrix_tail = html_output.split("SENTINEL-MATH-004", 1)
+	matrix_html = (
+		re.search(r"<table\b.*?</table>", matrix_tail[1], re.S)
+		if len(matrix_tail) == 2
+		else None
+	)
+	_require(matrix_html is not None, "HTML retains the strategic matrix table", results)
+	if matrix_html is not None:
+		fragment = matrix_html.group(0)
+		_require(
+			len(re.findall(r"<tr\b", fragment)) == 3
+			and len(re.findall(r"<th\b", fragment)) == 2
+			and len(re.findall(r"<td\b", fragment)) == 4,
+			"matrix HTML contains exactly two columns across three rows",
+			results,
+		)
+		_require(
+			re.search(r"<(?:th|td)\b[^>]*>\s*</(?:th|td)>", fragment) is None,
+			"matrix HTML has no synthetic empty edge cells",
+			results,
+		)
+	_require(
+		"| Formula | Meaning |" in markdown
+		and "| `A = [[1, 2], [3, 4]]` | matrix literal |" in markdown,
+		"matrix Markdown remains the validated two-column projection",
+		results,
+	)
+	_require(
+		"14. Raster Image Preservation Fixture" in markdown
+		and "SENTINEL-RASTER-001" in markdown
+		and "Raster SENTINEL: Raster text = 12345" in markdown
+		and "SENTINEL-RASTER-001" in html_output,
+		"raster-preservation fixture copy survives both semantic projections",
+		results,
+	)
+	_require(
+		all(
+			obsolete not in markdown and obsolete not in html_output
+			for obsolete in ("OCR-ONLY", "SENTINEL-OCR", "Raster Hybrid Future")
+		),
+		"obsolete raster-fixture wording is absent from both projections",
+		results,
+	)
+
+	raster_assets = sorted((output_dir / "assets").glob("img-*.png"))
+	_require(
+		len(raster_assets) == 1,
+		"strategic raster is extracted as exactly one PNG asset",
+		results,
+	)
+	if len(raster_assets) == 1:
+		asset = raster_assets[0]
+		asset_data = asset.read_bytes()
+		asset_hash = _sha256(asset_data)
+		_require(
+			asset.name == "img-%s.png" % asset_hash[:16]
+			and asset_data.startswith(b"\x89PNG\r\n\x1a\n")
+			and len(asset_data) > 24
+			and int.from_bytes(asset_data[16:20], "big") == 900
+			and int.from_bytes(asset_data[20:24], "big") == 220,
+			"raster bytes are content-addressed and retain their 900x220 pixels",
+			results,
+		)
+		_require(
+			asset.name in markdown and asset.name in html_output,
+			"Markdown and HTML both reference the extracted raster asset",
+			results,
+		)
+		raster_nodes = [
+			node
+			for node in _semantic_nodes(semantic, "image")
+			if isinstance(node.get("attrs"), dict)
+			and node["attrs"].get("kind") == "raster"
+		]
+		_require(
+			len(raster_nodes) == 1,
+			"semantic JSON records exactly one raster image",
+			results,
+		)
+		if len(raster_nodes) == 1:
+			raster = raster_nodes[0]
+			attrs = raster.get("attrs") if isinstance(raster.get("attrs"), dict) else {}
+			sources = raster.get("sources") if isinstance(raster.get("sources"), list) else []
+			object_refs = [
+				str(value)
+				for source_ref in sources
+				if isinstance(source_ref, dict)
+				for value in source_ref.get("object_refs", [])
+			]
+			_require(
+				attrs.get("src") == "assets/%s" % asset.name
+				and attrs.get("text_extraction_attempted") is False
+				and raster.get("text") == ""
+				and raster.get("children") == []
+				and asset.name in object_refs
+				and any(re.fullmatch(r"\d+ 0 R", value) for value in object_refs),
+				"raster stays opaque body content and remains traceable to its PDF XObject",
+				results,
+			)
+	image_details = [
+		item
+		for item in report.get("images_detail", [])
+		if isinstance(item, dict) and item.get("kind") == "raster"
+	]
+	_require(
+		len(image_details) == 1
+		and image_details[0].get("asset") == (
+			raster_assets[0].name if len(raster_assets) == 1 else None
+		)
+		and report.get("image_text_extraction_attempted") is False
+		and report.get("ocr_used") is False,
+		"report confirms raster preservation without OCR or image-text extraction",
+		results,
+	)
 	return results
 
 
@@ -725,6 +956,7 @@ def _write_review_files(
 	cases: Sequence[Dict[str, Any]],
 	*,
 	profile: str,
+	benchmark: Optional[Dict[str, Any]] = None,
 ) -> None:
 	permanent = profile == PERMANENT_PROFILE
 	title = (
@@ -736,8 +968,9 @@ def _write_review_files(
 	lines = [
 		"# %s" % title,
 		"",
-		"All inputs and fixture prose are first-party project material under the bundled MIT license.",
-		"No network content, OCR, AI, or ML was used.",
+		"The three capability-demo inputs and their fixture prose are first-party project material "
+		"under the bundled MIT license.",
+		"No network content, OCR, AI, or ML was used to create or convert those fixtures.",
 		"",
 		"The three PDFs are intentionally isolated: Tagged-PDF structure trees, AcroForm fields, "
 		"and outlines are document-catalog semantics. Concatenating their pages would alter the "
@@ -839,6 +1072,106 @@ def _write_review_files(
 				primary_base=html.escape(primary_base, quote=True),
 			)
 		)
+	if permanent and benchmark is not None:
+		result = benchmark["result"]
+		provenance = benchmark["provenance"]
+		determinism = benchmark["determinism"]
+		scores = result["metrics"]["score"]
+		counts = result["metrics"]
+		speed = result["speed"]
+		completeness = result["completeness"]
+		base = "benchmarks/opendataloader-bench/%s" % BENCHMARK_COMMIT
+		engine_commit = str(result["engine_commit"])
+		benchmark_commit = str(result["benchmark_commit"])
+		memory_gb = float(provenance["environment"]["physical_memory_bytes"]) / 1_000_000_000.0
+		lines.extend(
+			[
+				"",
+				"## OpenDataLoader-Bench results",
+				"",
+				"CocoaPDF `0.1.0` at [`%s`](https://github.com/sayantandey/CocoaPDF/commit/%s) "
+				"was evaluated on all 200 PDFs using "
+				"[OpenDataLoader-Bench at `%s`](https://github.com/opendataloader-project/"
+				"opendataloader-bench/tree/%s). The benchmark is Apache-2.0 and identifies its "
+				"DP-Bench corpus as MIT; no source PDFs, ground truth, or predicted Markdown are "
+				"redistributed here."
+				% (
+					engine_commit[:8],
+					engine_commit,
+					benchmark_commit[:8],
+					benchmark_commit,
+				),
+				"",
+				"| Metric | Mean | Eligible documents |",
+				"| --- | ---: | ---: |",
+				"| Overall document-macro score | `%.10f` | 200 |"
+				% float(scores["overall_mean"]),
+				"| NID | `%.10f` | %d |"
+				% (float(scores["nid_mean"]), int(counts["nid_count"])),
+				"| NID-S (tables removed) | `%.10f` | %d |"
+				% (float(scores["nid_s_mean"]), int(counts["nid_count"])),
+				"| TEDS | `%.10f` | %d |"
+				% (float(scores["teds_mean"]), int(counts["teds_count"])),
+				"| TEDS-S (structure only) | `%.10f` | %d |"
+				% (float(scores["teds_s_mean"]), int(counts["teds_count"])),
+				"| MHS | `%.10f` | %d |"
+				% (float(scores["mhs_mean"]), int(counts["mhs_count"])),
+				"| MHS-S (structure only) | `%.10f` | %d |"
+				% (float(scores["mhs_s_mean"]), int(counts["mhs_count"])),
+				"",
+				"Completeness: **%d evaluated, %d prediction files, %d missing, %d empty, "
+				"%d conversion failures**."
+				% (
+					int(completeness["evaluated_documents"]),
+					int(completeness["prediction_files"]),
+					int(completeness["missing_predictions"]),
+					int(completeness["empty_predictions"]),
+					int(completeness["conversion_failures"]),
+				),
+				"",
+				"Two clean full runs took **%.6f** and **%.6f seconds total** "
+				"(**%.6f** and **%.6f seconds/document**) "
+				"on `%s`, Windows 10 build 19045, CPython 3.13.14, uv 0.12.0, and %.2f GB "
+				"physical memory. This hardware-bound time covers CocoaPDF's complete default "
+				"conversion, including semantic HTML generation, although this benchmark scores "
+				"Markdown only."
+				% (
+					float(determinism["runs"][0]["speed"]["total_elapsed"]),
+					float(determinism["runs"][1]["speed"]["total_elapsed"]),
+					float(determinism["runs"][0]["speed"]["elapsed_per_doc"]),
+					float(determinism["runs"][1]["speed"]["elapsed_per_doc"]),
+					str(speed["processor"]),
+					memory_gb,
+				),
+				"",
+				"Raw evidence: [exact result](%s/result.json), "
+				"[evaluation JSON](%s/evaluation.json), [evaluation CSV](%s/evaluation.csv), "
+				"[timing summary](%s/summary.json), [provenance](%s/provenance.json), "
+				"[prediction hashes](%s/prediction-hashes.json), "
+				"[two-run determinism](%s/determinism.json), [adapter](%s/adapter.py), "
+				"and [integration patch](%s/integration.patch)."
+				% ((base,) * 9),
+				"",
+				"> Scope: this table pins commit [`%s`](https://github.com/sayantandey/CocoaPDF/"
+				"commit/%s) and is regenerated only by importing a fresh run of that exact tree, "
+				"which `tools/import_opendataloader_benchmark.py` verifies by tree hash. It "
+				"therefore does not describe uncommitted work. A measurement of the current "
+				"working tree, whenever it differs, belongs in "
+				"[`validation/benchmarks/opendataloader_bench/RESULTS.md`]"
+				"(../validation/benchmarks/opendataloader_bench/RESULTS.md) and must never be "
+				"published under this commit's identifier."
+				% (engine_commit[:8], engine_commit),
+				"",
+				"> Interpretation limits: NID is a whitespace-normalized Markdown text/order proxy; "
+				"TEDS concatenates every extracted table into one synthetic comparison per eligible "
+				"document; and this benchmark's "
+				"MHS implementation flattens heading levels, so it measures heading boundaries/text "
+				"rather than true hierarchy depth. `overall_mean` is the mean of per-document "
+				"available metrics, not the mean of the three aggregate metric means. These numbers "
+				"do not measure CocoaPDF's HTML fidelity. The upstream chart is not included because "
+				"it relabels seconds/document as seconds/page and hardcodes different hardware.",
+			]
+		)
 	write_utf8_lf(output_root / index_name, "\n".join(lines) + "\n")
 	head_meta = (
 		"""
@@ -903,6 +1236,7 @@ def build_bundle(
 		raise ValueError("output directory must be empty: %s" % output_root)
 	output_root.mkdir(parents=True, exist_ok=True)
 	(output_root / "LICENSE.txt").write_bytes(LICENSE_PATH.read_bytes())
+	permanent = profile == PERMANENT_PROFILE
 
 	inputs = generate_inputs()
 	# Keep these PDF-native microfixtures separate. StructTreeRoot/ParentTree,
@@ -999,11 +1333,51 @@ def build_bundle(
 			}
 		)
 
-	_write_review_files(output_root, manifest_cases, profile=profile)
-	permanent = profile == PERMANENT_PROFILE
+	manifest_benchmarks: List[Dict[str, Any]] = []
+	benchmark_for_review: Optional[Dict[str, Any]] = None
+	if permanent:
+		validated = validate_snapshot()
+		benchmark_destination = (
+			output_root
+			/ "benchmarks"
+			/ "opendataloader-bench"
+			/ BENCHMARK_COMMIT
+		)
+		shutil.copytree(
+			SNAPSHOT_ROOT,
+			benchmark_destination,
+			ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+		)
+		benchmark_for_review = {
+			"result": validated["result"],
+			"provenance": validated["provenance"],
+			"determinism": validated["determinism"],
+		}
+		manifest_benchmarks.append(
+			{
+				"id": "opendataloader-bench",
+				"benchmark_commit": BENCHMARK_COMMIT,
+				"engine_commit": validated["result"]["engine_commit"],
+				"licenses": {
+					"benchmark": "Apache-2.0",
+					"corpus": "MIT",
+					"cocoapdf": "MIT",
+				},
+				"source_content_redistributed": False,
+				"result": validated["result"],
+				"files": _file_hashes(benchmark_destination),
+			}
+		)
+
+	_write_review_files(
+		output_root,
+		manifest_cases,
+		profile=profile,
+		benchmark=benchmark_for_review,
+	)
 	manifest = {
 		"schema": (
-			"cocoapdf.capability-demo/v1"
+			"cocoapdf.capability-demo/v2"
 			if permanent
 			else "cocoapdf.pr-visual-corpus/v1"
 		),
@@ -1015,9 +1389,26 @@ def build_bundle(
 		"license": {
 			"spdx": "MIT",
 			"file": "LICENSE.txt",
-			"origin": "first-party CocoaPDF project fixtures",
+			"origin": (
+				"first-party CocoaPDF fixtures plus attributed derived benchmark results"
+				if permanent
+				else "first-party CocoaPDF project fixtures"
+			),
 			"network_fetches": 0,
-			"third_party_content_added": False,
+			"third_party_content_added": permanent,
+			"third_party": (
+				[
+					{
+						"name": "OpenDataLoader-Bench result data",
+						"benchmark_license": "Apache-2.0",
+						"corpus": "DP-Bench",
+						"corpus_license": "MIT",
+						"source_content_redistributed": False,
+					}
+				]
+				if permanent
+				else []
+			),
 		},
 		"fixture_isolation": {
 			"combined_pdf": False,
@@ -1048,6 +1439,7 @@ def build_bundle(
 			}
 		),
 		"cases": manifest_cases,
+		"benchmarks": manifest_benchmarks,
 	}
 	write_utf8_lf(
 		output_root / "manifest.json",

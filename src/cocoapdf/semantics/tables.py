@@ -23,13 +23,67 @@ def build_table_node(
     lines = sorted(event.lines, key=lambda line: (line.y0, line.x0, line.seq))
     bbox = tuple(float(value) for value in event.attrs.get("bbox", _bbox(lines)))
     table_lines, caption_lines, note_lines = _partition_supporting_lines(lines, bbox)
-    model = _lattice_model(factory, converter, renderer, event.page, table_lines, bbox, regions_by_line)
+    partial_grid = event.attrs.get("partial_grid")
+    model = _lattice_model(
+        factory,
+        converter,
+        renderer,
+        event.page,
+        table_lines,
+        bbox,
+        regions_by_line,
+        partial_grid if isinstance(partial_grid, dict) else None,
+    )
     if model is None:
         model = _borderless_model(factory, renderer, table_lines, bbox, regions_by_line)
     if model is None:
         return _rejected_table_candidate(factory, renderer, lines, event.page, bbox, regions_by_line)
     rows, header_rows, confidence, evidence = model
     sources = sources_from_lines(lines, regions_by_line)
+    if isinstance(partial_grid, dict):
+        raw_object_refs = partial_grid.get("source_object_refs", ())
+        raw_source_bbox = partial_grid.get("source_bbox")
+        if isinstance(raw_object_refs, (list, tuple)):
+            object_refs = tuple(
+                str(value) for value in raw_object_refs if str(value).strip()
+            )
+        else:
+            object_refs = ()
+        source_bbox = None
+        if isinstance(raw_source_bbox, (list, tuple)) and len(raw_source_bbox) == 4:
+            try:
+                parsed_bbox = tuple(float(value) for value in raw_source_bbox)
+            except (TypeError, ValueError, OverflowError):
+                parsed_bbox = ()
+            if len(parsed_bbox) == 4 and all(math.isfinite(value) for value in parsed_bbox):
+                source_bbox = parsed_bbox
+        if object_refs:
+            sources = merge_sources(
+                [
+                    *sources,
+                    SourceRef(
+                        page=event.page,
+                        object_refs=object_refs,
+                        bbox=source_bbox,
+                    ),
+                ]
+            )
+    bbox, pruned_columns, pruned_sources = _prune_vacuous_narrow_edge_columns(
+        rows,
+        bbox,
+    )
+    if pruned_sources:
+        sources = merge_sources([*sources, *pruned_sources])
+    if pruned_columns:
+        evidence.extend(
+            Evidence(
+                "vacuous_narrow_edge_column_pruned",
+                0.99,
+                page=event.page,
+                data=column,
+            )
+            for column in pruned_columns
+        )
     attrs: Dict[str, Any] = {
         "bbox": bbox,
         "header_rows": header_rows,
@@ -40,6 +94,8 @@ def build_table_node(
         "source_pages": [event.page],
         "grid_signature": _grid_signature(rows, bbox),
     }
+    if pruned_columns:
+        attrs["pruned_vacuous_edge_columns"] = pruned_columns
     table = factory.make(
         "table",
         children=rows,
@@ -139,17 +195,90 @@ def _lattice_model(
     lines: Sequence[Any],
     bbox: Tuple[float, float, float, float],
     regions_by_line: Optional[Dict[str, Tuple[str, ...]]],
+    partial_grid: Optional[Dict[str, Any]] = None,
 ) -> Optional[Tuple[List[SemanticNode], int, float, List[Evidence]]]:
-    vertical = [segment for segment in converter.segments if segment.page == page and segment.vertical and _segment_intersects(segment, bbox)]
-    horizontal = [segment for segment in converter.segments if segment.page == page and segment.horizontal and _segment_intersects(segment, bbox)]
-    xs = _cluster([(segment.x0 + segment.x1) / 2 for segment in vertical], 2.0)
-    ys = _cluster([(segment.y0 + segment.y1) / 2 for segment in horizontal], 2.0)
+    partial = partial_grid is not None
+    partial_kind = (
+        str(partial_grid.get("model_kind") or "captioned_partial_grid")
+        if partial_grid is not None
+        else ""
+    )
+    if partial:
+        try:
+            xs = [float(value) for value in partial_grid.get("xs", ())]
+            ys = [float(value) for value in partial_grid.get("ys", ())]
+        except (TypeError, ValueError, OverflowError):
+            return None
+    else:
+        vertical = [segment for segment in converter.segments if segment.page == page and segment.vertical and _segment_intersects(segment, bbox)]
+        horizontal = [segment for segment in converter.segments if segment.page == page and segment.horizontal and _segment_intersects(segment, bbox)]
+        xs = _cluster([(segment.x0 + segment.x1) / 2 for segment in vertical], 2.0)
+        ys = _cluster([(segment.y0 + segment.y1) / 2 for segment in horizontal], 2.0)
     if len(xs) < 2 or len(ys) < 2:
         return None
+    if any(right <= left for left, right in zip(xs, xs[1:])) or any(
+        bottom <= top for top, bottom in zip(ys, ys[1:])
+    ):
+        return None
     rows_count, cols_count = len(ys) - 1, len(xs) - 1
+    explicit_spans: Dict[Tuple[int, int], Tuple[int, int]] = {}
+    explicit_span_evidence: Dict[Tuple[int, int], Tuple[str, float]] = {}
+    if partial and partial_grid.get("spans"):
+        raw_spans = partial_grid.get("spans")
+        if not isinstance(raw_spans, list):
+            return None
+        covered: set[Tuple[int, int]] = set()
+        try:
+            for item in raw_spans:
+                if not isinstance(item, dict):
+                    return None
+                row = int(item.get("row"))
+                col = int(item.get("col"))
+                rowspan = int(item.get("rowspan", 1))
+                colspan = int(item.get("colspan", 1))
+                evidence_kind = str(
+                    item.get("evidence_kind", "explicit_table_span")
+                )
+                evidence_confidence = float(item.get("confidence", 0.97))
+                if (
+                    row < 0
+                    or col < 0
+                    or rowspan < 1
+                    or colspan < 1
+                    or row + rowspan > rows_count
+                    or col + colspan > cols_count
+                    or (rowspan == 1 and colspan == 1)
+                    or (row, col) in explicit_spans
+                    or not re.fullmatch(r"[a-z][a-z0-9_]*", evidence_kind)
+                    or not 0.0 <= evidence_confidence <= 1.0
+                ):
+                    return None
+                cells = {
+                    (rr, cc)
+                    for rr in range(row, row + rowspan)
+                    for cc in range(col, col + colspan)
+                }
+                if covered.intersection(cells):
+                    return None
+                covered.update(cells)
+                explicit_spans[(row, col)] = (rowspan, colspan)
+                explicit_span_evidence[(row, col)] = (
+                    evidence_kind,
+                    evidence_confidence,
+                )
+        except (TypeError, ValueError, OverflowError):
+            return None
     occupied = [[False] * cols_count for _ in range(rows_count)]
     rows: List[SemanticNode] = []
     header_rows = int(renderer._table_header_rows(list(lines), ys))
+    if partial and "header_rows" in partial_grid:
+        try:
+            header_rows = max(
+                0,
+                min(rows_count, int(partial_grid.get("header_rows", 0))),
+            )
+        except (TypeError, ValueError, OverflowError):
+            return None
     inferred_spans = 0
     for row_index in range(rows_count):
         cells: List[SemanticNode] = []
@@ -157,21 +286,29 @@ def _lattice_model(
             if occupied[row_index][column_index]:
                 continue
             colspan = 1
-            while column_index + colspan < cols_count:
-                boundary_x = xs[column_index + colspan]
-                if renderer._table_has_vertical_edge(page, boundary_x, ys[row_index], ys[row_index + 1]):
-                    break
-                if not _supported_missing_vertical_boundary(renderer, page, boundary_x, row_index, ys):
-                    break
-                colspan += 1
             rowspan = 1
-            while row_index + rowspan < rows_count:
-                boundary_y = ys[row_index + rowspan]
-                if renderer._table_has_horizontal_edge(page, boundary_y, xs[column_index], xs[column_index + colspan]):
-                    break
-                if not _supported_missing_horizontal_boundary(renderer, page, boundary_y, column_index, colspan, xs):
-                    break
-                rowspan += 1
+            explicit_span = explicit_spans.get((row_index, column_index))
+            span_evidence = explicit_span_evidence.get(
+                (row_index, column_index),
+                ("explicit_table_span", 0.97),
+            )
+            if explicit_span is not None:
+                rowspan, colspan = explicit_span
+            else:
+                while not partial and column_index + colspan < cols_count:
+                    boundary_x = xs[column_index + colspan]
+                    if renderer._table_has_vertical_edge(page, boundary_x, ys[row_index], ys[row_index + 1]):
+                        break
+                    if not _supported_missing_vertical_boundary(renderer, page, boundary_x, row_index, ys):
+                        break
+                    colspan += 1
+                while not partial and row_index + rowspan < rows_count:
+                    boundary_y = ys[row_index + rowspan]
+                    if renderer._table_has_horizontal_edge(page, boundary_y, xs[column_index], xs[column_index + colspan]):
+                        break
+                    if not _supported_missing_horizontal_boundary(renderer, page, boundary_y, column_index, colspan, xs):
+                        break
+                    rowspan += 1
             if rowspan > 1 or colspan > 1:
                 inferred_spans += 1
             for rr in range(row_index, min(rows_count, row_index + rowspan)):
@@ -192,10 +329,47 @@ def _lattice_model(
                     "bbox": cell_box,
                     "rotation": _dominant_rotation(cell_lines),
                 },
-                confidence=0.91 if rowspan > 1 or colspan > 1 else 0.98,
+                confidence=(
+                    min(0.94, span_evidence[1])
+                    if partial and explicit_span is not None
+                    else 0.94
+                    if partial
+                    else 0.91
+                    if rowspan > 1 or colspan > 1
+                    else 0.98
+                ),
                 evidence=[
-                    Evidence("lattice_cell", 0.98, page=page, data={"bbox": cell_box}),
-                    *([Evidence("missing_border_span", 0.91, page=page, data={"bbox": cell_box})] if rowspan > 1 or colspan > 1 else []),
+                    Evidence(
+                        partial_kind + "_cell" if partial else "lattice_cell",
+                        0.94 if partial else 0.98,
+                        page=page,
+                        data={
+                            "bbox": cell_box,
+                            **(
+                                {"geometry_only_empty": True}
+                                if not cell_lines
+                                else {}
+                            ),
+                        },
+                    ),
+                    *(
+                        [
+                            Evidence(
+                                span_evidence[0],
+                                span_evidence[1],
+                                page=page,
+                                data={
+                                    "bbox": cell_box,
+                                    "rowspan": rowspan,
+                                    "colspan": colspan,
+                                },
+                            )
+                        ]
+                        if explicit_span is not None
+                        else [Evidence("missing_border_span", 0.91, page=page, data={"bbox": cell_box})]
+                        if rowspan > 1 or colspan > 1
+                        else []
+                    ),
                 ],
                 sources=sources_from_lines(cell_lines, regions_by_line) or [SourceRef(page=page, bbox=cell_box)],
             )
@@ -206,12 +380,34 @@ def _lattice_model(
                 children=cells,
                 attrs={"row": row_index, "role": "header" if row_index < header_rows else "body"},
                 confidence=min((cell.confidence for cell in cells), default=0.9),
-                evidence=[Evidence("lattice_row", 0.97, page=page)],
+                evidence=[
+                    Evidence(
+                        partial_kind + "_row" if partial else "lattice_row",
+                        0.94 if partial else 0.97,
+                        page=page,
+                    )
+                ],
                 sources=merge_sources(source for cell in cells for source in cell.sources),
             )
         )
-    confidence = 0.96 if not inferred_spans else 0.90
-    evidence = [Evidence("lattice_table", confidence, page=page, data={"bbox": bbox, "inferred_spans": inferred_spans})]
+    confidence = 0.94 if partial else 0.96 if not inferred_spans else 0.90
+    evidence_data: Dict[str, Any] = {
+        "bbox": bbox,
+        "inferred_spans": inferred_spans - len(explicit_spans),
+        "explicit_spans": len(explicit_spans),
+    }
+    if partial:
+        supplied_evidence = partial_grid.get("evidence")
+        if isinstance(supplied_evidence, dict):
+            evidence_data.update(supplied_evidence)
+    evidence = [
+        Evidence(
+            partial_kind if partial else "lattice_table",
+            confidence,
+            page=page,
+            data=evidence_data,
+        )
+    ]
     return rows, header_rows, confidence, evidence
 
 
@@ -349,6 +545,252 @@ def _requires_html(rows: Sequence[SemanticNode], header_rows: int) -> bool:
             if int(cell.attrs.get("rotation", 0)) % 360:
                 return True
     return False
+
+
+_VACUOUS_EDGE_CELL_ATTRS = {
+    "bbox",
+    "col",
+    "colspan",
+    "role",
+    "rotation",
+    "row",
+    "rowspan",
+}
+
+
+def _prune_vacuous_narrow_edge_columns(
+    rows: Sequence[SemanticNode],
+    bbox: Tuple[float, float, float, float],
+) -> Tuple[
+    Tuple[float, float, float, float],
+    List[Dict[str, Any]],
+    List[SourceRef],
+]:
+    """Remove only geometry-only sliver columns at a table's outer edge.
+
+    Some producers encode a short leading rule or padding strip as a complete
+    lattice column.  It is not a semantic cell when every row contributes an
+    empty, untagged 1x1 cell carrying geometry-only provenance.  The admission
+    gate is deliberately strict: the strip must be both at most 12 PDF points
+    and at most three percent of the table width.  Any content, span, tag,
+    object/MCID/glyph/region reference, unknown cell attribute, or incomplete
+    row coverage keeps the column intact.
+
+    Rows are local nodes created for the candidate table, so this helper may
+    renumber their retained cells in place.  Removed cell provenance is merged
+    back into each row and returned for preservation on the table node.
+    """
+
+    current_bbox = tuple(float(value) for value in bbox)
+    records: List[Dict[str, Any]] = []
+    removed_sources: List[SourceRef] = []
+    for side in ("left", "right"):
+        column_count = _semantic_column_count(rows)
+        if column_count <= 2:
+            break
+        candidate_column = 0 if side == "left" else column_count - 1
+        candidate = _vacuous_edge_column_candidate(
+            rows,
+            current_bbox,
+            candidate_column,
+            side,
+        )
+        if candidate is None:
+            continue
+
+        removed_ids: List[str] = []
+        for row in rows:
+            edge_cell = next(
+                cell
+                for cell in row.children
+                if cell.kind == "table_cell"
+                and int(cell.attrs.get("col", -1)) == candidate_column
+            )
+            removed_ids.append(edge_cell.id)
+            removed_sources.extend(edge_cell.sources)
+            row.sources = merge_sources([*row.sources, *edge_cell.sources])
+            row.children = [child for child in row.children if child is not edge_cell]
+            if side == "left":
+                for cell in row.children:
+                    if cell.kind != "table_cell":
+                        continue
+                    try:
+                        column = int(cell.attrs.get("col", 0))
+                    except (TypeError, ValueError, OverflowError):
+                        continue
+                    cell.attrs["col"] = max(0, column - 1)
+
+        old_bbox = current_bbox
+        if side == "left":
+            current_bbox = (
+                float(candidate["retained_edge"]),
+                current_bbox[1],
+                current_bbox[2],
+                current_bbox[3],
+            )
+        else:
+            current_bbox = (
+                current_bbox[0],
+                current_bbox[1],
+                float(candidate["retained_edge"]),
+                current_bbox[3],
+            )
+        records.append(
+            {
+                "side": side,
+                "column": candidate_column,
+                "width": round(float(candidate["width"]), 4),
+                "relative_width": round(float(candidate["relative_width"]), 6),
+                "original_bbox": [round(value, 4) for value in old_bbox],
+                "semantic_bbox": [round(value, 4) for value in current_bbox],
+                "removed_cell_ids": removed_ids,
+            }
+        )
+    return current_bbox, records, removed_sources
+
+
+def _vacuous_edge_column_candidate(
+    rows: Sequence[SemanticNode],
+    bbox: Tuple[float, float, float, float],
+    column: int,
+    side: str,
+) -> Optional[Dict[str, float]]:
+    if len(rows) < 2 or side not in {"left", "right"}:
+        return None
+    table_width = float(bbox[2]) - float(bbox[0])
+    if table_width <= 0:
+        return None
+
+    edge_cells: List[SemanticNode] = []
+    retained_boxes: List[Tuple[float, float, float, float]] = []
+    for row in rows:
+        cells = [child for child in row.children if child.kind == "table_cell"]
+        covering: List[SemanticNode] = []
+        for cell in cells:
+            try:
+                start = int(cell.attrs.get("col", -1))
+                colspan = max(1, int(cell.attrs.get("colspan", 1)))
+            except (TypeError, ValueError, OverflowError):
+                return None
+            if start <= column < start + colspan:
+                covering.append(cell)
+        if len(covering) != 1:
+            return None
+        cell = covering[0]
+        try:
+            cell_column = int(cell.attrs.get("col", -1))
+            colspan = int(cell.attrs.get("colspan", 1))
+            rowspan = int(cell.attrs.get("rowspan", 1))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if cell_column != column or colspan != 1 or rowspan != 1:
+            return None
+        if not _is_geometry_only_empty_cell(cell):
+            return None
+        cell_box = _semantic_bbox(cell)
+        if cell_box is None:
+            return None
+        edge_cells.append(cell)
+        for retained in cells:
+            if retained is cell:
+                continue
+            retained_box = _semantic_bbox(retained)
+            if retained_box is None:
+                return None
+            retained_boxes.append(retained_box)
+
+    if not edge_cells or not retained_boxes:
+        return None
+    boxes = [_semantic_bbox(cell) for cell in edge_cells]
+    if any(box is None for box in boxes):
+        return None
+    concrete_boxes = [box for box in boxes if box is not None]
+    widths = [box[2] - box[0] for box in concrete_boxes]
+    if not widths or min(widths) <= 0:
+        return None
+    width = sum(widths) / len(widths)
+    if max(widths) - min(widths) > max(0.75, width * 0.08):
+        return None
+    relative_width = width / table_width
+    if width > 12.0 or relative_width > 0.03:
+        return None
+
+    if side == "left":
+        if max(abs(box[0] - float(bbox[0])) for box in concrete_boxes) > 2.0:
+            return None
+        cell_edge = sum(box[2] for box in concrete_boxes) / len(concrete_boxes)
+        retained_edge = min(box[0] for box in retained_boxes)
+    else:
+        if max(abs(box[2] - float(bbox[2])) for box in concrete_boxes) > 2.0:
+            return None
+        cell_edge = sum(box[0] for box in concrete_boxes) / len(concrete_boxes)
+        retained_edge = max(box[2] for box in retained_boxes)
+    if abs(cell_edge - retained_edge) > 2.0:
+        return None
+    return {
+        "width": width,
+        "relative_width": relative_width,
+        "retained_edge": retained_edge,
+    }
+
+
+def _is_geometry_only_empty_cell(cell: SemanticNode) -> bool:
+    if cell.text.strip() or cell.children or cell.warnings:
+        return False
+    if set(cell.attrs).difference(_VACUOUS_EDGE_CELL_ATTRS):
+        return False
+    if len(cell.evidence) != 1:
+        return False
+    evidence = cell.evidence[0]
+    if (
+        not evidence.kind.endswith("_cell")
+        or evidence.detail
+        or evidence.data.get("geometry_only_empty") is not True
+        or set(evidence.data) != {"bbox", "geometry_only_empty"}
+    ):
+        return False
+    if not cell.sources:
+        return False
+    for source in cell.sources:
+        if (
+            source.glyph_ids
+            or source.region_ids
+            or source.mcids
+            or source.object_refs
+            or source.bbox is None
+        ):
+            return False
+    return True
+
+
+def _semantic_bbox(
+    node: SemanticNode,
+) -> Optional[Tuple[float, float, float, float]]:
+    value = node.attrs.get("bbox")
+    if not isinstance(value, (list, tuple)) or len(value) < 4:
+        return None
+    try:
+        box = tuple(float(item) for item in value[:4])
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not all(math.isfinite(item) for item in box):
+        return None
+    return box  # type: ignore[return-value]
+
+
+def _semantic_column_count(rows: Sequence[SemanticNode]) -> int:
+    end_columns: List[int] = []
+    for row in rows:
+        for cell in row.children:
+            if cell.kind != "table_cell":
+                continue
+            try:
+                column = int(cell.attrs.get("col", 0))
+                colspan = max(1, int(cell.attrs.get("colspan", 1)))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            end_columns.append(column + colspan)
+    return max(end_columns, default=0)
 
 
 def _continuation_match(left: SemanticNode, right: SemanticNode) -> bool:
@@ -567,11 +1009,48 @@ def _dominant_rotation(lines: Sequence[Any]) -> int:
     if not lines:
         return 0
     vertical = sum(1 for line in lines if getattr(line, "writing_mode", "horizontal") != "horizontal")
-    chars = [char for line in lines for char in getattr(line, "chars", ()) if getattr(char, "text", "")]
-    if chars:
+    # Detect geometric rotation per physical line.  Aggregating every glyph in
+    # a cell makes an ordinary tall, narrow stack of wrapped horizontal lines
+    # look vertical; a genuinely rotated label is already tall within one
+    # physical line.
+    for line in lines:
+        chars = [
+            char
+            for char in getattr(line, "chars", ())
+            if getattr(char, "text", "")
+        ]
+        if not chars:
+            continue
         x_span = max(char.x1 for char in chars) - min(char.x0 for char in chars)
         y_span = max(char.y1 for char in chars) - min(char.y0 for char in chars)
-        if len(chars) >= 3 and y_span > max(x_span * 1.35, max(char.size for char in chars) * 1.8):
+        if len(chars) >= 3 and y_span > max(
+            x_span * 1.35,
+            max(char.size for char in chars) * 1.8,
+        ):
+            return 90
+    chars = [
+        char
+        for line in lines
+        for char in getattr(line, "chars", ())
+        if getattr(char, "text", "")
+    ]
+    if len(chars) >= 3:
+        x_span = max(char.x1 for char in chars) - min(char.x0 for char in chars)
+        y_span = max(char.y1 for char in chars) - min(char.y0 for char in chars)
+        sideways = sum(
+            (char.x1 - char.x0) > (char.y1 - char.y0) * 1.20
+            for char in chars
+        )
+        # Some line builders split a vertical word into several short physical
+        # fragments.  Sideways glyph boxes distinguish that case from a tall
+        # stack of normally oriented wrapped lines.
+        if (
+            sideways >= math.ceil(len(chars) * 0.70)
+            and y_span > max(
+                x_span * 1.35,
+                max(char.size for char in chars) * 1.8,
+            )
+        ):
             return 90
     return 90 if vertical > len(lines) / 2 else 0
 

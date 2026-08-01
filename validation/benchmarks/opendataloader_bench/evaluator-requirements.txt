@@ -1,0 +1,25 @@
+# Evaluator-only environment resolved from OpenDataLoader-Bench uv.lock at
+# 7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109. Keeping this small avoids the
+# benchmark project's unrelated OCR/ML and charting dependencies.
+apted==1.0.3 \
+    --hash=sha256:74193369d023649d335269e67c4df07f922959e5ac2597de1b79af4e694150e8
+beautifulsoup4==4.14.3 \
+    --hash=sha256:0918bfe44902e6ad8d57732ba310582e98da931428d231a5ecb9e7c703a735bb
+iniconfig==2.3.0 \
+    --hash=sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12
+lxml==6.1.0 \
+    --hash=sha256:37fabd1452852636cf38ecdcc9dd5ca4bba7a35d6c53fa09725deeb894a87491
+packaging==26.0 \
+    --hash=sha256:b36f1fef9334a5588b4166f8bcd26a14e521f2b55e6b9de3aaa80d3ff7a37529
+pluggy==1.6.0 \
+    --hash=sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746
+pygments==2.20.0 \
+    --hash=sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176
+pytest==9.0.3 \
+    --hash=sha256:2c5efc453d45394fdd706ade797c0a81091eccd1d6e4bccfcd476e2b8e0ab5d9
+rapidfuzz==3.14.3 \
+    --hash=sha256:43e38c1305cffae8472572a0584d4ffc2f130865586a81038ca3965301f7c97c
+soupsieve==2.8.3 \
+    --hash=sha256:ed64f2ba4eebeab06cc4962affce381647455978ffc1e36bb79a545b91f45a95
+typing-extensions==4.15.0 \
+    --hash=sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548

@@ -509,9 +509,10 @@ def _render_list_item(
             inline_buffer.append(child)
     flush_inline()
     body = "".join(parts)
-    if node.attrs.get("task"):
+    is_task = bool(node.attrs.get("task"))
+    if is_task:
         checked = " checked" if node.attrs.get("checked") else ""
-        task_text = _semantic_node_text(node).strip()
+        task_text = _task_accessible_text(node)
         task_label = (
             ("%s task: %s" % (
                 "Checked" if node.attrs.get("checked") else "Unchecked",
@@ -537,13 +538,44 @@ def _render_list_item(
         ordinal = _marker_ordinal(marker, marker_style)
         if ordinal is not None:
             value_attr = ' value="%d"' % ordinal
-    return "<li%s%s%s%s>%s</li>" % (
+    class_attr = ' class="cocoapdf-task-item"' if is_task else ""
+    return "<li%s%s%s%s%s>%s</li>" % (
         value_attr,
+        class_attr,
         _block_style_attr(node),
         _direction_language_attrs(node),
         _node_data_attrs(node),
         body,
     )
+
+
+def _task_accessible_text(node: SemanticNode) -> str:
+    """Return task text without inventing spaces or reading nested lists."""
+    parts: List[str] = []
+    inline_buffer: List[SemanticNode] = []
+
+    def append_text(value: str) -> None:
+        normalized = re.sub(r"\s+", " ", value).strip()
+        if normalized:
+            parts.append(normalized)
+
+    def flush_inline() -> None:
+        if inline_buffer:
+            append_text("".join(_semantic_node_text(child) for child in inline_buffer))
+            inline_buffer.clear()
+
+    for child in node.children:
+        if child.kind == "list":
+            continue
+        if child.kind in _BLOCK_KINDS:
+            flush_inline()
+            append_text(_semantic_node_text(child))
+        else:
+            inline_buffer.append(child)
+    flush_inline()
+    if not parts and node.text:
+        append_text(str(node.text))
+    return " ".join(parts)
 
 
 def _render_inline(node: SemanticNode) -> str:

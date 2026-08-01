@@ -18,6 +18,45 @@ from .source import inline_nodes_from_tokens, line_identifier, region_index, sou
 from .tables import build_table_node, merge_continued_tables
 
 
+def _project_table_alignments(
+    alignments: Sequence[str],
+    table: SemanticNode,
+) -> List[str]:
+    """Project legacy alignments onto a possibly pruned semantic grid."""
+
+    try:
+        column_count = int(table.attrs.get("column_count", 0))
+    except (TypeError, ValueError, OverflowError):
+        return []
+    if column_count <= 0:
+        return []
+
+    projected = list(alignments)
+    if len(projected) == column_count:
+        return projected
+
+    records = table.attrs.get("pruned_vacuous_edge_columns")
+    if not isinstance(records, list) or len(projected) != column_count + len(records):
+        return []
+    # Each record's index addresses the grid immediately before that recorded
+    # removal. Applying them in order therefore handles left-plus-right pruning
+    # without translating indices back into the original physical grid.
+    for record in records:
+        if not isinstance(record, dict):
+            return []
+        raw_column = record.get("column")
+        if isinstance(raw_column, bool):
+            return []
+        try:
+            column = int(raw_column)
+        except (TypeError, ValueError, OverflowError):
+            return []
+        if column < 0 or column >= len(projected):
+            return []
+        projected.pop(column)
+    return projected if len(projected) == column_count else []
+
+
 def build_semantic_graph(converter: Any, renderer: Any, events_by_page: Dict[int, Sequence[Any]], regions: Sequence[Any]) -> SemanticDocument:
     factory = NodeFactory("node")
     regions_by_line = region_index(regions)
@@ -194,6 +233,7 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
             str(value) if str(value) in {"", "left", "center", "right"} else ""
             for value in alignments
         ]
+        alignments = _project_table_alignments(alignments, node)
         if alignments:
             node.attrs["column_alignments"] = alignments
             for row in node.children:
@@ -218,7 +258,7 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
                     data={"alignments": alignments},
                 )
             )
-        if lossless_html:
+        if lossless_html and not node.attrs.get("pruned_vacuous_edge_columns"):
             node.attrs["_layout_html"] = lossless_html
         return node
     if kind == "figure":

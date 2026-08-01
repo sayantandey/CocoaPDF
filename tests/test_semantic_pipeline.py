@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 from types import SimpleNamespace
-from typing import Iterable
+from typing import Iterable, Optional
 from unittest.mock import patch
 
 from cocoapdf import convert
@@ -13,15 +13,18 @@ from cocoapdf.core import ConvertOptions, Converter, MarkdownRenderer
 from cocoapdf.fonts.decoding import CMapMapping, decode_font, parse_tounicode
 from cocoapdf.html.sanitize import is_safe_generated_html
 from cocoapdf.html.semantic import render_semantic_html
+from cocoapdf.ir.evidence import Evidence
 from cocoapdf.ir.semantic import NodeFactory, SemanticDocument, SemanticNode, SourceRef
 from cocoapdf.markdown.semantic import render_semantic_markdown
 from cocoapdf.reporting.report import attach_semantic_document
 from cocoapdf.semantics.navigation import _best_heading_target
+from cocoapdf.semantics.graph import _project_table_alignments
 from cocoapdf.semantics.output import render_reconciled_outputs
 from cocoapdf.semantics.reconcile import _tagged_list_node, reconcile_tagged_content
 from cocoapdf.semantics.source import inline_nodes_from_tokens
+from cocoapdf.semantics.tables import _prune_vacuous_narrow_edge_columns
 from cocoapdf.semantics.tagged import parse_tagged_structure
-from cocoapdf.synthetic import line_op, make_pdf, rect_fill_op, text_op
+from cocoapdf.synthetic import image_xobject_rgb, line_op, make_pdf, rect_fill_op, text_op
 from cocoapdf.text.bidi import reorder_text, reorder_tokens
 
 
@@ -264,7 +267,9 @@ class AuthoritativeGraphTests(unittest.TestCase):
         self.assertAlmostEqual(image.attrs["display_height_pt"], 40.0)
         self.assertEqual(image.attrs["alignment"], "center")
         self.assertFalse(image.attrs["text_extraction_attempted"])
-        self.assertIn("width: 100.000pt", result.markdown)
+        self.assertIn("![](", result.markdown)
+        self.assertNotIn("<figure", result.markdown)
+        self.assertIn("width: 100.000pt", result.html)
         self.assertIn("height: 40.000pt", result.html)
 
 
@@ -612,6 +617,316 @@ class BidiConformanceTests(unittest.TestCase):
 
 
 class TableGraphTests(unittest.TestCase):
+    @staticmethod
+    def _edge_column_rows(
+        *,
+        edge_text_by_row: tuple[str, ...] = ("", ""),
+        edge_mcids: tuple[int, ...] = (),
+        edge_colspan: int = 1,
+        edge_attrs: Optional[dict] = None,
+    ) -> list[SemanticNode]:
+        rows: list[SemanticNode] = []
+        for row_index, edge_text in enumerate(edge_text_by_row):
+            y0 = 100.0 + row_index * 24.0
+            y1 = y0 + 24.0
+            edge_box = (100.0, y0, 110.0, y1)
+            edge_source = SourceRef(page=1, bbox=edge_box, mcids=edge_mcids)
+            edge_children = (
+                [
+                    SemanticNode(
+                        "edge-text-%d" % row_index,
+                        "text",
+                        text=edge_text,
+                        sources=[edge_source],
+                    )
+                ]
+                if edge_text
+                else []
+            )
+            edge_cell_attrs = {
+                "row": row_index,
+                "col": 0,
+                "rowspan": 1,
+                "colspan": edge_colspan,
+                "role": "th" if row_index == 0 else "td",
+                "bbox": edge_box,
+                "rotation": 0,
+            }
+            edge_cell_attrs.update(edge_attrs or {})
+            cells = [
+                SemanticNode(
+                    "edge-%d" % row_index,
+                    "table_cell",
+                    children=edge_children,
+                    attrs=edge_cell_attrs,
+                    evidence=[
+                        Evidence(
+                            "lattice_cell",
+                            0.98,
+                            page=1,
+                            data={
+                                "bbox": edge_box,
+                                **(
+                                    {"geometry_only_empty": True}
+                                    if not edge_children
+                                    else {}
+                                ),
+                            },
+                        )
+                    ],
+                    sources=[edge_source],
+                ),
+                SemanticNode(
+                    "middle-%d" % row_index,
+                    "table_cell",
+                    children=[
+                        SemanticNode(
+                            "middle-text-%d" % row_index,
+                            "text",
+                            text="Formula" if row_index == 0 else "x + y",
+                            sources=[SourceRef(page=1, bbox=(110.0, y0, 300.0, y1))],
+                        )
+                    ],
+                    attrs={
+                        "row": row_index,
+                        "col": edge_colspan,
+                        "rowspan": 1,
+                        "colspan": 1,
+                        "role": "th" if row_index == 0 else "td",
+                        "bbox": (110.0, y0, 300.0, y1),
+                        "rotation": 0,
+                    },
+                    sources=[SourceRef(page=1, bbox=(110.0, y0, 300.0, y1))],
+                ),
+                SemanticNode(
+                    "right-%d" % row_index,
+                    "table_cell",
+                    children=[
+                        SemanticNode(
+                            "right-text-%d" % row_index,
+                            "text",
+                            text="Meaning" if row_index == 0 else "sum",
+                            sources=[SourceRef(page=1, bbox=(300.0, y0, 500.0, y1))],
+                        )
+                    ],
+                    attrs={
+                        "row": row_index,
+                        "col": edge_colspan + 1,
+                        "rowspan": 1,
+                        "colspan": 1,
+                        "role": "th" if row_index == 0 else "td",
+                        "bbox": (300.0, y0, 500.0, y1),
+                        "rotation": 0,
+                    },
+                    sources=[SourceRef(page=1, bbox=(300.0, y0, 500.0, y1))],
+                ),
+            ]
+            rows.append(
+                SemanticNode(
+                    "row-%d" % row_index,
+                    "table_row",
+                    children=cells,
+                    attrs={"row": row_index},
+                    sources=[SourceRef(page=1, bbox=(110.0, y0, 500.0, y1))],
+                )
+            )
+        return rows
+
+    def test_geometry_only_narrow_edge_column_is_pruned_from_semantics_and_html(self) -> None:
+        rows = self._edge_column_rows()
+        retained_ids = [cell.id for row in rows for cell in row.children[1:]]
+        bbox, records, removed_sources = _prune_vacuous_narrow_edge_columns(
+            rows,
+            (100.0, 100.0, 500.0, 148.0),
+        )
+        self.assertEqual(bbox, (110.0, 100.0, 500.0, 148.0))
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["side"], "left")
+        self.assertEqual(len(removed_sources), 2)
+        self.assertEqual(
+            [[cell.attrs["col"] for cell in row.children] for row in rows],
+            [[0, 1], [0, 1]],
+        )
+        self.assertEqual(
+            [cell.id for row in rows for cell in row.children],
+            retained_ids,
+        )
+        self.assertTrue(all(row.sources[0].bbox[0] == 100.0 for row in rows))
+
+        table = SemanticNode(
+            "pruned-table",
+            "table",
+            children=rows,
+            attrs={
+                "bbox": bbox,
+                "header_rows": 1,
+                "column_count": 2,
+                "pruned_vacuous_edge_columns": records,
+            },
+            sources=removed_sources,
+        )
+        rendered = render_semantic_html(SemanticDocument([table]))
+        self.assertEqual(rendered.count("<th "), 2)
+        self.assertEqual(rendered.count("<td "), 2)
+        self.assertNotIn("<th></th>", rendered)
+        self.assertNotIn("<td></td>", rendered)
+
+    def test_narrow_edge_column_with_a_legitimate_empty_corner_is_preserved(self) -> None:
+        rows = self._edge_column_rows(edge_text_by_row=("", "row label"))
+        bbox, records, removed = _prune_vacuous_narrow_edge_columns(
+            rows,
+            (100.0, 100.0, 500.0, 148.0),
+        )
+        self.assertEqual(bbox, (100.0, 100.0, 500.0, 148.0))
+        self.assertEqual(records, [])
+        self.assertEqual(removed, [])
+        self.assertTrue(all(len(row.children) == 3 for row in rows))
+
+    def test_tagged_empty_edge_column_is_preserved(self) -> None:
+        rows = self._edge_column_rows(
+            edge_mcids=(7,),
+            edge_attrs={"tagged_node_id": "struct-7"},
+        )
+        _bbox, records, removed = _prune_vacuous_narrow_edge_columns(
+            rows,
+            (100.0, 100.0, 500.0, 148.0),
+        )
+        self.assertEqual(records, [])
+        self.assertEqual(removed, [])
+        self.assertTrue(all(row.children[0].sources[0].mcids == (7,) for row in rows))
+
+    def test_empty_edge_with_warning_or_extra_evidence_is_preserved(self) -> None:
+        warned = self._edge_column_rows()
+        warned[0].children[0].warnings.append("semantic warning")
+        _bbox, records, _removed = _prune_vacuous_narrow_edge_columns(
+            warned, (100.0, 100.0, 500.0, 148.0)
+        )
+        self.assertEqual(records, [])
+
+        evidenced = self._edge_column_rows()
+        evidenced[0].children[0].evidence.append(
+            Evidence("unknown_semantic_signal", 0.8, page=1)
+        )
+        _bbox, records, _removed = _prune_vacuous_narrow_edge_columns(
+            evidenced, (100.0, 100.0, 500.0, 148.0)
+        )
+        self.assertEqual(records, [])
+
+    def test_empty_edge_with_glyph_region_or_object_provenance_is_preserved(self) -> None:
+        for field, value in (
+            ("glyph_ids", (7,)),
+            ("region_ids", ("region-7",)),
+            ("object_refs", ("7 0 R",)),
+        ):
+            rows = self._edge_column_rows()
+            for row in rows:
+                source = row.children[0].sources[0]
+                row.children[0].sources = [
+                    SourceRef(
+                        page=source.page,
+                        bbox=source.bbox,
+                        **{field: value},
+                    )
+                ]
+            _bbox, records, _removed = _prune_vacuous_narrow_edge_columns(
+                rows, (100.0, 100.0, 500.0, 148.0)
+            )
+            self.assertEqual(records, [], field)
+
+    def test_legacy_alignments_project_exactly_across_left_and_right_prunes(self) -> None:
+        left = SemanticNode(
+            "left-pruned",
+            "table",
+            attrs={
+                "column_count": 2,
+                "pruned_vacuous_edge_columns": [{"column": 0, "side": "left"}],
+            },
+        )
+        self.assertEqual(
+            _project_table_alignments(["right", "left", "center"], left),
+            ["left", "center"],
+        )
+        right = SemanticNode(
+            "right-pruned",
+            "table",
+            attrs={
+                "column_count": 2,
+                "pruned_vacuous_edge_columns": [{"column": 2, "side": "right"}],
+            },
+        )
+        self.assertEqual(
+            _project_table_alignments(["right", "left", "center"], right),
+            ["right", "left"],
+        )
+        self.assertEqual(_project_table_alignments(["right"], left), [])
+
+    def test_geometry_only_narrow_right_edge_column_is_pruned(self) -> None:
+        rows = self._edge_column_rows()
+        for row_index, row in enumerate(rows):
+            y0 = 100.0 + row_index * 24.0
+            y1 = y0 + 24.0
+            edge, middle, right = row.children
+            middle.attrs.update({"col": 0, "bbox": (100.0, y0, 300.0, y1)})
+            right.attrs.update({"col": 1, "bbox": (300.0, y0, 490.0, y1)})
+            edge_box = (490.0, y0, 500.0, y1)
+            edge.attrs.update({"col": 2, "bbox": edge_box})
+            edge.sources = [SourceRef(page=1, bbox=edge_box)]
+            edge.evidence = [
+                Evidence(
+                    "lattice_cell",
+                    0.98,
+                    page=1,
+                    data={"bbox": edge_box, "geometry_only_empty": True},
+                )
+            ]
+            row.children = [middle, right, edge]
+        bbox, records, _removed = _prune_vacuous_narrow_edge_columns(
+            rows, (100.0, 100.0, 500.0, 148.0)
+        )
+        self.assertEqual(bbox, (100.0, 100.0, 490.0, 148.0))
+        self.assertEqual([record["side"] for record in records], ["right"])
+
+    def test_edge_pruning_respects_absolute_and_relative_width_thresholds(self) -> None:
+        absolute = self._edge_column_rows()
+        for row_index, row in enumerate(absolute):
+            y0 = 100.0 + row_index * 24.0
+            y1 = y0 + 24.0
+            edge_box = (100.0, y0, 113.0, y1)
+            edge = row.children[0]
+            edge.attrs["bbox"] = edge_box
+            edge.sources = [SourceRef(page=1, bbox=edge_box)]
+            edge.evidence = [
+                Evidence("lattice_cell", 0.98, page=1, data={
+                    "bbox": edge_box, "geometry_only_empty": True
+                })
+            ]
+            row.children[1].attrs["bbox"] = (113.0, y0, 300.0, y1)
+        _bbox, records, _removed = _prune_vacuous_narrow_edge_columns(
+            absolute, (100.0, 100.0, 500.0, 148.0)
+        )
+        self.assertEqual(records, [])
+
+        relative = self._edge_column_rows()
+        for row_index, row in enumerate(relative):
+            y0 = 100.0 + row_index * 24.0
+            y1 = y0 + 24.0
+            row.children[1].attrs["bbox"] = (110.0, y0, 250.0, y1)
+            row.children[2].attrs["bbox"] = (250.0, y0, 400.0, y1)
+        _bbox, records, _removed = _prune_vacuous_narrow_edge_columns(
+            relative, (100.0, 100.0, 400.0, 148.0)
+        )
+        self.assertEqual(records, [])
+
+    def test_spanning_empty_edge_cells_are_preserved(self) -> None:
+        rows = self._edge_column_rows(edge_colspan=2)
+        _bbox, records, removed = _prune_vacuous_narrow_edge_columns(
+            rows,
+            (100.0, 100.0, 500.0, 148.0),
+        )
+        self.assertEqual(records, [])
+        self.assertEqual(removed, [])
+        self.assertTrue(all(row.children[0].attrs["colspan"] == 2 for row in rows))
+
     def test_ruled_table_has_cell_provenance(self) -> None:
         content = (
             b"0.5 w 72 500 m 300 500 l 72 540 m 300 540 l 72 580 m 300 580 l "
@@ -1128,6 +1443,755 @@ class AdvancedNavigationAndNotesTests(unittest.TestCase):
 
 
 class AdvancedTableTests(unittest.TestCase):
+    def test_borderless_spreadsheet_grid_uses_native_row_and_column_labels(self) -> None:
+        content = b" ".join([
+            b"BT /F1 9 Tf",
+            b"1 0 0 1 130 720 Tm (A) Tj 1 0 0 1 230 720 Tm (B) Tj 1 0 0 1 330 720 Tm (C) Tj",
+            b"1 0 0 1 60 695 Tm (1) Tj 1 0 0 1 110 695 Tm (time) Tj "
+            b"1 0 0 1 210 695 Tm (observed) Tj 1 0 0 1 310 695 Tm (forecast) Tj",
+            b"1 0 0 1 60 670 Tm (2) Tj 1 0 0 1 110 670 Tm (0) Tj 1 0 0 1 210 670 Tm (13) Tj",
+            b"1 0 0 1 60 650 Tm (3) Tj 1 0 0 1 110 650 Tm (1) Tj 1 0 0 1 210 650 Tm (12) Tj",
+            b"1 0 0 1 60 630 Tm (4) Tj 1 0 0 1 110 630 Tm (2) Tj 1 0 0 1 210 630 Tm (13.5) Tj",
+            b"1 0 0 1 60 610 Tm (5) Tj 1 0 0 1 110 610 Tm (3) Tj 1 0 0 1 310 610 Tm (15.2) Tj",
+            b"1 0 0 1 60 590 Tm (6) Tj 1 0 0 1 110 590 Tm (4) Tj 1 0 0 1 310 590 Tm (16.4) Tj",
+            b"1 0 0 1 60 570 Tm (7) Tj 1 0 0 1 110 570 Tm (5) Tj 1 0 0 1 310 570 Tm (18.0) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        self.assertEqual(tables[0].attrs["row_count"], 8)
+        self.assertEqual(tables[0].attrs["column_count"], 4)
+        self.assertEqual(tables[0].attrs["header_rows"], 0)
+        self.assertTrue(any(item.kind == "spreadsheet_grid" for item in tables[0].evidence))
+        self.assertIn("<tr><td></td><td>A</td><td>B</td><td>C</td></tr>", result.markdown)
+        self.assertIn("<tr><td>5</td><td>3</td><td></td><td>15.2</td></tr>", result.markdown)
+
+    def test_spreadsheet_like_labels_with_numbered_prose_are_not_a_table(self) -> None:
+        content = b" ".join([
+            b"BT /F1 9 Tf",
+            b"1 0 0 1 130 720 Tm (A) Tj 1 0 0 1 230 720 Tm (B) Tj 1 0 0 1 330 720 Tm (C) Tj",
+            b"1 0 0 1 60 695 Tm (1) Tj 1 0 0 1 110 695 Tm (Topic) Tj "
+            b"1 0 0 1 210 695 Tm (Summary) Tj 1 0 0 1 310 695 Tm (Note) Tj",
+            b"1 0 0 1 60 670 Tm (2) Tj 1 0 0 1 110 670 Tm (First) Tj 1 0 0 1 210 670 Tm (10) Tj",
+            b"1 0 0 1 60 650 Tm (3) Tj 1 0 0 1 110 650 Tm (Second) Tj 1 0 0 1 210 650 Tm (20) Tj",
+            b"1 0 0 1 60 630 Tm (4) Tj 1 0 0 1 110 630 Tm (Third) Tj 1 0 0 1 210 630 Tm (30) Tj",
+            b"1 0 0 1 60 610 Tm (5) Tj 1 0 0 1 110 610 Tm (Fourth) Tj 1 0 0 1 210 610 Tm (40) Tj",
+            b"1 0 0 1 60 590 Tm (6) Tj 1 0 0 1 110 590 Tm (Fifth) Tj 1 0 0 1 210 590 Tm (50) Tj",
+            b"1 0 0 1 60 570 Tm (7) Tj 1 0 0 1 110 570 Tm (Sixth) Tj 1 0 0 1 210 570 Tm (60) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertNotIn("<table>", result.markdown)
+        self.assertIn("First", result.markdown)
+
+    def test_captioned_borderless_measurements_use_stable_body_anchors(self) -> None:
+        content = b" ".join([
+            b"BT /F1 10 Tf",
+            b"1 0 0 1 72 720 Tm (Table 4. Mixture volumes used for a controlled) Tj",
+            b"1 0 0 1 72 704 Tm (comparison.) Tj",
+            b"/F2 10 Tf 1 0 0 1 90 686 Tm (Sample) Tj "
+            b"1 0 0 1 200 686 Tm (Water) Tj "
+            b"1 0 0 1 310 686 Tm (Sugar Solution) Tj "
+            b"1 0 0 1 430 686 Tm (Culture) Tj",
+            b"/F1 10 Tf 1 0 0 1 72 666 Tm (A) Tj "
+            b"1 0 0 1 195 666 Tm (*8 ml) Tj "
+            b"1 0 0 1 310 666 Tm (*6 ml) Tj "
+            b"1 0 0 1 430 666 Tm (0 ml) Tj",
+            b"1 0 0 1 72 646 Tm (B) Tj "
+            b"1 0 0 1 195 646 Tm (*12 ml) Tj "
+            b"1 0 0 1 310 646 Tm (0 ml) Tj "
+            b"1 0 0 1 430 646 Tm (*2 ml) Tj",
+            b"1 0 0 1 72 626 Tm (C) Tj "
+            b"1 0 0 1 195 626 Tm (*6 ml) Tj "
+            b"1 0 0 1 310 626 Tm (*6 ml) Tj "
+            b"1 0 0 1 430 626 Tm (*2 ml) Tj ET",
+        ])
+        resources = b"/Resources << /Font << /F1 1 0 R /F2 2 0 R >> >>"
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 612 792] " + resources + b" /Contents 3 0 R >>",
+            b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+            b"<< /Type /Catalog /Pages 5 0 R >>",
+        ]
+        result = convert(render_pdf(objects, 6))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        self.assertEqual(tables[0].attrs["row_count"], 4)
+        self.assertEqual(tables[0].attrs["column_count"], 4)
+        self.assertEqual(tables[0].attrs["header_rows"], 1)
+        self.assertTrue(
+            any(
+                item.kind == "captioned_measurement_grid"
+                for item in tables[0].evidence
+            )
+        )
+        self.assertIn("Table 4. Mixture volumes used for a controlled comparison.", result.markdown)
+        self.assertIn("<td>*8 ml</td>", result.markdown)
+        self.assertIn('<th scope="col">Sugar Solution</th>', result.html)
+        cells = semantic_nodes(result, "table_cell")
+        self.assertTrue(all(cell.sources for cell in cells))
+        self.assertTrue(
+            any(
+                source.glyph_ids
+                for cell in cells
+                for source in cell.sources
+            )
+        )
+
+    def test_captioned_bold_prose_columns_are_not_measurement_table(self) -> None:
+        content = b" ".join([
+            b"BT /F1 10 Tf 1 0 0 1 72 720 Tm (Table 5. Discussion prompts for review) Tj",
+            b"/F2 10 Tf 1 0 0 1 90 690 Tm (Topic) Tj "
+            b"1 0 0 1 220 690 Tm (Observation) Tj "
+            b"1 0 0 1 390 690 Tm (Response) Tj",
+            b"/F1 10 Tf 1 0 0 1 72 670 Tm (First) Tj "
+            b"1 0 0 1 220 670 Tm (steady growth) Tj "
+            b"1 0 0 1 390 670 Tm (review later) Tj",
+            b"1 0 0 1 72 650 Tm (Second) Tj "
+            b"1 0 0 1 220 650 Tm (mixed evidence) Tj "
+            b"1 0 0 1 390 650 Tm (needs context) Tj",
+            b"1 0 0 1 72 630 Tm (Third) Tj "
+            b"1 0 0 1 220 630 Tm (open question) Tj "
+            b"1 0 0 1 390 630 Tm (discuss next) Tj ET",
+        ])
+        resources = b"/Resources << /Font << /F1 1 0 R /F2 2 0 R >> >>"
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 612 792] " + resources + b" /Contents 3 0 R >>",
+            b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+            b"<< /Type /Catalog /Pages 5 0 R >>",
+        ]
+        result = convert(render_pdf(objects, 6))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertNotIn("<table>", result.markdown)
+        self.assertIn("mixed evidence", result.markdown)
+
+    def test_captioned_tiered_numeric_grid_uses_body_anchors_and_header_tiers(self) -> None:
+        content = b" ".join([
+            b"BT /F1 10 Tf",
+            b"1 0 0 1 72 740 Tm (Table 21. Observed and expected returns for a) Tj",
+            b"1 0 0 1 72 724 Tm (controlled period.) Tj",
+            b"1 0 0 1 72 680 Tm (Year) Tj "
+            b"1 0 0 1 220 680 Tm (Observed returns) Tj "
+            b"1 0 0 1 380 680 Tm (Forecast) Tj",
+            b"1 0 0 1 220 674 Tm (over time) Tj",
+            b"1 0 0 1 72 650 Tm (Period) Tj "
+            b"1 0 0 1 220 650 Tm (Actual Value) Tj "
+            b"1 0 0 1 380 650 Tm (Expected Value) Tj",
+            b"1 0 0 1 72 620 Tm (2022) Tj "
+            b"1 0 0 1 220 620 Tm (10%) Tj "
+            b"1 0 0 1 380 620 Tm (8%) Tj",
+            b"1 0 0 1 72 600 Tm (2023) Tj "
+            b"1 0 0 1 220 600 Tm (7%) Tj "
+            b"1 0 0 1 380 600 Tm (9%) Tj",
+            b"1 0 0 1 72 580 Tm (2024) Tj "
+            b"1 0 0 1 220 580 Tm (6%) Tj "
+            b"1 0 0 1 380 580 Tm (5%) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        table = tables[0]
+        self.assertEqual(table.attrs["row_count"], 5)
+        self.assertEqual(table.attrs["column_count"], 3)
+        self.assertEqual(table.attrs["header_rows"], 2)
+        evidence = next(
+            item
+            for item in table.evidence
+            if item.kind == "tiered_numeric_grid"
+        )
+        self.assertEqual(evidence.data["admission"], "explicit_caption")
+        self.assertEqual(evidence.data["body_rows"], 3)
+        self.assertEqual(evidence.data["header_rows"], 2)
+        self.assertEqual(evidence.data["stable_column_anchors"], 3)
+        self.assertIn(
+            "Table 21. Observed and expected returns for a controlled period.",
+            result.markdown,
+        )
+        self.assertIn("<td>Observed returns<br />over time</td>", result.markdown)
+        self.assertIn("<caption ", result.html)
+        cells = semantic_nodes(result, "table_cell")
+        observed = next(
+            cell
+            for cell in cells
+            if cell.attrs["row"] == 0 and cell.attrs["col"] == 1
+        )
+        observed_text = " ".join(
+            node.text or ""
+            for node in observed.walk()
+            if node.kind == "text"
+        )
+        self.assertIn("Observed returns", observed_text)
+        self.assertIn("over time", observed_text)
+        self.assertTrue(observed.sources)
+        self.assertTrue(any(source.glyph_ids for source in observed.sources))
+
+    def test_page_top_numeric_continuation_requires_complete_stable_rows(self) -> None:
+        content = b" ".join([
+            b"BT /F1 10 Tf",
+            b"1 0 0 1 72 740 Tm (Slope Gradient) Tj "
+            b"1 0 0 1 220 740 Tm (Maximum Length) Tj "
+            b"1 0 0 1 380 740 Tm (P Value) Tj",
+            b"1 0 0 1 72 715 Tm (1 - 2) Tj "
+            b"1 0 0 1 220 715 Tm (400) Tj "
+            b"1 0 0 1 380 715 Tm (0.6) Tj",
+            b"1 0 0 1 72 695 Tm (3 - 5) Tj "
+            b"1 0 0 1 220 695 Tm (300) Tj "
+            b"1 0 0 1 380 695 Tm (0.5) Tj",
+            b"1 0 0 1 72 675 Tm (6 - 8) Tj "
+            b"1 0 0 1 220 675 Tm (200) Tj "
+            b"1 0 0 1 380 675 Tm (0.5) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        table = tables[0]
+        self.assertEqual(table.attrs["row_count"], 4)
+        self.assertEqual(table.attrs["column_count"], 3)
+        self.assertEqual(table.attrs["header_rows"], 1)
+        evidence = next(
+            item
+            for item in table.evidence
+            if item.kind == "tiered_numeric_grid"
+        )
+        self.assertEqual(evidence.data["admission"], "page_top_continuation")
+        self.assertIn("<td>1 - 2</td>", result.markdown)
+
+    def test_midpage_numeric_cards_without_caption_are_not_a_table(self) -> None:
+        content = b" ".join([
+            b"BT /F1 10 Tf",
+            b"1 0 0 1 72 500 Tm (Card) Tj "
+            b"1 0 0 1 220 500 Tm (Current) Tj "
+            b"1 0 0 1 380 500 Tm (Target) Tj",
+            b"1 0 0 1 72 470 Tm (1) Tj "
+            b"1 0 0 1 220 470 Tm (10%) Tj "
+            b"1 0 0 1 380 470 Tm (12%) Tj",
+            b"1 0 0 1 72 450 Tm (2) Tj "
+            b"1 0 0 1 220 450 Tm (11%) Tj "
+            b"1 0 0 1 380 450 Tm (13%) Tj",
+            b"1 0 0 1 72 430 Tm (3) Tj "
+            b"1 0 0 1 220 430 Tm (12%) Tj "
+            b"1 0 0 1 380 430 Tm (14%) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertNotIn("<table>", result.markdown)
+        self.assertIn("Current", result.markdown)
+
+    def test_captioned_aligned_form_values_are_not_a_numeric_grid(self) -> None:
+        content = b" ".join([
+            b"BT /F1 10 Tf",
+            b"1 0 0 1 72 740 Tm (Table 22. Review assignments for the period.) Tj",
+            b"1 0 0 1 72 690 Tm (Item) Tj "
+            b"1 0 0 1 220 690 Tm (Owner) Tj "
+            b"1 0 0 1 380 690 Tm (Status) Tj",
+            b"1 0 0 1 220 686 Tm (and reviewer) Tj",
+            b"1 0 0 1 72 660 Tm (1) Tj "
+            b"1 0 0 1 220 660 Tm (Alice) Tj "
+            b"1 0 0 1 380 660 Tm (Open) Tj",
+            b"1 0 0 1 72 640 Tm (2) Tj "
+            b"1 0 0 1 220 640 Tm (Bob) Tj "
+            b"1 0 0 1 380 640 Tm (Review) Tj",
+            b"1 0 0 1 72 620 Tm (3) Tj "
+            b"1 0 0 1 220 620 Tm (Carol) Tj "
+            b"1 0 0 1 380 620 Tm (Closed) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertNotIn("<table>", result.markdown)
+        self.assertIn("Alice", result.markdown)
+
+    def test_artifact_filled_lattice_recovers_wrapped_cells_with_provenance(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0 g",
+            b"72 292 0.5 400 re f 170 292 0.5 400 re f "
+            b"240 292 0.5 400 re f 400 292 0.5 400 re f "
+            b"520 292 0.5 400 re f",
+            b"72 692 448 0.5 re f 72 632 448 0.5 re f "
+            b"72 532 448 0.5 re f 72 432 448 0.5 re f "
+            b"72 292 448 0.5 re f EMC",
+            b"BT /F2 10 Tf 1 0 0 1 82 670 Tm (Source) Tj "
+            b"1 0 0 1 180 670 Tm (Year) Tj "
+            b"1 0 0 1 250 670 Tm (Description) Tj "
+            b"1 0 0 1 410 670 Tm (Outcome) Tj",
+            b"/F1 10 Tf 1 0 0 1 82 610 Tm (Alpha) Tj "
+            b"1 0 0 1 180 610 Tm (2022) Tj "
+            b"1 0 0 1 250 610 Tm (First wrapped sentence) Tj "
+            b"1 0 0 1 410 610 Tm (Useful) Tj",
+            b"1 0 0 1 250 590 Tm (continues inside the cell.) Tj "
+            b"1 0 0 1 410 590 Tm (impact.) Tj",
+            b"1 0 0 1 82 510 Tm (Bravo) Tj "
+            b"1 0 0 1 180 510 Tm (2023) Tj "
+            b"1 0 0 1 250 510 Tm (Another long description) Tj "
+            b"1 0 0 1 410 510 Tm (Measured) Tj",
+            b"1 0 0 1 250 490 Tm (wraps on its own baseline.) Tj "
+            b"1 0 0 1 410 490 Tm (result.) Tj",
+            b"1 0 0 1 82 410 Tm (Charlie) Tj "
+            b"1 0 0 1 180 410 Tm (2024) Tj "
+            b"1 0 0 1 250 410 Tm (Final multi-line account) Tj "
+            b"1 0 0 1 410 410 Tm (Lasting) Tj",
+            b"1 0 0 1 250 390 Tm (remains horizontal text.) Tj "
+            b"1 0 0 1 410 390 Tm (benefit.) Tj ET",
+        ])
+        resources = b"/Resources << /Font << /F1 1 0 R /F2 2 0 R >> >>"
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 612 792] " + resources + b" /Contents 3 0 R >>",
+            b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+            b"<< /Type /Catalog /Pages 5 0 R >>",
+        ]
+        result = convert(render_pdf(objects, 6))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        table = tables[0]
+        self.assertEqual(table.attrs["row_count"], 4)
+        self.assertEqual(table.attrs["column_count"], 4)
+        evidence = next(
+            item
+            for item in table.evidence
+            if item.kind == "artifact_filled_lattice"
+        )
+        self.assertTrue(evidence.data["artifact_geometry_only"])
+        self.assertTrue(evidence.data["complete_edge_coverage"])
+        self.assertEqual(evidence.data["artifact_rule_rectangles"], 10)
+        cells = semantic_nodes(result, "table_cell")
+        wrapped = next(
+            cell
+            for cell in cells
+            if cell.attrs["row"] == 1 and cell.attrs["col"] == 2
+        )
+        wrapped_text = " ".join(
+            node.text or ""
+            for node in wrapped.walk()
+            if node.kind == "text"
+        )
+        self.assertIn("First wrapped sentence", wrapped_text)
+        self.assertIn("continues inside the cell.", wrapped_text)
+        self.assertTrue(wrapped.sources)
+        self.assertTrue(any(source.glyph_ids for source in wrapped.sources))
+        self.assertNotIn("writing-mode: vertical-rl", result.html)
+        self.assertNotIn("artifact", wrapped_text.casefold())
+
+    def test_dense_complete_two_by_two_artifact_table_is_recovered(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0 g "
+            b"72 300 0.5 200 re f 300 300 0.5 200 re f 540 300 0.5 200 re f "
+            b"72 500 468 0.5 re f 72 460 468 0.5 re f 72 300 468 0.5 re f EMC",
+            b"BT /F2 10 Tf 1 0 0 1 82 475 Tm (Materials) Tj "
+            b"1 0 0 1 310 475 Tm (Equipment) Tj",
+            b"/F1 10 Tf 1 0 0 1 82 430 Tm (Prepared sample and buffered solution for each station) Tj "
+            b"1 0 0 1 310 430 Tm (Calibrated reader and labelled storage rack) Tj",
+            b"1 0 0 1 82 400 Tm (Reference standard and control solution for comparison) Tj "
+            b"1 0 0 1 310 400 Tm (Sterile pipettes and protective laboratory trays) Tj",
+            b"1 0 0 1 82 370 Tm (Additional reagent and distilled water for all groups) Tj "
+            b"1 0 0 1 310 370 Tm (Permanent markers and temperature controlled bath) Tj ET",
+        ])
+        resources = b"/Resources << /Font << /F1 1 0 R /F2 2 0 R >> >>"
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 612 792] " + resources + b" /Contents 3 0 R >>",
+            b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+            b"<< /Type /Catalog /Pages 5 0 R >>",
+        ]
+        result = convert(render_pdf(objects, 6))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        self.assertEqual(tables[0].attrs["row_count"], 2)
+        self.assertEqual(tables[0].attrs["column_count"], 2)
+        evidence = next(
+            item for item in tables[0].evidence
+            if item.kind == "artifact_filled_lattice"
+        )
+        self.assertTrue(evidence.data["dense_complete_two_by_two"])
+        self.assertIn("<th scope=\"col\">Materials</th>", result.html)
+        self.assertTrue(any(source.glyph_ids for source in tables[0].sources))
+
+    def test_two_by_two_artifact_cards_and_sparse_forms_are_not_tables(self) -> None:
+        grid = (
+            b"/Artifact BMC 0 g "
+            b"72 300 0.5 200 re f 300 300 0.5 200 re f 540 300 0.5 200 re f "
+            b"72 500 468 0.5 re f 72 460 468 0.5 re f 72 300 468 0.5 re f EMC "
+        )
+        cases = {
+            "sparse_form": (
+                b"BT /F1 10 Tf 1 0 0 1 82 475 Tm (Name) Tj "
+                b"1 0 0 1 310 475 Tm (Value) Tj "
+                b"1 0 0 1 82 420 Tm (Yes) Tj "
+                b"1 0 0 1 310 420 Tm (No) Tj ET"
+            ),
+            "dense_card_without_header_evidence": (
+                b"BT /F1 10 Tf 1 0 0 1 82 475 Tm (Left panel) Tj "
+                b"1 0 0 1 310 475 Tm (Right panel) Tj "
+                b"1 0 0 1 82 430 Tm (Ordinary explanatory sentence continues in this card) Tj "
+                b"1 0 0 1 310 430 Tm (Another explanatory sentence continues in this card) Tj "
+                b"1 0 0 1 82 400 Tm (More prose remains in the left presentation panel) Tj "
+                b"1 0 0 1 310 400 Tm (More prose remains in the right presentation panel) Tj "
+                b"1 0 0 1 82 370 Tm (Final ordinary sentence is not structured table data) Tj "
+                b"1 0 0 1 310 370 Tm (Final ordinary sentence is not structured table data) Tj ET"
+            ),
+        }
+        for name, text in cases.items():
+            with self.subTest(name=name):
+                result = convert(one_page_pdf(grid + text))
+                self.assertEqual(semantic_nodes(result, "table"), [])
+                self.assertNotIn("<table>", result.markdown)
+
+    def test_closed_artifact_path_outlines_feed_complete_lattice_only(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0 g",
+            b"72 433 m 500 433 l 499.25 432.25 l 72.75 432.25 l h f",
+            b"72 366 m 500 366 l 499.25 365.25 l 72.75 365.25 l h f",
+            b"215 500 m 215 300 l 214.25 300.75 l 214.25 499.25 l h f",
+            b"360 500 m 360 300 l 359.25 300.75 l 359.25 499.25 l h f",
+            b"72 300 m 72 500 l 500 500 l 500 300 l 72 300 l "
+            b"72.75 300.75 l 499.25 300.75 l 499.25 499.25 l "
+            b"72.75 499.25 l 72.75 300.75 l h f EMC",
+            b"/TH << /MCID 1 >> BDC BT /F1 10 Tf 1 0 0 1 82 470 Tm (Name) Tj ET EMC "
+            b"/TH << /MCID 2 >> BDC BT /F1 10 Tf 1 0 0 1 225 470 Tm (Year) Tj ET EMC "
+            b"/TH << /MCID 3 >> BDC BT /F1 10 Tf 1 0 0 1 370 470 Tm (Status) Tj ET EMC",
+            b"BT /F1 10 Tf 1 0 0 1 82 405 Tm (Alpha) Tj "
+            b"1 0 0 1 225 405 Tm (2024) Tj 1 0 0 1 370 405 Tm (Open) Tj "
+            b"1 0 0 1 82 338 Tm (Bravo) Tj "
+            b"1 0 0 1 225 338 Tm (2025) Tj 1 0 0 1 370 338 Tm (Closed) Tj ET",
+        ])
+        converter = Converter(one_page_pdf(content))
+        result = converter.convert()
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        self.assertEqual(tables[0].attrs["row_count"], 3)
+        self.assertEqual(tables[0].attrs["column_count"], 3)
+        self.assertEqual(len(converter._artifact_rule_segments), 8)
+        evidence = next(
+            item for item in tables[0].evidence
+            if item.kind == "artifact_filled_lattice"
+        )
+        self.assertTrue(evidence.data["complete_edge_coverage"])
+        self.assertIn("<th scope=\"col\">Name</th>", result.html)
+
+    def test_artifact_path_normalization_rejects_non_rule_shapes(self) -> None:
+        cases = {
+            "open": b"72 600 m 500 600 l 499.25 599.25 l 72.75 599.25 l f",
+            "curved": b"72 600 m 200 602 350 598 500 600 c h f",
+            "rotated": b"72 600 m 400 500 l 400.75 500.75 l 72.75 600.75 l h f",
+            "multiple_subpaths": (
+                b"72 600 m 500 600 l 499.25 599.25 l 72.75 599.25 l h "
+                b"72 500 m 500 500 l 499.25 499.25 l 72.75 499.25 l h f"
+            ),
+            "non_thin_card": b"72 600 m 300 600 l 300 500 l 72 500 l h f",
+        }
+        for name, path in cases.items():
+            with self.subTest(name=name):
+                converter = Converter(
+                    one_page_pdf(b"/Artifact BMC 0 g " + path + b" EMC")
+                )
+                converter.convert()
+                self.assertEqual(converter._artifact_rule_segments, [])
+
+    def test_local_artifact_backgrounds_respect_paint_order(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 1 g 72 650 220 36 re f EMC",
+            b"/Artifact BMC 0 g 72 650 220 36 re f EMC",
+            b"BT /F1 12 Tf 1 g 1 0 0 1 82 662 Tm (Visible on latest dark paint) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertIn("Visible on latest dark paint", result.markdown)
+        self.assertNotIn(
+            "INVISIBLE_TEXT",
+            {warning.code for warning in result.warnings},
+        )
+
+    def test_evenodd_artifact_frame_does_not_become_solid_background(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0.93 g 72 600 220 60 re f* EMC",
+            b"/Artifact BMC 0 g 72 600 220 60 re 73 601 218 58 re f* EMC",
+            b"BT /F1 12 Tf 0 g 1 0 0 1 82 624 Tm (Visible inside frame) Tj ET",
+        ])
+        converter = Converter(one_page_pdf(content))
+        result = converter.convert()
+        self.assertIn("Visible inside frame", result.markdown)
+        self.assertEqual(len(converter._artifact_local_backgrounds), 1)
+        self.assertNotIn(
+            "INVISIBLE_TEXT",
+            {warning.code for warning in result.warnings},
+        )
+
+    def test_evenodd_page_frame_does_not_become_page_background(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0 g 0 0 612 792 re 1 1 610 790 re f* EMC",
+            b"BT /F1 12 Tf 0 g 1 0 0 1 82 624 Tm (Visible inside page frame) Tj ET",
+        ])
+        converter = Converter(one_page_pdf(content))
+        result = converter.convert()
+        self.assertIn("Visible inside page frame", result.markdown)
+        self.assertNotIn(1, converter._artifact_page_backgrounds)
+        self.assertNotIn(
+            "INVISIBLE_TEXT",
+            {warning.code for warning in result.warnings},
+        )
+
+    def test_later_artifact_overlay_does_not_revive_concealed_text(self) -> None:
+        content = b" ".join([
+            b"BT /F1 12 Tf 1 g 1 0 0 1 82 662 Tm (Concealed before overlay) Tj ET",
+            b"/Artifact BMC 0 g 72 650 220 36 re f EMC",
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertNotIn("Concealed before overlay", result.markdown)
+        self.assertIn(
+            "INVISIBLE_TEXT",
+            {warning.code for warning in result.warnings},
+        )
+
+    def test_captioned_marked_bookend_table_preserves_span_and_mcids(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0 g 72 700 240 0.75 re f EMC",
+            b"/Artifact BMC 0.1 0.2 0.1 rg 72 670 240 30 re f EMC",
+            b"/Artifact BMC 0 g 72 570 240 0.75 re f EMC",
+            b"/TH << /MCID 5 >> BDC BT /F1 10 Tf 1 g "
+            b"1 0 0 1 82 670 Tm (Species conservation register) Tj ET EMC",
+            b"/TD << /MCID 6 >> BDC BT /F1 10 Tf 0 g 1 0 0 1 82 650 Tm (Pupfish) Tj ET EMC "
+            b"/Span << /MCID 7 >> BDC BT /F1 10 Tf 1 0 0 1 185 650 Tm (Cyprinodon alpha) Tj ET EMC",
+            b"/TD << /MCID 8 >> BDC BT /F1 10 Tf 1 0 0 1 82 630 Tm (Splitfin) Tj ET EMC "
+            b"/Span << /MCID 9 >> BDC BT /F1 10 Tf 1 0 0 1 185 630 Tm (Ameca beta) Tj ET EMC",
+            b"/TD << /MCID 10 >> BDC BT /F1 10 Tf 1 0 0 1 82 610 Tm (Skiffia) Tj ET EMC "
+            b"/Span << /MCID 11 >> BDC BT /F1 10 Tf 1 0 0 1 185 610 Tm (Skiffia gamma) Tj ET EMC",
+            b"/TD << /MCID 12 >> BDC BT /F1 10 Tf 1 0 0 1 82 590 Tm (Topminnow) Tj ET EMC "
+            b"/Span << /MCID 13 >> BDC BT /F1 10 Tf 1 0 0 1 185 590 Tm (Fundulus delta) Tj ET EMC",
+            b"BT /F1 9 Tf 1 0 0 1 72 550 Tm (Table 4.1: Captive species register.) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        table = tables[0]
+        self.assertEqual(table.attrs["row_count"], 5)
+        self.assertEqual(table.attrs["column_count"], 2)
+        self.assertEqual(table.attrs["header_rows"], 1)
+        self.assertTrue(any(
+            item.kind == "captioned_marked_bookend" for item in table.evidence
+        ))
+        header = next(
+            cell for cell in semantic_nodes(result, "table_cell")
+            if cell.attrs["row"] == 0
+        )
+        self.assertEqual(header.attrs["colspan"], 2)
+        self.assertTrue(any(item.kind == "explicit_table_span" for item in header.evidence))
+        self.assertEqual(
+            {mcid for source in header.sources for mcid in source.mcids},
+            {5},
+        )
+        first_left = next(
+            cell for cell in semantic_nodes(result, "table_cell")
+            if cell.attrs["row"] == 1 and cell.attrs["col"] == 0
+        )
+        first_right = next(
+            cell for cell in semantic_nodes(result, "table_cell")
+            if cell.attrs["row"] == 1 and cell.attrs["col"] == 1
+        )
+        self.assertEqual(
+            {mcid for source in first_left.sources for mcid in source.mcids},
+            {6},
+        )
+        self.assertEqual(
+            {mcid for source in first_right.sources for mcid in source.mcids},
+            {7},
+        )
+        self.assertTrue(any(source.glyph_ids for source in first_right.sources))
+        captions = [child for child in table.children if child.kind == "caption"]
+        self.assertEqual(captions[0].attrs["placement"], "after")
+        self.assertIn('<th colspan="2"', result.html)
+        self.assertIn("Table 4.1: Captive species register.", result.markdown)
+
+    def test_bookend_near_miss_without_artifact_header_background_is_prose(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0 g 72 700 240 0.75 re f EMC",
+            b"/Artifact BMC 0 g 72 570 240 0.75 re f EMC",
+            b"/TH << /MCID 5 >> BDC BT /F1 10 Tf 1 0 0 1 82 680 Tm (Ordinary marked heading) Tj ET EMC",
+            b"/TD << /MCID 6 >> BDC BT /F1 10 Tf 1 0 0 1 82 650 Tm (Alpha) Tj ET EMC "
+            b"/Span << /MCID 7 >> BDC BT /F1 10 Tf 1 0 0 1 185 650 Tm (First value) Tj ET EMC",
+            b"/TD << /MCID 8 >> BDC BT /F1 10 Tf 1 0 0 1 82 630 Tm (Bravo) Tj ET EMC "
+            b"/Span << /MCID 9 >> BDC BT /F1 10 Tf 1 0 0 1 185 630 Tm (Second value) Tj ET EMC",
+            b"/TD << /MCID 10 >> BDC BT /F1 10 Tf 1 0 0 1 82 610 Tm (Charlie) Tj ET EMC "
+            b"/Span << /MCID 11 >> BDC BT /F1 10 Tf 1 0 0 1 185 610 Tm (Third value) Tj ET EMC",
+            b"/TD << /MCID 12 >> BDC BT /F1 10 Tf 1 0 0 1 82 590 Tm (Delta) Tj ET EMC "
+            b"/Span << /MCID 13 >> BDC BT /F1 10 Tf 1 0 0 1 185 590 Tm (Fourth value) Tj ET EMC",
+            b"BT /F1 9 Tf 1 0 0 1 72 550 Tm (Table 4.2: Marked prose example.) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertNotIn("<table>", result.markdown)
+
+    def test_incomplete_artifact_rule_grid_is_not_a_table(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0 g",
+            b"72 360 0.5 320 re f 180 360 0.5 320 re f "
+            b"300 360 0.5 320 re f 430 360 0.5 320 re f",
+            b"72 680 358 0.5 re f 72 600 358 0.5 re f "
+            b"72 520 358 0.5 re f "
+            # Deliberately omit the final column from the bottom edge.
+            b"72 360 228 0.5 re f EMC",
+            b"BT /F1 10 Tf 1 0 0 1 82 650 Tm (Topic) Tj "
+            b"1 0 0 1 190 650 Tm (Summary) Tj "
+            b"1 0 0 1 310 650 Tm (Status) Tj",
+            b"1 0 0 1 82 570 Tm (First) Tj "
+            b"1 0 0 1 190 570 Tm (Ordinary prose) Tj "
+            b"1 0 0 1 310 570 Tm (Open) Tj",
+            b"1 0 0 1 82 490 Tm (Second) Tj "
+            b"1 0 0 1 190 490 Tm (More prose) Tj "
+            b"1 0 0 1 310 490 Tm (Open) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertNotIn("<table>", result.markdown)
+        self.assertIn("Ordinary prose", result.markdown)
+
+    def test_artifact_sidebar_cards_remain_prose(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0 g",
+            # Three independent outlined cards, not a shared closed lattice.
+            b"72 610 0.5 70 re f 72 680 180 0.5 re f "
+            b"252 610 0.5 70 re f 72 610 180 0.5 re f",
+            b"72 500 0.5 70 re f 72 570 180 0.5 re f "
+            b"252 500 0.5 70 re f 72 500 180 0.5 re f",
+            b"72 390 0.5 70 re f 72 460 180 0.5 re f "
+            b"252 390 0.5 70 re f 72 390 180 0.5 re f EMC",
+            b"BT /F1 10 Tf 1 0 0 1 84 650 Tm (A sidebar card explains the first idea.) Tj "
+            b"1 0 0 1 84 540 Tm (Another card contains ordinary prose.) Tj "
+            b"1 0 0 1 84 430 Tm (The last card remains a paragraph.) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertNotIn("<table>", result.markdown)
+        self.assertIn("ordinary prose", result.markdown)
+
+    def test_simple_booktabs_table_uses_repeated_numeric_anchors(self) -> None:
+        content = b" ".join([
+            b"0.5 w 72 700 m 500 700 l 72 670 m 500 670 l 72 580 m 500 580 l S",
+            b"BT /F1 11 Tf 1 0 0 1 80 680 Tm (Model) Tj 1 0 0 1 250 680 Tm (Score) Tj 1 0 0 1 350 680 Tm (Rate) Tj",
+            b"1 0 0 1 80 650 Tm (Alpha) Tj 1 0 0 1 250 650 Tm (10) Tj 1 0 0 1 350 650 Tm (20) Tj",
+            b"1 0 0 1 80 620 Tm (Bravo) Tj 1 0 0 1 250 620 Tm (30) Tj 1 0 0 1 350 620 Tm (40) Tj",
+            b"1 0 0 1 80 590 Tm (Charlie) Tj 1 0 0 1 250 590 Tm (50) Tj 1 0 0 1 350 590 Tm (60) Tj",
+            b"1 0 0 1 72 550 Tm (Table 1: Numeric comparison) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        self.assertEqual(tables[0].attrs["row_count"], 4)
+        self.assertEqual(tables[0].attrs["column_count"], 3)
+        self.assertTrue(any(item.kind == "booktabs" for item in tables[0].evidence))
+        self.assertIn("<table>", result.markdown)
+        self.assertIn("<td>Charlie</td><td>50</td><td>60</td>", result.markdown)
+        self.assertIn("Table 1: Numeric comparison", result.markdown)
+
+    def test_horizontal_rules_and_numbers_without_table_caption_are_not_booktabs(self) -> None:
+        content = b" ".join([
+            b"0.5 w 72 700 m 500 700 l 72 670 m 500 670 l 72 580 m 500 580 l S",
+            b"BT /F1 11 Tf 1 0 0 1 80 680 Tm (Quarterly indicators) Tj",
+            b"1 0 0 1 80 650 Tm (First observation is 10 and 20.) Tj",
+            b"1 0 0 1 80 620 Tm (Second observation is 30 and 40.) Tj",
+            b"1 0 0 1 80 590 Tm (Third observation is 50 and 60.) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertNotIn("<table>", result.markdown)
+        self.assertIn("First observation", result.markdown)
+
+    def test_complete_captioned_lattice_precedes_partial_grid_fallback(self) -> None:
+        content = b" ".join([
+            b"0.5 w "
+            b"72 500 m 300 500 l 72 540 m 300 540 l 72 580 m 300 580 l 72 620 m 300 620 l "
+            b"72 500 m 72 540 l 72 540 m 72 580 l 72 580 m 72 620 l "
+            b"186 500 m 186 540 l 186 540 m 186 580 l 186 580 m 186 620 l "
+            b"300 500 m 300 540 l 300 540 m 300 580 l 300 580 m 300 620 l S",
+            b"BT /F1 11 Tf 1 0 0 1 72 650 Tm (Table 2: Complete lattice) Tj",
+            b"/F2 11 Tf 1 0 0 1 90 595 Tm (Name) Tj 1 0 0 1 205 595 Tm (Value) Tj",
+            b"/F1 11 Tf 1 0 0 1 90 555 Tm (Alpha) Tj 1 0 0 1 205 555 Tm (10) Tj",
+            b"1 0 0 1 90 515 Tm (Bravo) Tj 1 0 0 1 205 515 Tm (20) Tj ET",
+        ])
+        resources = b"/Resources << /Font << /F1 1 0 R /F2 2 0 R >> >>"
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 612 792] " + resources + b" /Contents 3 0 R >>",
+            b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+            b"<< /Type /Catalog /Pages 5 0 R >>",
+        ]
+        result = convert(render_pdf(objects, 6))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        evidence = {item.kind for item in tables[0].evidence}
+        self.assertIn("lattice_table", evidence)
+        self.assertNotIn("captioned_partial_grid", evidence)
+        self.assertIn("| Name | Value |", result.markdown)
+
+    def test_recovered_grid_precedes_overlapping_incomplete_lattice_fallback(self) -> None:
+        content = b" ".join([
+            b"q 0.90 g 72 600 268 40 re f 72 520 268 40 re f Q",
+            b"0.5 w "
+            b"110 520 m 110 560 l 110 560 m 110 600 l 110 600 m 110 640 l 110 640 m 110 680 l "
+            b"260 520 m 260 560 l 260 560 m 260 600 l 260 600 m 260 640 l 260 640 m 260 680 l "
+            # This connected header component has a deliberately incomplete
+            # center edge. It is useful evidence, but not a lossless table.
+            b"110 640 m 260 640 l 110 680 m 260 680 l 185 640 m 185 660 l S",
+            b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Table: Quarterly totals) Tj",
+            b"1 0 0 1 80 655 Tm (No.) Tj 1 0 0 1 130 655 Tm (Organization) Tj 1 0 0 1 280 655 Tm (Total) Tj",
+            b"1 0 0 1 80 615 Tm (1) Tj 1 0 0 1 130 615 Tm (Alpha Group) Tj 1 0 0 1 280 615 Tm (120) Tj",
+            b"1 0 0 1 80 575 Tm (2) Tj 1 0 0 1 130 575 Tm (Bravo Group) Tj 1 0 0 1 280 575 Tm (95) Tj",
+            b"1 0 0 1 80 535 Tm (3) Tj 1 0 0 1 130 535 Tm (Gamma Group) Tj 1 0 0 1 280 535 Tm (70) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        self.assertEqual(tables[0].attrs["row_count"], 4)
+        self.assertEqual(tables[0].attrs["column_count"], 3)
+        evidence = {item.kind for item in tables[0].evidence}
+        self.assertIn("captioned_partial_grid", evidence)
+        self.assertNotIn("lattice_table", evidence)
+        self.assertIn("<td>Bravo Group</td><td>95</td>", result.markdown)
+        self.assertNotIn("TABLE_SPAN_UNSUPPORTED", {warning.code for warning in result.warnings})
+
+    def test_captioned_fragmented_grid_uses_row_fills_and_preserves_wrapped_cells(self) -> None:
+        content = b" ".join([
+            b"q 0.90 g 72 600 268 40 re f 72 520 268 40 re f Q",
+            b"0.5 w "
+            b"110 520 m 110 560 l 110 560 m 110 600 l 110 600 m 110 640 l 110 640 m 110 680 l "
+            b"260 520 m 260 560 l 260 560 m 260 600 l 260 600 m 260 640 l 260 640 m 260 680 l S",
+            b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Table: Quarterly totals) Tj",
+            b"1 0 0 1 80 655 Tm (No.) Tj 1 0 0 1 130 655 Tm (Organization) Tj 1 0 0 1 280 655 Tm (Total) Tj",
+            b"1 0 0 1 80 615 Tm (1) Tj 1 0 0 1 130 615 Tm (Alpha Group) Tj 1 0 0 1 280 615 Tm (120) Tj",
+            b"1 0 0 1 80 575 Tm (2) Tj 1 0 0 1 130 580 Tm (Long wrapped) Tj "
+            b"1 0 0 1 130 566 Tm (organization) Tj 1 0 0 1 280 575 Tm (95) Tj",
+            b"1 0 0 1 80 535 Tm (3) Tj 1 0 0 1 130 535 Tm (Gamma Group) Tj 1 0 0 1 280 535 Tm (70) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        self.assertEqual(tables[0].attrs["row_count"], 4)
+        self.assertEqual(tables[0].attrs["column_count"], 3)
+        self.assertTrue(any(item.kind == "captioned_partial_grid" for item in tables[0].evidence))
+        self.assertIn("<table>", result.markdown)
+        self.assertIn("Long wrapped<br />organization", result.markdown)
+        self.assertIn("<td>95</td>", result.markdown)
+
+    def test_caption_and_zebra_panels_without_repeated_boundaries_are_not_a_table(self) -> None:
+        content = b" ".join([
+            b"q 0.90 g 72 600 468 30 re f 72 540 468 30 re f Q",
+            b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Table: discussion prompts) Tj",
+            b"1 0 0 1 84 610 Tm (This shaded sentence is ordinary explanatory prose.) Tj",
+            b"1 0 0 1 84 550 Tm (Another shaded sentence continues the discussion.) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertNotIn("<table>", result.markdown)
+        self.assertIn("ordinary explanatory prose", result.markdown)
+
     def test_partial_vertical_border_infers_only_corroborated_colspan(self) -> None:
         content = (
             b"0.5 w 72 500 m 300 500 l 72 540 m 300 540 l 72 580 m 300 580 l "
@@ -1716,6 +2780,85 @@ class SemanticGraphTests(unittest.TestCase):
 		self.assertNotIn("<iframe", rendered)
 		self.assertIn("&lt;iframe", rendered)
 
+	def test_task_item_markers_are_suppressed_without_flattening_mixed_or_nested_lists(self) -> None:
+		source = [SourceRef(page=1)]
+
+		def text(node_id: str, value: str) -> SemanticNode:
+			return SemanticNode(node_id, "text", text=value, sources=source)
+
+		nested = SemanticNode(
+			"nested-list",
+			"list",
+			children=[
+				SemanticNode(
+					"nested-item",
+					"item",
+					children=[text("nested-text", "Nested bullet")],
+					sources=source,
+				)
+			],
+			attrs={"ordered": False, "marker_style": "disc"},
+			sources=source,
+		)
+		mixed = SemanticNode(
+			"mixed-list",
+			"list",
+			children=[
+				SemanticNode(
+					"checked-task",
+					"item",
+					children=[text("checked-text", "Checked"), nested],
+					attrs={"task": True, "checked": True},
+					sources=source,
+				),
+				SemanticNode(
+					"ordinary-item",
+					"item",
+					children=[text("ordinary-text", "Ordinary bullet")],
+					sources=source,
+				),
+				SemanticNode(
+					"open-task",
+					"item",
+					children=[text("open-text", "Open")],
+					attrs={"task": True, "checked": False},
+					sources=source,
+				),
+			],
+			attrs={"ordered": False, "marker_style": "disc"},
+			sources=source,
+		)
+		document = SemanticDocument([mixed])
+		rendered = render_semantic_html(document)
+		self.assertEqual(rendered.count('class="cocoapdf-task-item"'), 2)
+		self.assertEqual(rendered.count('<input type="checkbox" disabled'), 2)
+		self.assertIn(
+			'<li class="cocoapdf-task-item"',
+			rendered,
+		)
+		self.assertIn(
+			'aria-label="Checked task: Checked"',
+			rendered,
+		)
+		self.assertRegex(rendered, r"<li[^>]*>Ordinary bullet</li>")
+		self.assertNotRegex(
+			rendered,
+			r'<li[^>]*class="cocoapdf-task-item"[^>]*>Ordinary bullet',
+		)
+		self.assertIn(
+			'<ul style="list-style-type: disc"',
+			rendered,
+		)
+		self.assertIn(
+			'.cocoapdf-task-item { list-style-type: none; }',
+			rendered,
+		)
+		markdown = render_semantic_markdown(document)
+		self.assertIn("- [x] Checked", markdown)
+		self.assertIn("- Ordinary bullet", markdown)
+		self.assertIn("- [ ] Open", markdown)
+		self.assertIn("- Nested bullet", markdown)
+
 	def test_generated_html_allowlist_rejects_attribute_smuggling(self) -> None:
 		safe_fragments = (
 			'<p dir="rtl"><strong>مرحبا</strong></p>',
@@ -1860,6 +3003,531 @@ class RegionCorpusTests(unittest.TestCase):
 		result = convert(make_pdf([stream]), ConvertOptions())
 		callouts = [r for r in result.report["regions"] if r["kind"] == "callout"]
 		self.assertEqual(len(callouts), 1)
+
+
+class AlignedColumnTableTests(unittest.TestCase):
+    """Cover the unruled table recovered from repeated body-row alignment.
+
+    The body defines the columns here, so these cases pin the two independent
+    signals that keep aligned prose, forms, and cards out of the model.
+    """
+
+    @staticmethod
+    def _numeric_rows(caption: bytes = b"(Table 9. Annual growth by market.) Tj") -> bytes:
+        rows = [
+            (b"Cambodia", b"7.5%", b"-0.7%", b"50.6%"),
+            (b"Indonesia", b"9.4%", b"29.5%", b"4.7%"),
+            (b"Malaysia", b"18.6%", b"7.1%", b"6.9%"),
+            (b"Thailand", b"-0.9%", b"18.6%", b"11.4%"),
+        ]
+        parts = [b"BT /F1 10 Tf 1 0 0 1 72 740 Tm " + caption]
+        y = 710
+        for name, a, b, c in rows:
+            parts.append(
+                b"1 0 0 1 72 %d Tm (%s) Tj " % (y, name)
+                + b"1 0 0 1 220 %d Tm (%s) Tj " % (y, a)
+                + b"1 0 0 1 330 %d Tm (%s) Tj " % (y, b)
+                + b"1 0 0 1 440 %d Tm (%s) Tj" % (y, c)
+            )
+            y -= 20
+        parts.append(b"ET")
+        return b" ".join(parts)
+
+    def test_captioned_numeric_alignment_becomes_a_table(self) -> None:
+        result = convert(one_page_pdf(self._numeric_rows()))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1)
+        self.assertIn("| Cambodia | 7.5% | -0.7% | 50.6% |", result.markdown)
+        self.assertIn("| Thailand | -0.9% | 18.6% | 11.4% |", result.markdown)
+
+    def test_numeric_alignment_without_caption_is_not_a_table(self) -> None:
+        content = self._numeric_rows(caption=b"(Quarterly notes for the market.) Tj")
+        result = convert(one_page_pdf(content))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertIn("Cambodia", result.markdown)
+
+    def test_contents_listing_with_leaders_is_not_a_table(self) -> None:
+        parts = [b"BT /F1 10 Tf 1 0 0 1 72 740 Tm (Table 4. Chapter index.) Tj"]
+        y = 710
+        for name, page in ((b"Alpha", b"11"), (b"Bravo", b"24"), (b"Cairo", b"37"), (b"Delta", b"48")):
+            parts.append(
+                b"1 0 0 1 72 %d Tm (%s) Tj " % (y, name)
+                + b"1 0 0 1 220 %d Tm (..........) Tj " % y
+                + b"1 0 0 1 330 %d Tm (%s) Tj " % (y, page)
+                + b"1 0 0 1 440 %d Tm (%s) Tj" % (y, page)
+            )
+            y -= 20
+        parts.append(b"ET")
+        result = convert(one_page_pdf(b" ".join(parts)))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+    def test_word_crossing_a_gutter_rejects_the_alignment(self) -> None:
+        content = self._numeric_rows()
+        # One row carries a phrase that straddles the second gutter, which is
+        # what an incidental whitespace run in prose looks like.
+        content = content.replace(
+            b"1 0 0 1 220 690 Tm (9.4%) Tj ",
+            b"1 0 0 1 220 690 Tm (9.4% carried across the gutter here) Tj ",
+        )
+        result = convert(one_page_pdf(content))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+
+class ResidualPhysicalTableRecoveryTests(unittest.TestCase):
+    """Pin conservative PDF-native gates added for residual table dialects."""
+
+    @staticmethod
+    def _artifact_one_column(*, two_frames: bool = False) -> bytes:
+        parts = []
+        origins = [72.0, 330.0] if two_frames else [72.0]
+        for origin in origins:
+            for bottom in (650.0, 600.0, 550.0, 500.0):
+                parts.append(rect_fill_op(origin, bottom, 200.0, 50.0, 0.96))
+            rules = []
+            for y in (700, 650, 600, 550, 500):
+                rules.append(b"%d %d 200 0.5 re f" % (origin, y))
+            rules.extend(
+                [
+                    b"%d 500 0.5 200 re f" % origin,
+                    b"%d 500 0.5 200 re f" % (origin + 200),
+                ]
+            )
+            parts.append(b"/Artifact BMC 0 g " + b" ".join(rules) + b" EMC")
+            for row, y in enumerate((675, 625, 575, 525), 1):
+                parts.append(text_op(origin + 12, y, "Entry %d" % row, size=10))
+        return make_pdf([b" ".join(parts)])
+
+    @staticmethod
+    def _artifact_partial_fill(*, caption: bool = True) -> bytes:
+        parts = []
+        row_bottoms = (650, 600, 550, 500, 450, 400)
+        for row, bottom in enumerate(row_bottoms):
+            shade = 0.94 if row % 2 == 0 else 0.98
+            for x in (72, 172, 272):
+                parts.append(rect_fill_op(x, bottom, 100, 50, shade))
+        rules = [
+            b"72 700 100 0.5 re f",
+            b"172 700 100 0.5 re f",
+            b"272 700 100 0.5 re f",
+        ]
+        for bottom in row_bottoms:
+            rules.append(b"172 %d 0.5 50 re f" % bottom)
+        parts.append(b"/Artifact BMC 0 g " + b" ".join(rules) + b" EMC")
+        for row, y in enumerate((675, 625, 575, 525, 475, 425)):
+            first = "Metric" if row == 0 else "Item %d" % row
+            second = "Value A" if row == 0 else str(row * 10)
+            third = "Value B" if row == 0 else "%d%%" % (row * 5)
+            parts.extend(
+                [
+                    text_op(82, y, first, size=10),
+                    text_op(182, y, second, size=10),
+                    text_op(282, y, third, size=10),
+                ]
+            )
+        if caption:
+            parts.append(text_op(72, 370, "Table 8. Fill-backed values.", size=10))
+        return make_pdf([b" ".join(parts)])
+
+    @staticmethod
+    def _dense_fragmented(*, preceding_prose: bool = False) -> bytes:
+        parts = []
+        boundaries = (740, 700, 660, 620, 580, 540, 500, 460, 420)
+        for x in (133, 216, 299, 382, 465):
+            for upper, lower in zip(boundaries, boundaries[1:]):
+                parts.append(line_op(x, lower + 0.6, x, upper - 0.6, 0.5))
+        for y in (700, 460):
+            for left, right in (
+                (50, 130),
+                (136, 213),
+                (219, 296),
+                (302, 379),
+                (385, 462),
+                (468, 550),
+            ):
+                parts.append(line_op(left, y, right, y, 0.5))
+        if preceding_prose:
+            parts.append(text_op(50, 770, "Introductory prose", size=10))
+        starts = (60, 143, 226, 309, 392, 475)
+        for row, y in enumerate((720, 680, 640, 600, 560, 520, 480, 440)):
+            for column, x in enumerate(starts):
+                value = "H%d" % column if row == 0 else (
+                    "R%d" % row if column == 0 else str(row * 10 + column)
+                )
+                parts.append(text_op(x, y, value, size=9))
+        return make_pdf([b" ".join(parts)])
+
+    @staticmethod
+    def _overlaid_image(
+        *,
+        bold_functions: bool = True,
+        image_first: bool = True,
+        mixed_preimage_glyph: bool = False,
+    ) -> bytes:
+        image_op = b"q 532 0 0 550 40 142 cm /Im1 Do Q"
+        parts = []
+        if mixed_preimage_glyph:
+            parts.append(text_op(100, 270, "X", size=8))
+        if image_first or mixed_preimage_glyph:
+            parts.append(image_op)
+        for x, text in zip(
+            (50, 180, 315, 450),
+            ("Service Stage", "Function Name", "Explanation", "Expected Benefit"),
+        ):
+            parts.append(text_op(x, 660, text, size=10))
+        stages = ("Stage 1", "Stage 2", "", "", "Stage 3", "Stage 4", "Stage 5", "Stage 6")
+        for row, (stage, y) in enumerate(zip(stages, (620, 575, 530, 485, 440, 395, 350, 305)), 1):
+            if stage:
+                parts.append(text_op(50, y, stage, size=9))
+            parts.extend(
+                [
+                    text_op(180, y, "Function %d" % row, font="F2" if bold_functions else "F1", size=9),
+                    text_op(315, y, "Explain %d" % row, size=9),
+                    text_op(450, y, "Benefit %d" % row, size=9),
+                    text_op(315, y - 12, "E-detail %d" % row, size=8),
+                    text_op(450, y - 12, "B-detail %d" % row, size=8),
+                ]
+            )
+        if not image_first:
+            parts.append(image_op)
+        return make_pdf(
+            [b" ".join(parts)],
+            xobjects={"Im1": image_xobject_rgb(1, 1, b"\xff\xff\xff")},
+        )
+
+    @staticmethod
+    def _open_internal_grid(*, omit_body_cell: bool = False) -> bytes:
+        parts = [
+            line_op(30, 360, 930, 360, 0.5),
+            line_op(30, 270, 930, 270, 0.5),
+            line_op(30, 180, 930, 180, 0.5),
+            line_op(124, 50, 124, 360, 0.5),
+            line_op(383, 50, 383, 360, 0.5),
+            line_op(652, 50, 652, 360, 0.5),
+            text_op(145, 380, "OCR", size=10),
+            text_op(405, 380, "Recommendation", size=10),
+            text_op(675, 380, "Semantic Search", size=10),
+        ]
+        for row, y in enumerate((320, 230, 120), 1):
+            values = ("Band %d" % row, "Alpha %d" % row, "Beta %d" % row, "Gamma %d" % row)
+            for column, (x, value) in enumerate(zip((50, 145, 405, 675), values)):
+                if omit_body_cell and row == 2 and column == 3:
+                    continue
+                parts.append(text_op(x, y, value, size=10))
+        return make_pdf([b" ".join(parts)], page_size=(960, 540))
+
+    @staticmethod
+    def _single_row_booktabs(*, aligned_gutters: bool = True) -> bytes:
+        third_body_x = 458 if aligned_gutters else 420
+        parts = [
+            line_op(60, 700, 540, 700, 0.5),
+            line_op(60, 650, 540, 650, 0.5),
+            line_op(60, 600, 540, 600, 0.5),
+            text_op(80, 675, "Model Name", size=10),
+            text_op(250, 675, "Score Value", size=10),
+            text_op(420, 675, "Rate Percent", size=10),
+            text_op(80, 625, "Alpha Model", size=10),
+            text_op(249, 625, "97K", size=10),
+            text_op(third_body_x, 625, "88%", size=10),
+            text_op(60, 570, "Table 3. One-row summary.", size=10),
+        ]
+        return make_pdf([b" ".join(parts)])
+
+    @staticmethod
+    def _multilevel_booktabs(*, aligned_underlines: bool = True) -> bytes:
+        group_start = 98 if aligned_underlines else 130
+        parts = [
+            line_op(50, 700, 550, 700, 0.5),
+            line_op(group_start, 660, 308, 660, 0.5),
+            line_op(308, 660, 550, 660, 0.5),
+            line_op(50, 620, 550, 620, 0.5),
+            line_op(50, 520, 550, 520, 0.5),
+            text_op(282, 680, "Training Datasets", size=10),
+            text_op(52, 650, "Properties", size=10),
+            text_op(177, 650, "Instruction", size=10),
+            text_op(407, 650, "Alignment", size=10),
+        ]
+        for column, x in enumerate((130, 200, 270, 340, 410, 480)):
+            parts.append(text_op(x, 630, "H%d" % (column + 1), size=10))
+        for row, y in enumerate((580, 540), 1):
+            parts.append(text_op(60, y, "P%d" % row, size=10))
+            for column, x in enumerate((130, 200, 270, 340, 410, 480), 1):
+                parts.append(text_op(x, y, str(row * 10 + column), size=10))
+        parts.append(text_op(50, 490, "Table 6. Training comparison.", size=10))
+        return make_pdf([b" ".join(parts)])
+
+    def test_unique_fill_backed_one_column_artifact_lattice_is_recovered(self) -> None:
+        result = convert(self._artifact_one_column())
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        self.assertEqual(tables[0].attrs["column_count"], 1)
+        self.assertEqual(tables[0].attrs["row_count"], 4)
+        evidence = next(
+            item for item in tables[0].evidence
+            if item.kind == "artifact_filled_lattice"
+        )
+        self.assertTrue(evidence.data["unique_filled_one_column"])
+        self.assertEqual(evidence.data["fill_backed_rows"], 4)
+
+    def test_repeated_fill_backed_artifact_frames_remain_cards(self) -> None:
+        result = convert(self._artifact_one_column(two_frames=True))
+        self.assertEqual(semantic_nodes(result, "table"), [], result.markdown)
+        self.assertIn("Entry 1", result.markdown)
+
+    def test_captioned_artifact_partial_fill_grid_is_recovered(self) -> None:
+        result = convert(self._artifact_partial_fill())
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        self.assertEqual(tables[0].attrs["column_count"], 3)
+        self.assertEqual(tables[0].attrs["row_count"], 6)
+        evidence = next(
+            item for item in tables[0].evidence
+            if item.kind == "artifact_partial_fill_grid"
+        )
+        self.assertGreaterEqual(evidence.data["fill_backed_rows"], 3)
+        self.assertGreaterEqual(evidence.data["numeric_body_rows"], 4)
+        self.assertIn("Table 8. Fill-backed values.", result.markdown)
+        captions = semantic_nodes(result, "caption")
+        self.assertEqual(len(captions), 1)
+        self.assertEqual(captions[0].attrs["placement"], "after")
+        self.assertTrue(any(source.glyph_ids for source in captions[0].sources))
+        self.assertIn('class="cocoapdf-caption-bottom"', result.html)
+
+    def test_artifact_partial_fill_grid_requires_explicit_caption(self) -> None:
+        result = convert(self._artifact_partial_fill(caption=False))
+        self.assertFalse(any(
+            item.kind == "artifact_partial_fill_grid"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
+    def test_page_top_dense_fragmented_numeric_grid_is_recovered(self) -> None:
+        result = convert(self._dense_fragmented())
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        self.assertEqual(tables[0].attrs["column_count"], 6)
+        self.assertEqual(tables[0].attrs["row_count"], 8)
+        evidence = next(
+            item for item in tables[0].evidence
+            if item.kind == "dense_fragmented_grid"
+        )
+        self.assertGreaterEqual(evidence.data["fragmented_vertical_boundaries"], 5)
+        self.assertGreaterEqual(evidence.data["numeric_body_rows"], 4)
+
+    def test_dense_fragmented_grid_rejects_preceding_prose(self) -> None:
+        result = convert(self._dense_fragmented(preceding_prose=True))
+        self.assertFalse(any(
+            item.kind == "dense_fragmented_grid"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
+    def test_single_body_row_booktabs_uses_matching_multiword_gutters(self) -> None:
+        result = convert(self._single_row_booktabs())
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        self.assertEqual(tables[0].attrs["header_rows"], 1)
+        self.assertEqual(tables[0].attrs["column_count"], 3)
+        self.assertIn("<th", result.html)
+        self.assertIn("Model Name", result.html)
+        captions = semantic_nodes(result, "caption")
+        self.assertEqual(len(captions), 1)
+        self.assertEqual(captions[0].attrs["placement"], "after")
+        self.assertTrue(any(source.glyph_ids for source in captions[0].sources))
+        self.assertIn('class="cocoapdf-caption-bottom"', result.html)
+        evidence = next(
+            item for item in tables[0].evidence if item.kind == "booktabs"
+        )
+        self.assertEqual(evidence.data["body_rows"], 1)
+
+    def test_single_body_row_booktabs_rejects_mismatched_gutters(self) -> None:
+        result = convert(self._single_row_booktabs(aligned_gutters=False))
+        self.assertFalse(any(
+            item.kind == "booktabs"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
+    def test_multilevel_booktabs_uses_only_physical_header_spans(self) -> None:
+        result = convert(self._multilevel_booktabs())
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        table = tables[0]
+        self.assertEqual(table.attrs["header_rows"], 3)
+        cells = semantic_nodes(result, "table_cell")
+        self.assertTrue(any(cell.attrs.get("rowspan") == 3 for cell in cells))
+        self.assertTrue(any(cell.attrs.get("colspan") == 6 for cell in cells))
+        evidence = next(
+            item for item in table.evidence if item.kind == "multilevel_booktabs"
+        )
+        self.assertEqual(evidence.data["group_underlines"], 2)
+        self.assertGreaterEqual(evidence.data["physical_header_spans"], 4)
+        captions = semantic_nodes(result, "caption")
+        self.assertEqual(len(captions), 1)
+        self.assertEqual(captions[0].attrs["placement"], "after")
+        self.assertTrue(any(source.glyph_ids for source in captions[0].sources))
+        self.assertIn('class="cocoapdf-caption-bottom"', result.html)
+
+    def test_multilevel_booktabs_rejects_misaligned_group_underlines(self) -> None:
+        result = convert(self._multilevel_booktabs(aligned_underlines=False))
+        self.assertFalse(any(
+            item.kind == "multilevel_booktabs"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
+    def test_overlaid_image_table_uses_glyph_text_for_rowspan_anchor(self) -> None:
+        result = convert(self._overlaid_image())
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        table = tables[0]
+        self.assertEqual(table.attrs["column_count"], 4)
+        self.assertEqual(table.attrs["row_count"], 9)
+        evidence = next(
+            item for item in table.evidence if item.kind == "overlaid_image_table"
+        )
+        self.assertTrue(evidence.data["image_region_geometry_only"])
+        self.assertFalse(evidence.data["raster_text_used"])
+        self.assertTrue(evidence.data["image_painted_before_text"])
+        self.assertTrue(evidence.data["image_object_ref"])
+        self.assertEqual(len(evidence.data["image_bbox"]), 4)
+        self.assertTrue(any(source.object_refs for source in table.sources))
+        anchor = next(
+            cell for cell in semantic_nodes(result, "table_cell")
+            if cell.attrs.get("rowspan") == 3 and cell.attrs.get("col") == 0
+        )
+        anchor_text = " ".join(
+            node.text or "" for node in anchor.walk() if node.kind == "text"
+        )
+        self.assertEqual(anchor_text, "Stage 3")
+        self.assertTrue(anchor.sources)
+        self.assertTrue(any(source.glyph_ids for source in anchor.sources))
+        span_evidence = next(
+            item for item in anchor.evidence
+            if item.kind == "geometry_inferred_table_span"
+        )
+        self.assertEqual(span_evidence.confidence, 0.88)
+        self.assertFalse(any(
+            item.kind == "explicit_table_span" for item in anchor.evidence
+        ))
+        self.assertIn('rowspan="3"', result.html)
+
+    def test_overlaid_image_table_requires_bold_function_band(self) -> None:
+        result = convert(self._overlaid_image(bold_functions=False))
+        self.assertEqual(semantic_nodes(result, "table"), [], result.markdown)
+
+    def test_overlaid_image_table_rejects_text_painted_beneath_image(self) -> None:
+        result = convert(self._overlaid_image(image_first=False))
+        self.assertFalse(any(
+            item.kind == "overlaid_image_table"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
+    def test_overlaid_image_table_rejects_even_one_preimage_glyph(self) -> None:
+        result = convert(self._overlaid_image(mixed_preimage_glyph=True))
+        self.assertFalse(any(
+            item.kind == "overlaid_image_table"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
+    def test_open_internal_grid_encloses_nested_physical_sublattice(self) -> None:
+        result = convert(self._open_internal_grid())
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        table = tables[0]
+        self.assertEqual(table.attrs["column_count"], 4)
+        self.assertEqual(table.attrs["row_count"], 4)
+        self.assertEqual(table.attrs["header_rows"], 1)
+        evidence = next(
+            item for item in table.evidence if item.kind == "open_internal_grid"
+        )
+        self.assertTrue(evidence.data["empty_corner_header"])
+        self.assertTrue(evidence.data["complete_body_occupancy"])
+        self.assertIn("<th scope=\"col\">OCR</th>", result.html)
+        self.assertTrue(all(cell.sources for cell in semantic_nodes(result, "table_cell")))
+
+    def test_open_internal_grid_requires_every_body_cell(self) -> None:
+        result = convert(self._open_internal_grid(omit_body_cell=True))
+        self.assertFalse(any(
+            item.kind == "open_internal_grid"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
+    def test_same_box_rejected_candidate_cannot_replace_accepted_model(self) -> None:
+        converter = Converter(make_pdf([[text_op(72, 720, "Source line")][0]]))
+        converter.convert()
+        renderer = MarkdownRenderer(converter)
+        renderer.lines_by_page = converter.lines_by_page
+        line = converter.lines_by_page[1][0]
+        box = (60.0, 50.0, 300.0, 100.0)
+        accepted = (50.0, "accepted", [line], box)
+        rejected = (50.0, "rejected", [line], box)
+
+        def first(_page):
+            renderer._partial_table_models[(1, box)] = {
+                "model_kind": "accepted_model"
+            }
+            return [accepted]
+
+        def second(_page):
+            renderer._partial_table_models[(1, box)] = {
+                "model_kind": "rejected_model"
+            }
+            return [rejected]
+
+        with patch.object(renderer, "_form_grid_candidates", side_effect=first), patch.object(
+            renderer,
+            "_artifact_filled_lattice_candidates",
+            side_effect=second,
+        ):
+            candidates = renderer._table_candidates(1)
+        self.assertEqual([candidate[1] for candidate in candidates], ["accepted"])
+        self.assertEqual(
+            renderer._partial_table_models[(1, box)]["model_kind"],
+            "accepted_model",
+        )
+
+
+class HeadingLevelModeTests(unittest.TestCase):
+    def _heading_document(self) -> bytes:
+        content = b" ".join([
+            b"BT /F1 20 Tf 1 0 0 1 72 740 Tm (Primary Title) Tj",
+            b"/F1 10 Tf 1 0 0 1 72 700 Tm (Body text under the primary title.) Tj",
+            b"/F1 14 Tf 1 0 0 1 72 660 Tm (Secondary Section) Tj",
+            b"/F1 10 Tf 1 0 0 1 72 620 Tm (Body text under the secondary section.) Tj ET",
+        ])
+        return one_page_pdf(content)
+
+    def test_semantic_mode_preserves_inferred_depth(self) -> None:
+        result = convert(self._heading_document(), ConvertOptions())
+        levels = {
+            line.split(" ", 1)[0]
+            for line in result.markdown.splitlines()
+            if line.startswith("#")
+        }
+        self.assertIn("#", levels)
+        self.assertTrue(any(level != "#" for level in levels))
+
+    def test_flat_mode_projects_every_heading_at_level_one(self) -> None:
+        result = convert(self._heading_document(), ConvertOptions(heading_level_mode="flat"))
+        headings = [line for line in result.markdown.splitlines() if line.startswith("#")]
+        self.assertTrue(headings)
+        for heading in headings:
+            self.assertTrue(heading.startswith("# "), heading)
+
+    def test_flat_mode_does_not_create_additional_headings(self) -> None:
+        semantic = convert(self._heading_document(), ConvertOptions())
+        flat = convert(self._heading_document(), ConvertOptions(heading_level_mode="flat"))
+        self.assertEqual(
+            len(semantic_nodes(semantic, "heading")),
+            len(semantic_nodes(flat, "heading")),
+        )
+
+    def test_invalid_heading_level_mode_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            convert(self._heading_document(), ConvertOptions(heading_level_mode="H1"))
 
 
 if __name__ == "__main__":

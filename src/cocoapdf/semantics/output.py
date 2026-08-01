@@ -12,6 +12,7 @@ def render_reconciled_outputs(
     layout_markdown: str,
     document: SemanticDocument,
     report: Dict[str, Any],
+    image_markup: str = "markdown",
 ) -> Tuple[str, str]:
     """Render independent Markdown and HTML projections of one semantic graph.
 
@@ -32,7 +33,7 @@ def render_reconciled_outputs(
                 for candidate in node.walk()
             ):
                 node.attrs.pop("_layout_html", None)
-        markdown = render_semantic_markdown(document)
+        markdown = render_semantic_markdown(document, image_markup)
         html = render_semantic_html(document)
         _strip_layout_hints(document)
         return markdown, html

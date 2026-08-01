@@ -1,20 +1,108 @@
 {
+  "benchmarks": [
+    {
+      "benchmark_commit": "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109",
+      "engine_commit": "937c403ed3b265a14db802b2ced36b3819d20b0f",
+      "files": {
+        "adapter.py": {
+          "bytes": 8286,
+          "sha256": "5e8494171afa13b1341c816fe7726a6f5a75d686783ac5eca63046d3de5d4c91"
+        },
+        "determinism.json": {
+          "bytes": 909,
+          "sha256": "6887afb4f457ed4cbc8efffaac8b87869235568253cae76872438c54cd389cfd"
+        },
+        "evaluation.csv": {
+          "bytes": 18945,
+          "sha256": "d81e63e95ef9c48e1169e053fca971fe2da0729292cc986cb00d3a05b140eaf3"
+        },
+        "evaluation.json": {
+          "bytes": 65304,
+          "sha256": "bde9f4188aed3f50618e700cee8e7fd0ba062c0d6d61c75839b7464c5fc5e4de"
+        },
+        "failures.json": {
+          "bytes": 3,
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        },
+        "integration.patch": {
+          "bytes": 1825,
+          "sha256": "3007b31bf41111ae8a4f46438fb2e9b4954704b7c67f0f07cb453c0baecf003d"
+        },
+        "prediction-hashes.json": {
+          "bytes": 27186,
+          "sha256": "ae88c3f8602dd7fb8bd70294efd69e8ea3f6bf15263473efb3100312f3f89965"
+        },
+        "provenance.json": {
+          "bytes": 4637,
+          "sha256": "b2c15228ace18289c78e79f6c922f67ddb6ddc23abc3c9077732bd2dd2cb8275"
+        },
+        "result.json": {
+          "bytes": 960,
+          "sha256": "870416d96628ada2fbc87ad71f317923477ee378711897f0600d94f6152ea7cc"
+        },
+        "summary.json": {
+          "bytes": 261,
+          "sha256": "00fd7f775f3fcecde424d4a14b326a08c14f390d77967593c0a4583c0f2612ec"
+        }
+      },
+      "id": "opendataloader-bench",
+      "licenses": {
+        "benchmark": "Apache-2.0",
+        "cocoapdf": "MIT",
+        "corpus": "MIT"
+      },
+      "result": {
+        "benchmark_commit": "7af1d8f4d0c09f51ea1a5c6ba5f66e993286d109",
+        "completeness": {
+          "conversion_failures": 0,
+          "empty_predictions": 0,
+          "evaluated_documents": 200,
+          "missing_predictions": 0,
+          "prediction_files": 200
+        },
+        "engine_commit": "937c403ed3b265a14db802b2ced36b3819d20b0f",
+        "metrics": {
+          "mhs_count": 107,
+          "missing_predictions": 0,
+          "nid_count": 200,
+          "score": {
+            "mhs_mean": 0.8062168834231966,
+            "mhs_s_mean": 0.8889792725141817,
+            "nid_mean": 0.8993297819973527,
+            "nid_s_mean": 0.8822899267742511,
+            "overall_mean": 0.869665721357887,
+            "teds_mean": 0.806184123363159,
+            "teds_s_mean": 0.8110160459149278
+          },
+          "teds_count": 42
+        },
+        "schema": "cocoapdf.opendataloader-bench-result/v1",
+        "speed": {
+          "document_count": 200,
+          "elapsed_per_doc": 0.795267196893692,
+          "processor": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
+          "total_elapsed": 159.0534393787384
+        }
+      },
+      "source_content_redistributed": false
+    }
+  ],
   "cases": [
     {
       "conversions": [
         {
           "files": {
             "assertions.json": {
-              "bytes": 898,
-              "sha256": "bcbf1208120cb6160479bddd9dbea0256236fb2fe1ada4a493fd97e225834a4f"
+              "bytes": 3141,
+              "sha256": "9766bf189455cda1d0b262f46424e069535255fe0fd4fef9d189dc4f12d938ca"
             },
             "assets/formula-6e4020bb5dcec410.svg": {
               "bytes": 17242,
               "sha256": "6e4020bb5dcec410d68b5fb7edc753e0cdfb911c58716cbe5a5331ea1547cd68"
             },
-            "assets/img-8d1abc8db93e78de.png": {
-              "bytes": 16402,
-              "sha256": "8d1abc8db93e78deb23984d8504484e524690fbc6c2db0b4b5f5ddcc4fe45d5e"
+            "assets/img-7e18449c0c49ea17.png": {
+              "bytes": 14963,
+              "sha256": "7e18449c0c49ea17b0736fb6f71d4777e3f8e6d7899e1877c41aaf293cffbfcd"
             },
             "assets/vector-36d70b475f1d2d1e.svg": {
               "bytes": 4767,
@@ -25,20 +113,20 @@
               "sha256": "d82c113d8e7b4c998d5750f5ff0bb0bb5b4b9bd0e3782e17ae451fa94a9d255b"
             },
             "output.html": {
-              "bytes": 72222,
-              "sha256": "d9eaac7f79b5d95b52ace13209f15bf66fe41c19ccbae17d87bbb9a67185f859"
+              "bytes": 72073,
+              "sha256": "dcfdc573b87f61aaec466ca0a0c4771725a675b379ef41b90e3481036a863a59"
             },
             "output.json": {
-              "bytes": 2159508,
-              "sha256": "aa7a9ef2d3ea91d105d3442224d9cfdb7177a15421f51735882949e1b6d98a0c"
+              "bytes": 2153319,
+              "sha256": "ec058cb67a7f761280956a6015b2034fac7d844f6c67e2097fd35fb341e07896"
             },
             "output.md": {
-              "bytes": 20178,
-              "sha256": "b8821b37921002f6621840d1c97d6968659b066cfa05bb1a73d1fa84debb2609"
+              "bytes": 20183,
+              "sha256": "611da33b5134780ae924ccc0b2daedf7f4948478f626bc33d6e4a68d536e1557"
             },
             "output.report.summary.json": {
               "bytes": 9417,
-              "sha256": "4044688b69de40b20efac899e25a5a747c56a6a5d8426169beb7297e8f563f59"
+              "sha256": "52f1b1d22d51f2b970ecc77b116c200c039fbac2dcdda3c5f3663c5411bcd035"
             }
           },
           "name": "full",
@@ -49,9 +137,9 @@
       "description": "Broad V1-V4 formatting, Unicode, lists, tables, figures, forms, columns, security, and fallback coverage.",
       "id": "strategic_corner_cases",
       "input": {
-        "bytes": 340350,
+        "bytes": 373578,
         "deterministic": true,
-        "sha256": "f8e34e48c551d98591ab41af8c54251373067d2301beb93e9aa106aab2914256"
+        "sha256": "7d6aa32ecf6aae78cc79a597b0619add1a1325ad7a38dfa4249404b69d923b8f"
       },
       "provenance": {
         "generation": "locked project fixture copied byte-for-byte",
@@ -73,12 +161,12 @@
               "sha256": "d82c113d8e7b4c998d5750f5ff0bb0bb5b4b9bd0e3782e17ae451fa94a9d255b"
             },
             "output.html": {
-              "bytes": 5223,
-              "sha256": "e3f7bcafba2e3150af82995677f1077a23eb9ccafaeaf4fc6dd408912b345563"
+              "bytes": 5287,
+              "sha256": "c4c519ab25cb781179d1f9addbec8403d2824c91b4b8576a8fd11f42878daa5b"
             },
             "output.json": {
-              "bytes": 30613,
-              "sha256": "dd228e79a3e86555086b7136e43a83f553f1594dee2c3f10980c35192ee77bb0"
+              "bytes": 30652,
+              "sha256": "9282ad95b29bb88069becf02f5a6a202ff5520079163d09831b47f9f7902a388"
             },
             "output.md": {
               "bytes": 134,
@@ -129,8 +217,8 @@
               "sha256": "d82c113d8e7b4c998d5750f5ff0bb0bb5b4b9bd0e3782e17ae451fa94a9d255b"
             },
             "output.html": {
-              "bytes": 7163,
-              "sha256": "bf99d09af893288749e65eaba9194cf0d40909b7b9f13b763282fe1caa86baa4"
+              "bytes": 7210,
+              "sha256": "4bd3c40c17718e52742662e88ceba2c472d2097d08ba05bad28bb4102a61200e"
             },
             "output.json": {
               "bytes": 91880,
@@ -164,8 +252,8 @@
               "sha256": "179d6e7aeced8baa4f7edc6730aa0e6136f18b93679700e9d4f9791f111996d3"
             },
             "output.html": {
-              "bytes": 6048,
-              "sha256": "e36123e29233651432e4fb021e727bec2e3c36ee509211de84e117a89f3dee61"
+              "bytes": 6095,
+              "sha256": "511fde3fbe48a020dae77559b2b16ce8af745a3869ae59f1cfd6072a5fb6bbde"
             },
             "output.json": {
               "bytes": 77009,
@@ -215,14 +303,23 @@
     "reason": "Page concatenation would alter document-global evidence and weaken failure attribution."
   },
   "generator": "validation/pr_visual/build.py",
-  "generator_sha256": "f748b24868fb64fdf312187947574d299fd0d57d30c0ab8c91fcdb1a50e9335a",
+  "generator_sha256": "ef8a91c70a241205065b7621de1e08e6b32e3b44dbe7ad1a50d39d2a56f57a5d",
   "head_commit": null,
   "license": {
     "file": "LICENSE.txt",
     "network_fetches": 0,
-    "origin": "first-party CocoaPDF project fixtures",
+    "origin": "first-party CocoaPDF fixtures plus attributed derived benchmark results",
     "spdx": "MIT",
-    "third_party_content_added": false
+    "third_party": [
+      {
+        "benchmark_license": "Apache-2.0",
+        "corpus": "DP-Bench",
+        "corpus_license": "MIT",
+        "name": "OpenDataLoader-Bench result data",
+        "source_content_redistributed": false
+      }
+    ],
+    "third_party_content_added": true
   },
   "lifecycle": {
     "committed_outputs": true,
@@ -231,6 +328,6 @@
     "verification_command": "python scripts/refresh_examples.py --check"
   },
   "profile": "permanent",
-  "schema": "cocoapdf.capability-demo/v1",
+  "schema": "cocoapdf.capability-demo/v2",
   "source_commit": null
 }

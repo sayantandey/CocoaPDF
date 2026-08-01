@@ -1,0 +1,29 @@
+name: OpenDataLoader benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+# Candidate execution is delegated to an immutable, read-only worker. The
+# default-branch workflow_run independently authenticates that worker SHA before
+# accepting its bounded prediction artifact.
+permissions:
+  contents: read
+
+concurrency:
+  group: opendataloader-candidate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  convert:
+    name: Convert pinned 200-PDF corpus
+    permissions:
+      contents: read
+    uses: sayantandey/CocoaPDF/.github/workflows/opendataloader-worker.yml@be0fa9822aa968860ffa04d49629711b475d8d9c
+    with:
+      candidate_repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      candidate_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      worker_sha: be0fa9822aa968860ffa04d49629711b475d8d9c

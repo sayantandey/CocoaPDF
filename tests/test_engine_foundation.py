@@ -53,6 +53,21 @@ from cocoapdf.tools import bench_v1, character_accuracy, region_overlay_svg, tra
 
 
 class FoundationDiagnosticTests(unittest.TestCase):
+	def test_postscript_weight_names_distinguish_bold_from_medium(self):
+		for name in (
+			"CMBX12",
+			"CMBXSL10",
+			"NimbusRomNo9L-Medi",
+			"NimbusRomNo9L-MediItal",
+			"AvenirNext-Demi",
+			"SourceSans-Semibold",
+		):
+			with self.subTest(name=name):
+				self.assertTrue(Font("F1", name).bold)
+		for name in ("CMR12", "CMTI10", "NimbusRomNo9L-Regu", "Inter-Medium", "Helvetica"):
+			with self.subTest(name=name):
+				self.assertFalse(Font("F1", name).bold)
+
 	def test_inline_cleanup_preserves_deliberately_spaced_punctuation_sequence(self):
 		self.assertEqual(cleanup_inline("normal word , next"), "normal word, next")
 		self.assertEqual(cleanup_inline("characters # + - . ! |."), "characters # + - . ! |.")
@@ -201,6 +216,76 @@ class FoundationDiagnosticTests(unittest.TestCase):
 		)
 		self.assertEqual(plain_text(line_text_tokens(near_threshold)), "A B")
 		self.assertEqual(plain_text(line_text_tokens(below_tolerance)), "AB")
+
+	def test_repeated_justified_word_gaps_adapt_without_splitting_tracked_text(self):
+		font = Font(name="F1", base_font="NimbusRomNo9L-Regu")
+
+		def chars_for(text, word_gap, letter_gap=0.0):
+			chars = []
+			x = 0.0
+			sequence = 1
+			for character in text:
+				if character == " ":
+					x += word_gap
+					continue
+				chars.append(
+					Char(
+						character,
+						x,
+						0.0,
+						x + 5.0,
+						10.0,
+						10.0,
+						font,
+						1,
+						sequence,
+					)
+				)
+				x += 5.0 + letter_gap
+				sequence += 1
+			return chars
+
+		justified = Line(
+			chars_for("long words need clear gaps", 2.15),
+			1,
+			1,
+		)
+		tracked = Line(
+			chars_for("TRACKEDTEXT", 0.0, letter_gap=2.15),
+			1,
+			2,
+		)
+		formula = Line(
+			chars_for("2p(M − Q(h)) − (M − Q(2h))", 2.15),
+			1,
+			3,
+		)
+		formula_prose = Line(
+			chars_for(
+				"in which v (m/s) is the average flow velocity and ν "
+				"(m2/s) is the viscosity of the fluid",
+				2.15,
+			),
+			1,
+			4,
+		)
+		self.assertEqual(
+			plain_text(line_text_tokens(justified)),
+			"long words need clear gaps",
+		)
+		self.assertEqual(
+			plain_text(line_text_tokens(tracked)),
+			"TRACKEDTEXT",
+		)
+		self.assertEqual(
+			plain_text(line_text_tokens(formula)),
+			"2p(M−Q(h))−(M−Q(2h))",
+		)
+		self.assertEqual(
+			plain_text(line_text_tokens(formula_prose)),
+			"in which v (m/s) is the average flow velocity and ν "
+			"(m2/s) is the viscosity of the fluid",
+		)
 
 	def test_printed_form_boxes_need_one_or_two_stable_columns(self):
 		aligned = [
@@ -509,6 +594,347 @@ class FoundationDiagnosticTests(unittest.TestCase):
 		self.assertIn("**SMALL CASE LABEL**", markdown)
 		self.assertIn("**Bold body sentence is not a heading.**", markdown)
 
+	def test_isolated_regular_display_text_is_a_heading(self):
+		stream = b"\n".join(
+			[
+				text_op(72, 750, "Body text establishes the document font size.", "F1", 10),
+				text_op(72, 680, "Regular Display Heading", "F1", 18),
+				text_op(72, 610, "Following body text confirms bilateral isolation.", "F1", 10),
+			]
+		)
+		markdown = convert(make_pdf([stream]), ConvertOptions()).markdown
+		self.assertIn("## Regular Display Heading", markdown)
+
+	def test_regular_display_heading_requires_isolation(self):
+		stream = b"\n".join(
+			[
+				text_op(72, 750, "Body text establishes the document font size.", "F1", 10),
+				text_op(72, 700, "Enlarged prose lead-in", "F1", 15),
+				text_op(72, 684, "continues too closely to establish a heading.", "F1", 10),
+			]
+		)
+		markdown = convert(make_pdf([stream]), ConvertOptions()).markdown
+		self.assertNotIn("# Enlarged prose lead-in", markdown)
+
+	def test_regular_display_caption_and_kicker_are_not_headings(self):
+		stream = b"\n".join(
+			[
+				text_op(72, 760, "Body text establishes the document font size.", "F1", 10),
+				text_op(72, 700, "Figure 2. Enlarged result", "F1", 18),
+				text_op(72, 640, "Product overview", "F1", 15),
+				text_op(72, 615, "Authoritative Main Title", "F2", 22),
+				text_op(72, 550, "Following body closes the display group.", "F1", 10),
+			]
+		)
+		markdown = convert(make_pdf([stream]), ConvertOptions()).markdown
+		self.assertNotIn("# Figure 2. Enlarged result", markdown)
+		self.assertNotIn("# Product overview", markdown)
+		self.assertIn("# Authoritative Main Title", markdown)
+
+	def test_heading_fast_paths_reject_numbered_captions_and_toc_rows(self):
+		stream = b"\n".join(
+			[
+				text_op(72, 760, "Table of Contents", "F2", 14),
+				text_op(72, 715, "Executive Summary", "F2", 10),
+				text_op(360, 715, "4", "F2", 10),
+				text_op(72, 670, "Figure 2. Enlarged survey result", "F2", 18),
+				text_op(72, 625, "Table IV. Enlarged survey values", "F2", 18),
+				text_op(72, 570, "Ordinary body establishes the document size.", "F1", 10),
+			]
+		)
+		markdown = convert(make_pdf([stream]), ConvertOptions()).markdown
+		self.assertIn("### Table of Contents", markdown)
+		self.assertNotIn("# Executive Summary", markdown)
+		self.assertNotIn("# Figure 2.", markdown)
+		self.assertNotIn("# Table IV.", markdown)
+
+	def test_linked_dot_leader_navigation_row_is_not_a_heading(self):
+		stream = b"\n".join(
+			[
+				text_op(72, 740, "Table of Contents", "F2", 10),
+				text_op(72, 720, " ", "F1", 10),
+				text_op(72, 690, "Cellular Biology........................32", "F2", 14),
+				text_op(72, 630, "Ordinary body establishes the document size.", "F1", 10),
+			]
+		)
+		pdf = make_pdf(
+			[stream],
+			annots={1: [link_annot(70, 675, 380, 710, "#chapter-cellular")]},
+		)
+		markdown = convert(pdf, ConvertOptions()).markdown
+		self.assertIn("##### Table of Contents", markdown)
+		self.assertNotIn("# Cellular Biology", markdown)
+
+	def test_compact_section_labels_use_weight_numbering_and_blank_baselines(self):
+		stream = b"\n".join(
+			[
+				text_op(72, 760, "Opening body establishes the ordinary size.", "F1", 10),
+				text_op(72, 715, "Overview", "F2", 10),
+				text_op(72, 699, "Overview body follows at ordinary leading.", "F1", 10),
+				text_op(72, 646, " ", "F1", 10),
+				text_op(72, 630, "3.2.6. Nested Numbered Section", "F2", 10),
+				text_op(72, 614, " ", "F1", 10),
+				text_op(72, 590, "Nested section body follows after the blank baseline.", "F1", 10),
+				text_op(72, 540, "4. UPPERCASE SECTION LABEL", "F1", 9.2),
+				text_op(72, 524, "Uppercase section body follows.", "F1", 10),
+			]
+		)
+		markdown = convert(make_pdf([stream]), ConvertOptions()).markdown
+		self.assertIn("##### Overview", markdown)
+		self.assertIn("#### 3.2.6. Nested Numbered Section", markdown)
+		self.assertIn("###### 4. UPPERCASE SECTION LABEL", markdown)
+
+	def test_compact_section_labels_reject_list_peers_and_orphan_fragments(self):
+		list_stream = b"\n".join(
+			[
+				text_op(72, 720, "3. REQUIRED DOCUMENTS", "F2", 10),
+				text_op(72, 704, "4. APPROVAL RECORDS", "F2", 10),
+				text_op(72, 688, "Following body establishes the ordinary size.", "F1", 10),
+			]
+		)
+		list_markdown = convert(make_pdf([list_stream]), ConvertOptions()).markdown
+		self.assertNotIn("# 3. REQUIRED DOCUMENTS", list_markdown)
+		self.assertNotIn("# 4. APPROVAL RECORDS", list_markdown)
+
+		orphan_stream = text_op(72, 720, "Brand", "F2", 10)
+		orphan_markdown = convert(make_pdf([orphan_stream]), ConvertOptions()).markdown
+		self.assertNotIn("# Brand", orphan_markdown)
+
+	def test_compact_section_label_does_not_split_a_wrapped_bold_title(self):
+		stream = b"\n".join(
+			[
+				text_op(72, 720, "Executive", "F2", 18),
+				text_op(72, 696, "Summary", "F2", 18),
+				text_op(72, 650, "Ordinary body establishes the smaller size.", "F1", 10),
+				text_op(72, 630, "A second body line makes the size mode stable.", "F1", 10),
+			]
+		)
+		markdown = convert(make_pdf([stream]), ConvertOptions()).markdown
+		self.assertIn("## Executive Summary", markdown)
+		self.assertEqual(
+			len([line for line in markdown.splitlines() if line.startswith("#")]),
+			1,
+		)
+
+	def test_regular_display_wrap_with_eyebrow_emits_one_heading(self):
+		stream = b"\n".join(
+			[
+				text_op(72, 760, "Research brief", "F1", 12),
+				text_op(72, 730, "Quarterly Research Findings Across", "F1", 22),
+				text_op(72, 700, "Two Markets", "F1", 22),
+				text_op(72, 630, "Ordinary body establishes the smaller size.", "F1", 10),
+				text_op(72, 614, "A second body line confirms the content block.", "F1", 10),
+				text_op(72, 598, "A third body line stabilizes the body-size mode.", "F1", 10),
+			]
+		)
+		markdown = convert(make_pdf([stream]), ConvertOptions()).markdown
+		self.assertIn("# Quarterly Research Findings Across Two Markets", markdown)
+		self.assertNotIn("# Research brief", markdown)
+		self.assertEqual(
+			len([line for line in markdown.splitlines() if line.startswith("#")]),
+			1,
+		)
+
+	def test_decorative_accent_yields_wrapped_heading_without_stealing_real_quotes(self):
+		accent_stream = b"\n".join(
+			[
+				line_op(50, 680, 50, 760, 2),
+				text_op(72, 750, "Research brief", "F1", 13),
+				text_op(72, 720, "Quarterly Research Findings Across", "F1", 22),
+				text_op(72, 690, "Two Markets", "F1", 22),
+				text_op(72, 620, "Ordinary body establishes the smaller size.", "F1", 10),
+				text_op(72, 604, "A second body line confirms the prose block.", "F1", 10),
+				text_op(72, 588, "A third body line stabilizes the body-size mode.", "F1", 10),
+			]
+		)
+		accent_markdown = convert(make_pdf([accent_stream]), ConvertOptions()).markdown
+		self.assertIn("# Quarterly Research Findings Across Two Markets", accent_markdown)
+		self.assertIn("Research brief", accent_markdown)
+		self.assertNotIn("> Research brief", accent_markdown)
+
+		quote_stream = b"\n".join(
+			[
+				line_op(50, 690, 50, 760, 2),
+				text_op(72, 744, "A genuine quotation starts here.", "F1", 10),
+				text_op(72, 726, "Its second line remains quoted prose.", "F1", 10),
+				text_op(72, 708, "Its third line remains quoted prose.", "F1", 10),
+				text_op(72, 650, "Ordinary body follows outside the quote.", "F1", 10),
+			]
+		)
+		quote_markdown = convert(make_pdf([quote_stream]), ConvertOptions()).markdown
+		self.assertIn(
+			"> A genuine quotation starts here.\n"
+			"> Its second line remains quoted prose.\n"
+			"> Its third line remains quoted prose.",
+			quote_markdown,
+		)
+		self.assertNotIn("> Ordinary body follows", quote_markdown)
+
+	def test_page_leading_regular_label_requires_wrapped_prose_evidence(self):
+		prose_stream = b"\n".join(
+			[
+				text_op(72, 740, "Print vs. Digital", "F1", 10),
+				text_op(
+					72,
+					710,
+					"Why do some researchers abhor digital and favor print, or vice-versa? "
+					"The classic print edition",
+					"F1",
+					10,
+				),
+				text_op(
+					72,
+					694,
+					"versus digital debate helps us understand reader preferences in each format.",
+					"F1",
+					10,
+				),
+				text_op(72, 678, "A third body line keeps the ordinary size mode stable.", "F1", 10),
+			]
+		)
+		prose_markdown = convert(make_pdf([prose_stream]), ConvertOptions()).markdown
+		self.assertIn("##### Print vs. Digital", prose_markdown)
+
+		chart_stream = b"\n".join(
+			[
+				text_op(72, 740, "Revenue by Region", "F1", 10),
+				text_op(72, 710, "North America Europe Asia Pacific Middle East", "F1", 10),
+				text_op(72, 694, "First Quarter Second Quarter Third Quarter", "F1", 10),
+				text_op(72, 678, "2022 2023 2024", "F1", 10),
+			]
+		)
+		chart_markdown = convert(make_pdf([chart_stream]), ConvertOptions()).markdown
+		self.assertNotIn("# Revenue by Region", chart_markdown)
+
+	def test_new_column_nested_heading_preserves_source_line_and_rejects_chart_labels(self):
+		regular = Font("F1", "Helvetica")
+		bold = Font("F2", "Helvetica-Bold")
+
+		def make_line(text, x, y, font, seq):
+			chars = []
+			position = x
+			for offset, char in enumerate(text):
+				width = 10.91 * (0.28 if char == " " else 0.52)
+				chars.append(
+					Char(
+						char,
+						position,
+						y,
+						position + width,
+						y + 12.0,
+						10.91,
+						font,
+						1,
+						seq * 1000 + offset,
+					)
+				)
+				position += width
+			return Line(chars, 1, seq)
+
+		previous = make_line(
+			"the final line in the first reading column",
+			70.0,
+			748.0,
+			regular,
+			1,
+		)
+		heading = make_line("6.2.1 Calibration Procedure", 306.0, 398.0, bold, 2)
+		following = make_line(
+			"The calibration procedure begins with ordinary explanatory prose",
+			306.0,
+			414.5,
+			regular,
+			3,
+		)
+		second = make_line(
+			"and continues on a second line in the same reading column",
+			306.0,
+			428.0,
+			regular,
+			4,
+		)
+		converter = Converter(make_pdf([b""]))
+		converter.page_sizes = {1: (595.276, 841.89)}
+		renderer = MarkdownRenderer(converter)
+		renderer.lines_by_page = {1: [previous, heading, following, second]}
+		renderer._render_page(1)
+		heading_events = [
+			event
+			for event in renderer.block_events_by_page[1]
+			if event.kind == "heading"
+		]
+		self.assertEqual(len(heading_events), 1)
+		self.assertEqual(heading_events[0].legacy_markdown, "#### 6.2.1 Calibration Procedure")
+		self.assertEqual(heading_events[0].lines, [heading])
+		self.assertEqual(
+			tuple(char.seq for char in heading_events[0].lines[0].chars),
+			tuple(char.seq for char in heading.chars),
+		)
+
+		chart_label = make_line("6.2.1 Quarterly Revenue", 306.0, 398.0, bold, 5)
+		chart_values = make_line("12 18 25 31", 306.0, 414.5, regular, 6)
+		chart_categories = make_line("North South East West", 306.0, 428.0, regular, 7)
+		renderer.lines_by_page = {
+			1: [previous, chart_label, chart_values, chart_categories],
+		}
+		self.assertFalse(
+			renderer._is_heading(chart_label, 11.0, previous, chart_values)
+		)
+
+	def test_center_aligned_wrapped_heading_is_one_heading(self):
+		stream = b"\n".join(
+			[
+				text_op(170, 730, "Centered Main", "F2", 20),
+				text_op(212, 704, "Title", "F2", 20),
+				text_op(72, 640, "Ordinary body establishes the smaller size.", "F1", 10),
+				text_op(72, 624, "A second body line confirms the content block.", "F1", 10),
+				text_op(72, 608, "A third body line stabilizes the body-size mode.", "F1", 10),
+			]
+		)
+		markdown = convert(make_pdf([stream]), ConvertOptions()).markdown
+		self.assertIn("# Centered Main Title", markdown)
+		self.assertEqual(
+			len([line for line in markdown.splitlines() if line.startswith("#")]),
+			1,
+		)
+
+	def test_medium_regular_panel_label_uses_local_block_evidence(self):
+		stream = b"\n".join(
+			[
+				text_op(72, 740, "2.4X", "F1", 22),
+				text_op(72, 710, "Higher Retrieval Quality", "F1", 13),
+				text_op(72, 670, "Ordinary explanatory body follows this panel label.", "F1", 10),
+				text_op(72, 654, "Its second line remains ordinary prose.", "F1", 10),
+				text_op(72, 638, "Its third line stabilizes the body-size mode.", "F1", 10),
+			]
+		)
+		markdown = convert(make_pdf([stream]), ConvertOptions()).markdown
+		self.assertIn("### Higher Retrieval Quality", markdown)
+
+	def test_wrapped_enlarged_prose_and_sparse_logo_are_not_headings(self):
+		prose_stream = b"\n".join(
+			[
+				text_op(72, 750, "Ordinary body establishes the document size.", "F1", 10),
+				text_op(72, 700, "Enlarged prose begins here", "F1", 15),
+				text_op(72, 684, "and continues at ordinary paragraph leading.", "F1", 15),
+				text_op(72, 668, "The following body is too close for display isolation.", "F1", 10),
+				text_op(72, 652, "Another ordinary line keeps the body-size mode stable.", "F1", 10),
+			]
+		)
+		prose_markdown = convert(make_pdf([prose_stream]), ConvertOptions()).markdown
+		self.assertNotIn("# Enlarged prose", prose_markdown)
+
+		logo_stream = b"\n".join(
+			[
+				text_op(255, 470, "Acme", "F2", 26),
+				text_op(258, 438, "Labs", "F2", 26),
+				text_op(250, 120, "Brand footer", "F1", 10),
+			]
+		)
+		logo_markdown = convert(make_pdf([logo_stream]), ConvertOptions()).markdown
+		self.assertNotIn("# Acme", logo_markdown)
+		self.assertNotIn("# Labs", logo_markdown)
+
 	def test_typographic_heading_size_ladder_maps_h3_through_h6(self):
 		stream = b"\n".join(
 			[
@@ -791,6 +1217,520 @@ class FoundationDiagnosticTests(unittest.TestCase):
 		self.assertLess(markdown.index("Left three ends."), markdown.index("Right one starts."))
 		self.assertNotIn("continues.Right", markdown)
 
+	def test_unruled_page_columns_read_left_column_before_right(self):
+		parts = []
+		for index in range(10):
+			y = 740 - index * 32
+			parts.extend(
+				[
+					text_op(
+						60,
+						y,
+						"Left prose %02d carries enough words for evidence." % index,
+						"F1",
+						10,
+					),
+					text_op(
+						316,
+						y,
+						"Right prose %02d carries enough words for evidence." % index,
+						"F1",
+						10,
+					),
+				]
+			)
+		markdown = convert(make_pdf([b"\n".join(parts)]), ConvertOptions()).markdown
+		self.assertLess(
+			markdown.index("Left prose 09"),
+			markdown.index("Right prose 00"),
+		)
+		self.assertNotIn("prose.Right", markdown)
+
+	def test_qualified_columns_include_a_contiguous_one_sided_prose_tail(self):
+		parts = []
+		for index in range(18):
+			y = 740 - index * 14
+			parts.extend(
+				[
+					text_op(
+						60,
+						y,
+						"Left paired prose %02d carries enough words for evidence." % index,
+						"F1",
+						10,
+					),
+					text_op(
+						316,
+						y,
+						"Right paired prose %02d carries enough words for evidence." % index,
+						"F1",
+						10,
+					),
+				]
+			)
+		for index in range(10):
+			parts.append(
+				text_op(
+					60,
+					488 - index * 14,
+					"Left tail %02d continues with enough ordinary prose words." % index,
+					"F1",
+					10,
+				)
+			)
+		result = convert(make_pdf([b"\n".join(parts)]), ConvertOptions())
+		markdown = result.markdown
+		self.assertLess(markdown.index("Left tail 09"), markdown.index("Right paired prose 00"))
+		self.assertIn("Left tail 09", result.html)
+		self.assertIn("Right paired prose 00", result.html)
+		self.assertIn("Left tail 09", str(result.semantic.to_dict()))
+		content_nodes = [
+			node
+			for node in result.report.get("nodes", [])
+			if node.get("kind") == "text" and node.get("text", "").strip()
+		]
+		self.assertTrue(content_nodes)
+		self.assertTrue(
+			all(
+				source.get("glyph_ids")
+				for node in content_nodes
+				for source in node.get("sources", [])
+			)
+		)
+
+	def test_qualified_column_tail_rejects_compact_and_delimited_near_misses(self):
+		def paired_parts():
+			parts = []
+			for index in range(18):
+				y = 740 - index * 14
+				parts.extend(
+					[
+						text_op(
+							60,
+							y,
+							"Left paired prose %02d carries enough words for evidence." % index,
+							"F1",
+							10,
+						),
+						text_op(
+							316,
+							y,
+							"Right paired prose %02d carries enough words for evidence." % index,
+							"F1",
+							10,
+						),
+					]
+				)
+			return parts
+
+		cases = []
+		compact = paired_parts()
+		for index in range(4):
+			compact.append(
+				text_op(
+					60,
+					488 - index * 14,
+					"Compact card tail %02d has ordinary alpha words." % index,
+					"F1",
+					10,
+				)
+			)
+		cases.append(("compact", compact, "Compact card tail 00"))
+
+		sidebar = paired_parts()
+		sidebar.append(line_op(60, 495, 290, 495, 1))
+		for index in range(8):
+			sidebar.append(
+				text_op(
+					60,
+					488 - index * 14,
+					"Delimited sidebar prose %02d carries enough ordinary words." % index,
+					"F1",
+					10,
+				)
+			)
+		cases.append(("sidebar", sidebar, "Delimited sidebar prose 00"))
+
+		heading = paired_parts()
+		heading.append(
+			text_op(
+				60,
+				488,
+				"Full width section boundary introduces unrelated following material",
+				"F1",
+				14,
+			)
+		)
+		for index in range(8):
+			heading.append(
+				text_op(
+					60,
+					460 - index * 14,
+					"Unrelated lower region %02d carries enough ordinary words." % index,
+					"F1",
+					10,
+				)
+			)
+		cases.append(("heading", heading, "Full width section boundary"))
+
+		for name, parts, protected_text in cases:
+			with self.subTest(name=name):
+				markdown = convert(make_pdf([b"\n".join(parts)]), ConvertOptions()).markdown
+				self.assertLess(
+					markdown.index("Right paired prose 00"),
+					markdown.index(protected_text),
+				)
+
+	def test_figure_anchored_medium_prose_columns_read_left_before_right(self):
+		parts = [
+			b"q 480 0 0 200 66 500 cm /Im1 Do Q",
+			text_op(72, 480, "A centered visual followed by a compact descriptive caption.", "F1", 9),
+			text_op(108, 466, "Additional caption provenance remains before the prose.", "F1", 9),
+		]
+		for index in range(8):
+			y = 430 - index * 22
+			parts.extend(
+				[
+					text_op(
+						60,
+						y,
+						"Left prose %02d carries enough words for evidence." % index,
+						"F1",
+						10,
+					),
+					text_op(
+						316,
+						y,
+						"Right prose %02d carries enough words for evidence." % index,
+						"F1",
+						10,
+					),
+				]
+			)
+		result = convert(
+			make_pdf(
+				[b"\n".join(parts)],
+				xobjects={"Im1": image_xobject_rgb(1, 1, b"\x33\x66\x99")},
+			),
+			ConvertOptions(),
+		)
+		markdown = result.markdown
+		self.assertLess(markdown.index("![]("), markdown.index("centered visual"))
+		self.assertLess(markdown.index("Additional caption"), markdown.index("Left prose 00"))
+		self.assertLess(markdown.index("Left prose 07"), markdown.index("Right prose 00"))
+		self.assertNotIn("prose.Right", markdown)
+		self.assertIn("Left prose 07", result.html)
+		self.assertIn("Right prose 00", result.html)
+		content_nodes = [
+			node
+			for node in result.report.get("nodes", [])
+			if node.get("kind") == "text" and node.get("text", "").strip()
+		]
+		self.assertTrue(content_nodes)
+		self.assertTrue(
+			all(
+				source.get("glyph_ids")
+				for node in content_nodes
+				for source in node.get("sources", [])
+			)
+		)
+
+	def test_compact_alpha_table_below_visual_stays_row_ordered(self):
+		parts = [
+			b"q 480 0 0 200 66 500 cm /Im1 Do Q",
+			text_op(72, 480, "Compact comparison beneath a centered visual.", "F1", 9),
+		]
+		for index in range(8):
+			y = 430 - index * 12
+			parts.extend(
+				[
+					text_op(60, y, "Alpha table left value %02d descriptive" % index, "F1", 9),
+					text_op(316, y, "Alpha table right value %02d descriptive" % index, "F1", 9),
+					line_op(54, y - 4, 558, y - 4, 0.5),
+				]
+			)
+		markdown = convert(
+			make_pdf(
+				[b"\n".join(parts)],
+				xobjects={"Im1": image_xobject_rgb(1, 1, b"\x66\x99\x33")},
+			),
+			ConvertOptions(),
+		).markdown
+		self.assertLess(
+			markdown.index("Alpha table right value 00"),
+			markdown.index("Alpha table left value 01"),
+		)
+
+	def test_medium_alpha_cards_without_visual_anchor_stay_row_ordered(self):
+		parts = []
+		for index in range(8):
+			y = 700 - index * 24
+			parts.extend(
+				[
+					text_op(
+						60,
+						y,
+						"Alpha card left %02d carries several descriptive words." % index,
+						"F1",
+						10,
+					),
+					text_op(
+						316,
+						y,
+						"Alpha card right %02d carries several descriptive words." % index,
+						"F1",
+						10,
+					),
+				]
+			)
+		markdown = convert(make_pdf([b"\n".join(parts)]), ConvertOptions()).markdown
+		self.assertLess(
+			markdown.index("Alpha card right 00"),
+			markdown.index("Alpha card left 01"),
+		)
+
+	def test_image_sidebar_with_short_alpha_labels_stays_row_ordered(self):
+		parts = [b"q 200 0 0 200 60 520 cm /Im1 Do Q"]
+		for index in range(9):
+			parts.append(
+				text_op(
+					316,
+					700 - index * 20,
+					"Main stream alongside sidebar %02d remains ordinary prose." % index,
+					"F1",
+					10,
+				)
+			)
+		for index in range(8):
+			y = 490 - index * 24
+			parts.extend(
+				[
+					text_op(60, y, "Sidebar note %02d" % index, "F1", 10),
+					text_op(
+						316,
+						y,
+						"Main continuation %02d carries several descriptive words." % index,
+						"F1",
+						10,
+					),
+				]
+			)
+		markdown = convert(
+			make_pdf(
+				[b"\n".join(parts)],
+				xobjects={"Im1": image_xobject_rgb(1, 1, b"\x99\x66\x33")},
+			),
+			ConvertOptions(),
+		).markdown
+		self.assertLess(
+			markdown.index("Main continuation 00"),
+			markdown.index("Sidebar note 01"),
+		)
+
+	def test_shifted_unruled_column_sections_are_ordered_independently(self):
+		parts = []
+		for index in range(9):
+			y = 750 - index * 24
+			parts.extend(
+				[
+					text_op(
+						60,
+						y,
+						"Alpha left prose %02d carries enough stable words." % index,
+						"F1",
+						10,
+					),
+					text_op(
+						316,
+						y,
+						"Alpha right prose %02d carries enough stable words." % index,
+						"F1",
+						10,
+					),
+				]
+			)
+		parts.append(text_op(72, 510, "A full width section boundary.", "F1", 10))
+		for index in range(9):
+			y = 450 - index * 24
+			parts.extend(
+				[
+					text_op(
+						72,
+						y,
+						"Beta left prose %02d carries enough stable words." % index,
+						"F1",
+						10,
+					),
+					text_op(
+						328,
+						y,
+						"Beta right prose %02d carries enough stable words." % index,
+						"F1",
+						10,
+					),
+				]
+			)
+		markdown = convert(make_pdf([b"\n".join(parts)]), ConvertOptions()).markdown
+		self.assertLess(markdown.index("Alpha left prose 08"), markdown.index("Alpha right prose 00"))
+		self.assertLess(markdown.index("Alpha right prose 08"), markdown.index("full width section boundary"))
+		self.assertLess(markdown.index("Beta left prose 08"), markdown.index("Beta right prose 00"))
+
+	def test_coextensive_competing_unruled_gutters_remain_physical_rows(self):
+		font = Font(name="F1", base_font="Helvetica")
+
+		def run(text, x, y, seq):
+			return [
+				Char(
+					char,
+					x + index * 3.0,
+					y,
+					x + index * 3.0 + 2.5,
+					y + 5.0,
+					5.0,
+					font,
+					1,
+					seq + index,
+				)
+				for index, char in enumerate(text)
+			]
+
+		lines = []
+		for index in range(16):
+			y = 100.0 + index * 18.0
+			middle_x = 270.0 if index % 2 == 0 else 250.0
+			right_x = 378.0 if index % 2 == 0 else 400.0
+			chars = (
+				run("left prose words %02d stable" % index, 140.0, y, index * 100)
+				+ run("middle prose words %02d stable" % index, middle_x, y, index * 100 + 30)
+				+ run("right prose words %02d stable" % index, right_x, y, index * 100 + 60)
+			)
+			lines.append(Line(chars, 1, index * 100))
+		renderer = MarkdownRenderer(SimpleNamespace(page_sizes={1: (612.0, 792.0)}))
+		self.assertEqual(renderer._unruled_prose_column_infos(1, lines), [])
+
+	def test_inferred_column_cache_preserves_empty_and_nonempty_results(self):
+		for inferred in ([], [(306.0, 100.0, 700.0)]):
+			with self.subTest(inferred=inferred):
+				renderer = MarkdownRenderer(SimpleNamespace())
+				calls = []
+
+				def infer(page, lines):
+					calls.append((page, lines))
+					return list(inferred)
+
+				renderer._inferred_column_separator_infos = infer
+				lines = []
+				first = renderer._cached_inferred_column_separator_infos(1, lines)
+				first.append((999.0, 0.0, 1.0))
+				second = renderer._cached_inferred_column_separator_infos(1, lines)
+				self.assertEqual(second, inferred)
+				self.assertEqual(calls, [(1, lines)])
+
+	def test_compact_two_column_rows_are_not_reordered_as_page_columns(self):
+		parts = []
+		for index in range(4):
+			y = 720 - index * 22
+			parts.extend(
+				[
+					text_op(72, y, "Compact left card %d" % index, "F1", 10),
+					text_op(330, y, "Compact right card %d" % index, "F1", 10),
+				]
+			)
+		markdown = convert(make_pdf([b"\n".join(parts)]), ConvertOptions()).markdown
+		self.assertLess(
+			markdown.index("Compact right card 0"),
+			markdown.index("Compact left card 1"),
+		)
+
+	def test_landscape_three_panel_card_band_reads_each_panel_to_completion(self):
+		parts = [
+			text_op(95, 270, "Left Impact", "F1", 21),
+			text_op(370, 270, "Middle Impact", "F1", 21),
+			text_op(662, 270, "Right Impact", "F1", 21),
+			text_op(95, 235, "Left Detail", "F1", 13),
+			text_op(370, 235, "Middle Detail", "F1", 13),
+			text_op(662, 235, "Right Detail", "F1", 13),
+		]
+		for index, y in enumerate((200, 184, 168, 152)):
+			parts.extend(
+				[
+					text_op(95, y, "Left prose line %d" % index, "F1", 10),
+					text_op(370, y, "Middle prose line %d" % index, "F1", 10),
+					text_op(662, y, "Right prose line %d" % index, "F1", 10),
+				]
+			)
+		result = convert(
+			make_pdf([b"\n".join(parts)], page_size=(960, 540)),
+			ConvertOptions(),
+		)
+		markdown = result.markdown
+		self.assertLess(markdown.index("Left prose line 3"), markdown.index("Middle Impact"))
+		self.assertLess(markdown.index("Middle prose line 3"), markdown.index("Right Impact"))
+		self.assertNotIn("cocoapdf-columns", markdown)
+		for phrase in ("Left Impact", "Middle Impact", "Right Impact"):
+			self.assertEqual(markdown.count(phrase), 1)
+			self.assertIn(phrase, result.html)
+		text_nodes = [
+			node
+			for node in result.report.get("nodes", [])
+			if node.get("kind") == "text" and node.get("text", "").strip()
+		]
+		self.assertTrue(text_nodes)
+		self.assertTrue(
+			all(
+				source.get("glyph_ids")
+				for node in text_nodes
+				for source in node.get("sources", [])
+			)
+		)
+
+	def test_landscape_three_stream_prose_without_display_labels_stays_row_ordered(self):
+		parts = []
+		for index, y in enumerate((270, 246, 222, 198, 174, 150)):
+			parts.extend(
+				[
+					text_op(95, y, "Left ordinary prose %d" % index, "F1", 10),
+					text_op(370, y, "Middle ordinary prose %d" % index, "F1", 10),
+					text_op(662, y, "Right ordinary prose %d" % index, "F1", 10),
+				]
+			)
+		markdown = convert(
+			make_pdf([b"\n".join(parts)], page_size=(960, 540)),
+			ConvertOptions(),
+		).markdown
+		self.assertLess(markdown.index("Middle ordinary prose 0"), markdown.index("Left ordinary prose 1"))
+
+	def test_captioned_three_column_grid_is_not_reordered_as_panels(self):
+		parts = [
+			text_op(60, 330, "Table 1: Three-column observations", "F1", 11),
+			text_op(90, 285, "Primary Label", "F1", 18),
+			text_op(360, 285, "Secondary Label", "F1", 18),
+			text_op(650, 285, "Tertiary Label", "F1", 18),
+			text_op(90, 255, "Primary Detail", "F1", 13),
+			text_op(360, 255, "Secondary Detail", "F1", 13),
+			text_op(650, 255, "Tertiary Detail", "F1", 13),
+		]
+		for index, y in enumerate((225, 195, 165, 135)):
+			parts.extend(
+				[
+					text_op(90, y, "Left cell prose %d" % index, "F1", 10),
+					text_op(360, y, "Middle cell prose %d" % index, "F1", 10),
+					text_op(650, y, "Right cell prose %d" % index, "F1", 10),
+				]
+			)
+		for x in (60, 330, 620, 900):
+			parts.append(line_op(x, 120, x, 300, 1))
+		for y in (120, 150, 180, 210, 240, 270, 300):
+			parts.append(line_op(60, y, 900, y, 1))
+		result = convert(
+			make_pdf([b"\n".join(parts)], page_size=(960, 540)),
+			ConvertOptions(),
+		)
+		tables = [node for node in result.semantic.walk() if node.kind == "table"]
+		self.assertEqual(len(tables), 1, result.semantic.to_dict())
+		self.assertEqual(tables[0].attrs["column_count"], 3)
+		self.assertEqual(tables[0].attrs["row_count"], 6)
+
 	def test_column_content_finishes_before_a_label_just_below_the_rule(self):
 		stream = b"\n".join(
 			[
@@ -960,7 +1900,10 @@ class FoundationDiagnosticTests(unittest.TestCase):
 				text_op(205, 515, "Figure 2: Shared panels", "F3", 10),
 			]
 		)
-		result = convert(make_pdf([stream]), ConvertOptions(assets_dir="assets"))
+		result = convert(
+			make_pdf([stream]),
+			ConvertOptions(assets_dir="assets", image_markup="auto"),
+		)
 		self.assertEqual(sum(name.endswith(".svg") for name in result.assets), 1)
 		self.assertEqual(result.markdown.count("<figcaption>Figure 2: Shared panels</figcaption>"), 1)
 		self.assertEqual(result.markdown.count("<img "), 1)
@@ -1039,11 +1982,22 @@ class FoundationDiagnosticTests(unittest.TestCase):
 		self.assertIn("cocoapdf-align-center", result.markdown)
 		self.assertEqual(result.report["images_detail"][0]["alignment"], "center")
 
+	def test_default_image_markup_is_native_markdown_with_rich_semantic_html(self):
+		stream = b"q 300 0 0 100 156 500 cm /Im1 Do Q"
+		pdf = make_pdf([stream], xobjects={"Im1": image_xobject_rgb(1, 1, b"\xff\x00\x00")})
+		result = convert(pdf, ConvertOptions())
+		self.assertIn("![](", result.markdown)
+		self.assertNotIn("<figure", result.markdown)
+		self.assertIn('<figure class="cocoapdf-figure cocoapdf-align-center"', result.html)
+		self.assertIn("width: 300.000pt", result.html)
+		self.assertIn("height: 100.000pt", result.html)
+
 	def test_embedded_image_mode_uses_data_uri(self):
 		stream = b"q 20 0 0 20 72 700 cm /Im1 Do Q"
 		pdf = make_pdf([stream], xobjects={"Im1": image_xobject_rgb(1, 1, b"\xff\x00\x00")})
 		markdown = convert(pdf, ConvertOptions(image_mode="embed")).markdown
-		self.assertIn('src="data:image/png;base64,', markdown)
+		self.assertIn("![](data:image/png;base64,", markdown)
+		self.assertNotIn("<img", markdown)
 		self.assertNotIn("assets/img-", markdown)
 
 	def test_raw_image_decode_array_is_applied_without_rejecting_image(self):
@@ -1088,6 +2042,34 @@ class FoundationDiagnosticTests(unittest.TestCase):
 			ConvertOptions(),
 		)
 		self.assertIn("visible raster caption", result.markdown)
+
+	def test_page_sized_artifact_fill_informs_visibility_without_becoming_layout(self):
+		stream = b"\n".join(
+			[
+				b"/Artifact BMC 0 g 0 0 612 792 re f EMC",
+				b"1 g",
+				text_op(72, 720, "visible text on artifact background", "F1", 10),
+			]
+		)
+		result = convert(make_pdf([stream]), ConvertOptions())
+		self.assertIn("visible text on artifact background", result.markdown)
+		self.assertNotIn("INVISIBLE_TEXT", {warning.code for warning in result.warnings})
+		self.assertEqual(result.report["fills"], 0)
+		self.assertEqual(
+			{region["kind"] for region in result.report["regions"]},
+			{"body"},
+		)
+
+	def test_white_text_without_explicit_background_remains_concealed(self):
+		stream = b"\n".join(
+			[
+				b"1 g",
+				text_op(72, 720, "concealed white page text", "F1", 10),
+			]
+		)
+		result = convert(make_pdf([stream]), ConvertOptions())
+		self.assertNotIn("concealed white page text", result.markdown)
+		self.assertIn("INVISIBLE_TEXT", {warning.code for warning in result.warnings})
 
 	def test_internal_destination_link_emits_anchor(self):
 		streams = [
