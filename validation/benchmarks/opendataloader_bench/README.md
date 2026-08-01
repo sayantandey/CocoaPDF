@@ -6,6 +6,14 @@ Copy it into the benchmark checkout as `src/pdf_parser_cocoapdf.py`. Do not edit
 the archived adapters under `results/`: those directories are immutable
 provenance for the score they record.
 
+The adapter uses CocoaPDF's in-memory conversion API. Extracted image bytes stay
+inside the conversion result and are discarded by the benchmark's Markdown-only
+schema projection; no unscored asset files are written by the worker.
+
+The caller pins the reusable worker by full commit SHA. Worker anchor commits
+are retained by an immutable `odl-worker-v*` tag so a squash merge cannot make
+the pinned workflow unreachable.
+
 ## What the adapter does and does not do
 
 The adapter performs **output-schema projection only**. CocoaPDF's detectors,

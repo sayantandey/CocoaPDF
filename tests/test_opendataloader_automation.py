@@ -43,6 +43,7 @@ from validation.benchmarks.opendataloader_bench.report import (
 	report_pull_request_body,
 	report_pull_request_check,
 )
+from validation.benchmarks.opendataloader_bench.adapter import to_markdown
 from validation.pr_visual.report import _artifact as visual_artifact
 from validation.pr_visual.report import _is_latest as visual_is_latest
 
@@ -108,10 +109,32 @@ class FakeApi:
 
 
 class BenchmarkPolicyTests(unittest.TestCase):
+	def test_adapter_does_not_export_unscored_image_assets(self):
+		with tempfile.TemporaryDirectory() as directory:
+			root = Path(directory)
+			# A regular file makes the legacy convert_file() path fail on every OS
+			# when it tries to create the default relative assets directory.
+			(root / "assets").write_bytes(b"sentinel")
+			output = root / "prediction" / "cocoapdf" / "markdown"
+			fixture = ROOT / "examples/cases/scope_and_adversarial/input.pdf"
+			old_cwd = Path.cwd()
+			try:
+				os.chdir(root)
+				to_markdown([fixture], fixture.parent, output)
+			finally:
+				os.chdir(old_cwd)
+			prediction = output / "input.md"
+			self.assertTrue(prediction.read_text(encoding="utf-8").strip())
+			self.assertEqual(
+				json.loads((output.parent / "failures.json").read_text(encoding="utf-8")),
+				[],
+			)
+			self.assertEqual((root / "assets").read_bytes(), b"sentinel")
+
 	def test_exact_published_baseline_and_regression_gates(self):
 		policy = load_policy()
 		self.assertEqual(policy["baseline"]["scores"]["overall_mean"], 0.869665721357887)
-		self.assertEqual(policy["worker"]["commit"], "be0fa9822aa968860ffa04d49629711b475d8d9c")
+		self.assertEqual(policy["worker"]["commit"], "4a9a8f766da4b90f6f1f5f48c77d03456b9cd9b2")
 		self.assertEqual(policy["gates"]["overall_floor"], 0.8)
 		self.assertEqual(
 			policy["gates"]["component_floors"],

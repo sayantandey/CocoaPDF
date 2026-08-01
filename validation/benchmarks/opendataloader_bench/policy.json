@@ -1,6 +1,6 @@
 {
   "adapter": {
-    "sha256": "5e8494171afa13b1341c816fe7726a6f5a75d686783ac5eca63046d3de5d4c91"
+    "sha256": "e6b7ce66c9fa917d5117a2e5aa58ae1ad612ea719930beaa2116266c4d170e63"
   },
   "baseline": {
     "engine_commit": "937c403ed3b265a14db802b2ced36b3819d20b0f",
@@ -56,7 +56,7 @@
   },
   "schema": "cocoapdf.opendataloader-ci-policy/v1",
   "worker": {
-    "commit": "be0fa9822aa968860ffa04d49629711b475d8d9c",
+    "commit": "4a9a8f766da4b90f6f1f5f48c77d03456b9cd9b2",
     "path": ".github/workflows/opendataloader-worker.yml",
     "repository": "sayantandey/CocoaPDF"
   }
