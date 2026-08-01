@@ -1405,6 +1405,161 @@ class FoundationDiagnosticTests(unittest.TestCase):
 			[],
 		)
 
+	def _academic_column_stream(self, prefix_parts: Iterable[bytes]) -> bytes:
+		parts = list(prefix_parts)
+		for index in range(10):
+			y = 700 - index * 28
+			parts.extend(
+				[
+					text_op(
+						60,
+						y,
+						"Left paper prose %02d carries several stable words." % index,
+						"F1",
+						10,
+					),
+					text_op(
+						316,
+						y,
+						"Right paper prose %02d carries several stable words." % index,
+						"F1",
+						10,
+					),
+				]
+			)
+		return b"\n".join(parts)
+
+	def test_proven_academic_band_extends_to_ragged_top_headings(self):
+		stream = self._academic_column_stream(
+			[
+				text_op(60, 748, "Research Notes", "F2", 12),
+				text_op(
+					316,
+					748,
+					"and related records remain available for review.",
+					"F1",
+					10,
+				),
+				text_op(60, 728, "Left discussion closes with ordinary prose.", "F1", 10),
+				text_op(316, 728, "Ethics Review", "F2", 12),
+				text_op(
+					60,
+					712,
+					"Final left continuation enters the body stream.",
+					"F1",
+					10,
+				),
+			]
+		)
+		first = convert(make_pdf([stream]), ConvertOptions())
+		second = convert(make_pdf([stream]), ConvertOptions())
+		for result in (first, second):
+			self.assertLess(result.markdown.index("Research Notes"), result.markdown.index("Left paper prose 09"))
+			self.assertLess(
+				result.markdown.index("Left paper prose 09"),
+				result.markdown.index("and related records remain available"),
+			)
+			self.assertLess(result.markdown.index("Ethics Review"), result.markdown.index("Right paper prose 00"))
+			self.assertLess(result.html.index("Research Notes"), result.html.index("Left paper prose 09"))
+			self.assertLess(result.html.index("Left paper prose 09"), result.html.index("Ethics Review"))
+			headings = [node for node in result.semantic.walk() if node.kind == "heading"]
+			heading_text = [
+				"".join(child.text for child in node.walk() if child.kind == "text")
+				for node in headings
+			]
+			self.assertEqual(heading_text, ["Research Notes", "Ethics Review"])
+			self.assertIn("<h4 id=\"research-notes\"", result.html)
+			self.assertIn("<h4 id=\"ethics-review\"", result.html)
+			self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+			self.assertTrue(
+				all(
+					node.source_pages() == [1]
+					and node.sources
+					and all(source.glyph_ids and source.region_ids for source in node.sources)
+					for node in headings
+				)
+			)
+			report_headings = [
+				node
+				for node in result.report.get("nodes", [])
+				if node.get("kind") == "heading"
+			]
+			self.assertEqual(len(report_headings), 2)
+			self.assertTrue(
+				all(
+					node.get("source_pages") == [1]
+					and node.get("evidence")
+					and all(
+						source.get("glyph_ids") and source.get("region_ids")
+						for source in node.get("sources", [])
+					)
+					for node in report_headings
+				)
+			)
+			self.assertEqual(result.semantic.validate(require_provenance=True), [])
+		self.assertEqual(first.markdown, second.markdown)
+		self.assertEqual(first.html, second.html)
+		self.assertEqual(first.semantic.to_dict(), second.semantic.to_dict())
+
+	def test_academic_band_extension_stops_at_full_width_text(self):
+		stream = self._academic_column_stream(
+			[
+				text_op(60, 748, "Research Notes", "F2", 10),
+				text_op(
+					316,
+					748,
+					"and related records remain available for review.",
+					"F1",
+					10,
+				),
+				text_op(
+					60,
+					728,
+					"This full width author affiliation crosses the central gutter without defining columns.",
+					"F1",
+					10,
+				),
+			]
+		)
+		result = convert(make_pdf([stream]), ConvertOptions())
+		self.assertIn("**Research Notes** and related records", result.markdown)
+		self.assertLess(
+			result.markdown.index("and related records"),
+			result.markdown.index("full width author affiliation"),
+		)
+		self.assertNotIn("Research Notes", " ".join(
+			child.text
+			for node in result.semantic.walk()
+			if node.kind == "heading"
+			for child in node.walk()
+			if child.kind == "text"
+		))
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+		self.assertEqual(result.semantic.validate(require_provenance=True), [])
+
+	def test_academic_band_extension_rejects_paired_bold_cards(self):
+		stream = self._academic_column_stream(
+			[
+				text_op(60, 748, "Service Profile", "F2", 8.5),
+				text_op(316, 748, "Account Profile", "F2", 8.5),
+				text_op(60, 734, "Service details summarize current records.", "F1", 10),
+				text_op(316, 734, "Account details summarize billing records.", "F1", 10),
+			]
+		)
+		result = convert(make_pdf([stream]), ConvertOptions())
+		self.assertLess(result.markdown.index("Account Profile"), result.markdown.index("Service details"))
+		heading_text = " ".join(
+			child.text
+			for node in result.semantic.walk()
+			if node.kind == "heading"
+			for child in node.walk()
+			if child.kind == "text"
+		)
+		self.assertNotIn("Service Profile", heading_text)
+		self.assertNotIn("Account Profile", heading_text)
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+		self.assertEqual(result.semantic.validate(require_provenance=True), [])
+
 	def test_qualified_columns_include_a_contiguous_one_sided_prose_tail(self):
 		parts = []
 		for index in range(18):

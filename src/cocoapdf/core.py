@@ -5222,6 +5222,16 @@ class MarkdownRenderer:
 				return []
 			if median([value[3] + value[4] for value in group]) < 55:
 				return []
+			y0 = self._extend_proven_academic_column_start(
+				page,
+				lines,
+				group,
+				separator,
+				y0,
+				width,
+				height,
+				out[-1][2] if out else None,
+			)
 			if medium_dominant and group is dominant:
 				y1 = self._extend_medium_prose_column_end(
 					lines,
@@ -5256,6 +5266,210 @@ class MarkdownRenderer:
 		if compact_mode:
 			self._compact_column_bands[page] = list(out)
 		return out
+
+	def _extend_proven_academic_column_start(
+		self,
+		page: int,
+		lines: Sequence[Line],
+		group: Sequence[Tuple[float, float, float, int, int, Line]],
+		separator: float,
+		y0: float,
+		width: float,
+		height: float,
+		previous_y1: Optional[float],
+	) -> float:
+		"""Include ragged headings immediately above a proven prose gutter.
+
+		Academic producers can begin the two physical columns on different
+		baselines.  A short bold heading in one column may consequently share a
+		physical line with ordinary prose from the other, just above the first
+		baseline that is strong enough to prove the gutter.  Keeping the original
+		band start merges those independent streams and hides the heading.
+
+		This pass cannot infer a gutter.  It only looks a few body lines backward
+		from a cohort that already passed the long/compact column admission gates.
+		Every accepted two-sided line must expose real whitespace around that exact
+		separator, and a short bold fragment must be paired with ordinary prose on
+		the other side.  Continuous full-width text, graphics, rules, captions,
+		lists, panels, and a preceding column band stop the extension.
+		"""
+		body = median([value[5].size for value in group])
+		if body <= 0:
+			return y0
+		lookback = max(body * 5.0, height * 0.065)
+		floor = y0 - lookback
+		if previous_y1 is not None:
+			floor = max(floor, previous_y1 + body * 0.35)
+		if floor >= y0:
+			return y0
+
+		def fragment(chars: Sequence[Char]) -> Tuple[str, int, float]:
+			ordered = sorted(chars, key=lambda char: (char.x0, char.seq))
+			text = (
+				plain_text(
+					line_text_tokens(
+						Line(
+							list(ordered),
+							page,
+							min((char.seq for char in ordered), default=0),
+						)
+					)
+				).strip()
+				if ordered
+				else ""
+			)
+			weight = sum(max(1, len(char.text.strip())) for char in ordered)
+			bold_weight = sum(
+				max(1, len(char.text.strip()))
+				for char in ordered
+				if char.bold
+			)
+			return text, sum(char.isalpha() for char in text), bold_weight / max(weight, 1)
+
+		def heading_like(value: Tuple[str, int, float]) -> bool:
+			text, alpha, bold_ratio = value
+			words = [word for word in text.split() if any(char.isalpha() for char in word)]
+			return (
+				4 <= alpha
+				and 1 <= len(words) <= 8
+				and len(text) <= 90
+				and bold_ratio >= 0.70
+				and text[-1:] not in ".!?:;"
+			)
+
+		def prose_like(value: Tuple[str, int, float]) -> bool:
+			text, alpha, bold_ratio = value
+			words = [word for word in text.split() if any(char.isalpha() for char in word)]
+			return alpha >= 15 and len(words) >= 4 and bold_ratio < 0.35
+
+		def graphic_barrier(upper: float, lower: float) -> bool:
+			# Coordinates are normalized to the page's top-left origin here.
+			for image in self.conv.images:
+				if image.page != page or image.y1 < upper - body or image.y0 > lower + body:
+					continue
+				if image.x1 >= separator - body and image.x0 <= separator + body:
+					return True
+				if image.x1 - image.x0 >= width * 0.22:
+					return True
+			for fill in self.conv.fills:
+				if fill.page != page or fill.y1 < upper - body or fill.y0 > lower + body:
+					continue
+				if (
+					fill.x1 - fill.x0 >= width * 0.18
+					or fill.x0 <= separator <= fill.x1
+				):
+					return True
+			for segment in self.conv.segments:
+				if segment.page != page:
+					continue
+				segment_y0, segment_y1 = sorted((segment.y0, segment.y1))
+				if segment_y1 < upper - body or segment_y0 > lower + body:
+					continue
+				if segment.horizontal and segment.length >= width * 0.25:
+					return True
+				if (
+					segment.vertical
+					and abs(((segment.x0 + segment.x1) / 2.0) - separator) <= body
+					and segment.length >= body * 2.0
+				):
+					return True
+			for panel in self._inferred_panel_bands.get(page, []):
+				if panel["y1"] >= upper - body and panel["y0"] <= lower + body:
+					return True
+			return False
+
+		candidates = sorted(
+			(
+				line
+				for line in lines
+				if line.writing_mode == "horizontal"
+				and floor <= (line.y0 + line.y1) / 2.0 < y0
+				and plain_text(line_text_tokens(line)).strip()
+			),
+			key=lambda line: (line.y0, line.x0, line.seq),
+			reverse=True,
+		)
+		accepted: List[Line] = []
+		alpha_by_side = [0, 0]
+		has_heading_prose_pair = False
+		front = y0
+		for line in candidates:
+			if front - line.y1 > max(body * 2.4, 28.0):
+				break
+			if not body * 0.78 <= line.size <= body * 1.35:
+				break
+			text = plain_text(line_text_tokens(line)).strip()
+			if (
+				self._is_explicit_caption_label(text)
+				or self._is_toc_navigation_row(line, text)
+				or list_marker(text) is not None
+			):
+				break
+			visible = sorted(
+				[char for char in line.chars if char.text and not char.text.isspace()],
+				key=lambda char: (char.x0, char.seq),
+			)
+			if not visible:
+				continue
+			if sum(1 for char in visible if char.link) / len(visible) >= 0.50:
+				break
+			left_visible = [
+				char for char in visible if (char.x0 + char.x1) / 2.0 < separator
+			]
+			right_visible = [
+				char for char in visible if (char.x0 + char.x1) / 2.0 >= separator
+			]
+			if left_visible and right_visible:
+				left_edge = max(char.x1 for char in left_visible)
+				right_edge = min(char.x0 for char in right_visible)
+				if not (
+					left_edge < separator < right_edge
+					and right_edge - left_edge >= max(8.0, line.size * 0.72)
+				):
+					# Ordinary full-width prose crossing the gutter is a hard block.
+					break
+			elif left_visible:
+				if max(char.x1 for char in left_visible) > separator - body * 0.25:
+					break
+			elif right_visible:
+				if min(char.x0 for char in right_visible) < separator + body * 0.25:
+					break
+			else:
+				continue
+			if graphic_barrier(line.y0, front):
+				break
+
+			# Retain authored spaces for lexical admission. They are excluded only
+			# from the geometric gap measurement above.
+			left = [
+				char
+				for char in line.chars
+				if char.text and (char.x0 + char.x1) / 2.0 < separator
+			]
+			right = [
+				char
+				for char in line.chars
+				if char.text and (char.x0 + char.x1) / 2.0 >= separator
+			]
+			left_value = fragment(left)
+			right_value = fragment(right)
+			alpha_by_side[0] += left_value[1]
+			alpha_by_side[1] += right_value[1]
+			has_heading_prose_pair = has_heading_prose_pair or (
+				(heading_like(left_value) and prose_like(right_value))
+				or (heading_like(right_value) and prose_like(left_value))
+			)
+			accepted.append(line)
+			front = min(front, line.y0)
+
+		if (
+			accepted
+			and has_heading_prose_pair
+			and alpha_by_side[0] >= 5
+			and alpha_by_side[1] >= 5
+		):
+			return min(y0, min(line.y0 for line in accepted))
+		return y0
 
 	def _compact_unruled_prose_groups(
 		self,
