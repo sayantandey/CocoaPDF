@@ -1998,6 +1998,145 @@ class FoundationDiagnosticTests(unittest.TestCase):
 			)
 		)
 
+	def _labelled_list_triptych_parts(self, list_columns=(2, 2, 2, 2)):
+		parts = [
+			text_op(70, 430, "A practical AI platform", "F1", 22),
+			b"0.50 0.36 0.98 rg",
+			text_op(70, 300, "Our Purpose", "F1", 13),
+			text_op(313, 300, "Our Mission", "F1", 13),
+			text_op(545, 300, "What We Do", "F1", 13),
+			b"0 0 0 rg",
+			text_op(70, 265, "Making AI useful", "F1", 18),
+			text_op(313, 265, "Easy AI tools", "F1", 18),
+			text_op(545, 265, "Practical AI solutions", "F1", 18),
+			text_op(313, 239, "Everywhere", "F1", 18),
+		]
+		starts = (70, 313, 545)
+		for index, column in enumerate(list_columns):
+			parts.append(
+				text_op(
+					starts[column],
+					195 - index * 20,
+					"- Supported task number %d" % (index + 1),
+					"F1",
+					11,
+				)
+			)
+		return parts
+
+	def test_labelled_list_triptych_assigns_graph_native_panel_roles(self):
+		result = convert(
+			make_pdf(
+				[b"\n".join(self._labelled_list_triptych_parts())],
+				page_size=(960, 540),
+			),
+			ConvertOptions(),
+		)
+		markdown = result.markdown
+		expected_order = [
+			"Our Purpose",
+			"Making AI useful",
+			"Our Mission",
+			"Easy AI tools",
+			"What We Do",
+			"Practical AI solutions",
+			"Supported task number 1",
+		]
+		for left, right in zip(expected_order, expected_order[1:]):
+			self.assertLess(markdown.index(left), markdown.index(right), markdown)
+		for label in ("Our Purpose", "Our Mission", "What We Do"):
+			self.assertTrue(
+				any(
+					line.lstrip("# ") == label and line.startswith("#")
+					for line in markdown.splitlines()
+				),
+				markdown,
+			)
+		for payload in ("Making AI useful", "Easy AI tools", "Practical AI solutions"):
+			self.assertFalse(
+				any(payload in line and line.startswith("#") for line in markdown.splitlines()),
+				markdown,
+			)
+		self.assertIn("- Supported task number 1", markdown.splitlines())
+		self.assertNotIn("  - Supported task number 1", markdown.splitlines())
+
+		def node_text(node):
+			return "".join(child.text for child in node.walk() if child.kind == "text")
+
+		headings = {
+			node_text(node): node
+			for node in result.semantic.walk()
+			if node.kind == "heading"
+		}
+		for index, label in enumerate(("Our Purpose", "Our Mission", "What We Do")):
+			node = headings[label]
+			self.assertTrue(node.attrs["panel_local"])
+			self.assertEqual(node.attrs["panel_mode"], "labelled_list_triptych")
+			self.assertEqual(node.attrs["panel_index"], index)
+			self.assertEqual(node.attrs["panel_role"], "label")
+			self.assertIn("panel_local_flow", [item.kind for item in node.evidence])
+			self.assertTrue(all(source.glyph_ids and source.bbox for source in node.sources))
+		payloads = [
+			node
+			for node in result.semantic.walk()
+			if node.kind == "paragraph" and node.attrs.get("panel_role") == "payload"
+		]
+		self.assertEqual(len(payloads), 3, result.semantic.to_dict())
+		self.assertEqual({node.attrs["panel_index"] for node in payloads}, {0, 1, 2})
+		lists = [node for node in result.semantic.walk() if node.kind == "list"]
+		self.assertEqual(len(lists), 1, result.semantic.to_dict())
+		self.assertEqual(lists[0].attrs["panel_index"], 2)
+		self.assertEqual(lists[0].attrs["panel_role"], "list")
+		self.assertEqual(lists[0].attrs["level"], 0)
+		self.assertIn("Our Purpose</h", result.html)
+		self.assertIn(">Making AI useful</p>", result.html)
+		self.assertIn("<ul", result.html)
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+		self.assertEqual(result.semantic.validate(require_provenance=True), [])
+		self.assertEqual(
+			result.report["output_derivation"],
+			{"markdown": "semantic_graph", "html": "semantic_graph", "json": "semantic_graph"},
+		)
+		self.assertTrue(
+			any(
+				node.get("attrs", {}).get("panel_mode") == "labelled_list_triptych"
+				for node in result.report.get("nodes", [])
+			)
+		)
+
+	def test_label_payload_triplet_without_confined_list_stays_row_major(self):
+		result = convert(
+			make_pdf(
+				[b"\n".join(self._labelled_list_triptych_parts(list_columns=()))],
+				page_size=(960, 540),
+			),
+			ConvertOptions(),
+		)
+		self.assertLess(result.markdown.index("Our Mission"), result.markdown.index("Making AI useful"))
+		self.assertFalse(
+			any(node.attrs.get("panel_local") for node in result.semantic.walk()),
+			result.semantic.to_dict(),
+		)
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+
+	def test_label_payload_triplet_with_distributed_lists_is_not_a_panel_flow(self):
+		result = convert(
+			make_pdf(
+				[
+					b"\n".join(
+						self._labelled_list_triptych_parts(list_columns=(0, 1, 2, 0))
+					)
+				],
+				page_size=(960, 540),
+			),
+			ConvertOptions(),
+		)
+		self.assertFalse(
+			any(node.attrs.get("panel_local") for node in result.semantic.walk()),
+			result.semantic.to_dict(),
+		)
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+
 	def test_landscape_three_stream_prose_without_display_labels_stays_row_ordered(self):
 		parts = []
 		for index, y in enumerate((270, 246, 222, 198, 174, 150)):

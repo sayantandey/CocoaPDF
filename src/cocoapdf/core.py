@@ -3131,12 +3131,43 @@ class MarkdownRenderer:
 	) -> Tuple[float, str]:
 		from .semantics.records import semantic_block_record
 
+		event_attrs = dict(attrs or {})
+		panel_contexts = [self._panel_line_context(line) for line in lines or ()]
+		if (
+			panel_contexts
+			and all(context is not None for context in panel_contexts)
+			and len({
+				(str(context["group"]), int(context["index"]))
+				for context in panel_contexts
+				if context is not None
+			}) == 1
+		):
+			context = panel_contexts[0]
+			assert context is not None
+			roles = {
+				str(item["role"])
+				for item in panel_contexts
+				if item is not None
+			}
+			event_attrs.update(
+				{
+					"panel_local": True,
+					"panel_mode": context["mode"],
+					"panel_group": context["group"],
+					"panel_index": context["index"],
+					"panel_count": 3,
+					"panel_role": next(iter(roles)) if len(roles) == 1 else "mixed",
+					"panel_bbox": context["bbox"],
+					"panel_confidence": context["confidence"],
+					"panel_evidence": context["evidence"],
+				}
+			)
 		event = BlockEvent(
 			page=page,
 			rank=float(rank),
 			kind=kind,
 			lines=list(lines or []),
-			attrs=dict(attrs or {}),
+			attrs=event_attrs,
 			legacy_markdown=legacy_markdown,
 			semantic=semantic_block_record(kind, legacy_markdown),
 		)
@@ -4302,8 +4333,14 @@ class MarkdownRenderer:
 					],
 				}
 			)
+		models = self._labelled_list_triptych_models(
+			page,
+			lines,
+			triples,
+			body,
+		)
 		if len(triples) < 3:
-			return []
+			return models
 
 		clusters: List[List[Dict[str, Any]]] = []
 		for entry in sorted(triples, key=lambda item: item["starts"]):
@@ -4321,7 +4358,6 @@ class MarkdownRenderer:
 			else:
 				clusters.append([entry])
 
-		models: List[Dict[str, Any]] = []
 		for cluster in clusters:
 			ordered = sorted(cluster, key=lambda item: item["line"].y0)
 			cohorts: List[List[Dict[str, Any]]] = []
@@ -4454,6 +4490,391 @@ class MarkdownRenderer:
 				continue
 			deduped.append(model)
 		return deduped
+
+	def _labelled_list_triptych_models(
+		self,
+		page: int,
+		lines: Sequence[Line],
+		triples: Sequence[Dict[str, Any]],
+		body: float,
+	) -> List[Dict[str, Any]]:
+		"""Recover a compact label/payload/list triptych as panel-local flow.
+
+		A presentation slide can use one short coloured label row, one larger
+		payload row, and a list in only one panel.  That composition has too few
+		coextensive baselines for the general card detector.  Admission here is
+		therefore deliberately conjunctive: typography, three aligned starts, two
+		wide persistent gutters, and an explicit list confined to exactly one panel
+		must all agree.  Captions, grids, images, crossing words, and lists spread
+		across panels veto the inference.
+		"""
+		page_width, page_height = self.conv.page_sizes.get(page, (612.0, 792.0))
+		if body <= 0 or len(triples) < 2:
+			return []
+
+		def short_label(text: str) -> bool:
+			words = re.findall(r"[A-Za-z]+", text)
+			return bool(
+				1 <= len(words) <= 4
+				and len(text) <= 32
+				and text[-1:] not in ".!?;:"
+				and list_marker(text) is None
+				and not self._is_explicit_caption_label(text)
+				and sum(word[:1].isupper() for word in words)
+					>= max(1, math.ceil(len(words) * 0.60))
+			)
+
+		def compact_payload(text: str) -> bool:
+			words = text.split()
+			return bool(
+				2 <= len(words) <= 14
+				and len(text) <= 100
+				and sum(char.isalpha() for char in text) >= 5
+				and list_marker(text) is None
+				and not self._is_explicit_caption_label(text)
+			)
+
+		models: List[Dict[str, Any]] = []
+		ordered = sorted(triples, key=lambda entry: (entry["line"].y0, entry["line"].seq))
+		for label, payload in zip(ordered, ordered[1:]):
+			label_texts = [str(group["text"]).strip() for group in label["groups"]]
+			payload_texts = [str(group["text"]).strip() for group in payload["groups"]]
+			if not all(short_label(text) for text in label_texts):
+				continue
+			if not all(compact_payload(text) for text in payload_texts):
+				continue
+			if not (
+				0 < payload["line"].y0 - label["line"].y1
+				<= max(52.0, body * 4.8)
+			):
+				continue
+			start_tolerance = max(6.0, page_width * 0.008)
+			if max(
+				abs(float(label["starts"][index]) - float(payload["starts"][index]))
+				for index in range(3)
+			) > start_tolerance:
+				continue
+
+			label_styles = [
+				self._panel_group_style(label["line"], group)
+				for group in label["groups"]
+			]
+			payload_styles = [
+				self._panel_group_style(payload["line"], group)
+				for group in payload["groups"]
+			]
+			if not self._panel_style_cohort(label_styles):
+				continue
+			if not self._panel_style_cohort(payload_styles):
+				continue
+			label_style = label_styles[0]
+			payload_style = payload_styles[0]
+			label_size = float(label_style.get("size", 0.0))
+			payload_size = float(payload_style.get("size", 0.0))
+			if not (
+				body * 0.88 <= label_size <= body * 1.35
+				and payload_size >= max(label_size * 1.15, body * 1.35)
+				and payload_size <= body * 2.25
+			):
+				continue
+			label_color = tuple(label_style.get("color", (0.0, 0.0, 0.0)))
+			payload_color = tuple(payload_style.get("color", (0.0, 0.0, 0.0)))
+			style_contrast = color_contrast(label_color, payload_color)
+			if style_contrast < 1.35:
+				continue
+
+			starts = [
+				median([float(label["starts"][index]), float(payload["starts"][index])])
+				for index in range(3)
+			]
+			gutter_intervals: List[Tuple[float, float]] = []
+			for index in range(2):
+				left = max(
+					float(label["groups"][index]["x1"]),
+					float(payload["groups"][index]["x1"]),
+				)
+				right = min(
+					float(label["groups"][index + 1]["x0"]),
+					float(payload["groups"][index + 1]["x0"]),
+				)
+				if right - left < max(36.0, page_width * 0.05):
+					break
+				gutter_intervals.append((left, right))
+			if len(gutter_intervals) != 2:
+				continue
+			separators = [(left + right) / 2.0 for left, right in gutter_intervals]
+			if not (
+				starts[0] < separators[0] < starts[1]
+				< separators[1] < starts[2]
+			):
+				continue
+
+			markers: List[Tuple[Line, int]] = []
+			for line in lines:
+				if line.y0 <= payload["line"].y1:
+					continue
+				text = plain_text(line_text_tokens(line)).strip()
+				if list_marker(text) is None or sum(char.isalpha() for char in text) < 3:
+					continue
+				parts = self._panel_partition_texts(line, separators)
+				if parts is None or sum(bool(part) for part in parts) != 1:
+					continue
+				panel_index = next(index for index, part in enumerate(parts) if part)
+				markers.append((line, panel_index))
+			if len(markers) < 3 or len({column for _line, column in markers}) != 1:
+				continue
+			markers.sort(key=lambda item: (item[0].y0, item[0].seq))
+			list_panel = markers[0][1]
+			if any(
+				abs(line.x0 - starts[list_panel]) > max(26.0, body * 2.5)
+				or not body * 0.72 <= line.size <= body * 1.28
+				for line, _column in markers
+			):
+				continue
+			marker_pitches = [
+				right[0].y0 - left[0].y0
+				for left, right in zip(markers, markers[1:])
+			]
+			if any(
+				pitch <= 0 or pitch > max(44.0, body * 4.0)
+				for pitch in marker_pitches
+			):
+				continue
+
+			payload_y1 = payload["line"].y1
+			first_marker_y0 = markers[0][0].y0
+			for line in lines:
+				if not payload["line"].y0 <= line.y0 < first_marker_y0:
+					continue
+				if self._panel_styles_match(
+					self._panel_line_style(line),
+					payload_style,
+				):
+					parts = self._panel_partition_texts(line, separators)
+					if parts is not None and any(parts):
+						payload_y1 = max(payload_y1, line.y1)
+			if first_marker_y0 - payload_y1 > max(110.0, body * 10.0):
+				continue
+
+			last_y1 = max(line.y1 for line, _column in markers)
+			last_line = markers[-1][0]
+			for line in sorted(lines, key=lambda item: (item.y0, item.x0, item.seq)):
+				if line.y0 <= last_line.y0:
+					continue
+				if line.y0 - last_y1 > max(32.0, body * 3.0):
+					break
+				parts = self._panel_partition_texts(line, separators)
+				if (
+					parts is None
+					or sum(bool(part) for part in parts) != 1
+					or not parts[list_panel]
+					or not body * 0.72 <= line.size <= body * 1.28
+				):
+					break
+				last_y1 = max(last_y1, line.y1)
+				last_line = line
+
+			x0 = max(0.0, starts[0] - body * 2.0)
+			relevant_lines = [
+				line
+				for line in lines
+				if label["line"].y0 - 2.0 <= line.y0 <= last_y1 + 2.0
+				and self._panel_partition_texts(line, separators) is not None
+			]
+			x1 = min(
+				page_width,
+				max(
+					[group["x1"] for entry in (label, payload) for group in entry["groups"]]
+					+ [line.x1 for line in relevant_lines]
+				) + body * 2.0,
+			)
+			y0 = label["line"].y0
+			y1 = last_y1
+			if any(
+				re.match(
+					r"^(?:table|tab\.|exhibit)\b",
+					plain_text(line_text_tokens(line)).strip(),
+					re.I,
+				)
+				for line in lines
+				if y0 - 40.0 <= line.y0 <= y1 + 10.0
+			):
+				continue
+			if self._three_panel_grid_evidence(page, x0, x1, y0, y1, separators):
+				continue
+			if any(
+				image.page == page
+				and rects_intersect(
+					(x0, y0, x1, y1),
+					(image.x0, image.y0, image.x1, image.y1),
+				)
+				for image in self.conv.images
+			):
+				continue
+			if any(
+				self._panel_partition_texts(line, separators) is None
+				for line in lines
+				if y0 - 2.0 <= (line.y0 + line.y1) / 2.0 <= y1 + 2.0
+				and x0 <= (line.x0 + line.x1) / 2.0 <= x1
+			):
+				continue
+
+			models.append(
+				{
+					"mode": "labelled_list_triptych",
+					"starts": starts,
+					"separators": separators,
+					"x0": x0,
+					"x1": x1,
+					"y0": y0,
+					"y1": y1,
+					"label_y0": label["line"].y0,
+					"label_y1": label["line"].y1,
+					"payload_y0": payload["line"].y0,
+					"payload_y1": payload_y1,
+					"list_y0": first_marker_y0,
+					"list_panel": list_panel,
+					"label_style": label_style,
+					"payload_style": payload_style,
+					"confidence": 0.94,
+					"evidence": {
+						"aligned_starts": 3,
+						"label_baselines": 1,
+						"payload_baselines": 1 + sum(
+							line is not payload["line"]
+							and payload["line"].y0 <= line.y0 <= payload_y1
+							and self._panel_styles_match(
+								self._panel_line_style(line),
+								payload_style,
+							)
+							for line in lines
+						),
+						"explicit_list_items": len(markers),
+						"list_panel": list_panel,
+						"gutter_widths": [
+							round(right - left, 3)
+							for left, right in gutter_intervals
+						],
+						"style_contrast": round(style_contrast, 3),
+						"admission_reasons": [
+							"aligned_label_and_payload_starts",
+							"coherent_label_and_payload_styles",
+							"contrasting_display_roles",
+							"two_persistent_empty_gutters",
+							"explicit_list_confined_to_one_panel",
+							"no_grid_caption_image_or_crossing_text",
+						],
+					},
+				}
+			)
+		return models
+
+	def _panel_group_style(
+		self,
+		line: Line,
+		group: Dict[str, Any],
+	) -> Dict[str, Any]:
+		x0 = float(group["x0"])
+		x1 = float(group["x1"])
+		chars = [
+			char
+			for char in line.chars
+			if char.text.strip()
+			and x0 - 1.5 <= (char.x0 + char.x1) / 2.0 <= x1 + 1.5
+		]
+		return self._panel_char_style(chars)
+
+	def _panel_line_style(self, line: Line) -> Dict[str, Any]:
+		return self._panel_char_style([char for char in line.chars if char.text.strip()])
+
+	def _panel_char_style(self, chars: Sequence[Char]) -> Dict[str, Any]:
+		if not chars:
+			return {}
+		return {
+			"size": median([char.size for char in chars]),
+			"fonts": tuple(sorted({strip_subset(str(char.font.base_font)) for char in chars})),
+			"color": tuple(
+				median([char.fill_color[index] for char in chars])
+				for index in range(3)
+			),
+			"bold_ratio": sum(char.bold for char in chars) / len(chars),
+			"italic_ratio": sum(char.italic for char in chars) / len(chars),
+		}
+
+	def _panel_style_cohort(self, styles: Sequence[Dict[str, Any]]) -> bool:
+		return bool(
+			styles
+			and all(style for style in styles)
+			and all(self._panel_styles_match(style, styles[0]) for style in styles[1:])
+		)
+
+	def _panel_styles_match(
+		self,
+		left: Dict[str, Any],
+		right: Dict[str, Any],
+	) -> bool:
+		if not left or not right or left.get("fonts") != right.get("fonts"):
+			return False
+		left_size = float(left.get("size", 0.0))
+		right_size = float(right.get("size", 0.0))
+		left_color = tuple(left.get("color", (0.0, 0.0, 0.0)))
+		right_color = tuple(right.get("color", (0.0, 0.0, 0.0)))
+		return bool(
+			abs(left_size - right_size) <= max(0.65, right_size * 0.06)
+			and max(abs(left_color[index] - right_color[index]) for index in range(3)) <= 0.06
+			and abs(float(left.get("bold_ratio", 0.0)) - float(right.get("bold_ratio", 0.0))) <= 0.20
+			and abs(float(left.get("italic_ratio", 0.0)) - float(right.get("italic_ratio", 0.0))) <= 0.20
+		)
+
+	def _panel_line_context(self, line: Line) -> Optional[Dict[str, Any]]:
+		visible_centers = [
+			(char.x0 + char.x1) / 2.0
+			for char in line.chars
+			if char.text.strip()
+		]
+		center_x = median(visible_centers) if visible_centers else (line.x0 + line.x1) / 2.0
+		center_y = (line.y0 + line.y1) / 2.0
+		for band_index, band in enumerate(self._inferred_panel_bands.get(line.page, [])):
+			if band.get("mode") != "labelled_list_triptych":
+				continue
+			if not (
+				band["x0"] <= center_x <= band["x1"]
+				and band["y0"] - 3.0 <= center_y <= band["y1"] + 3.0
+			):
+				continue
+			panel_index = sum(center_x >= separator for separator in band["separators"])
+			style = self._panel_line_style(line)
+			role = "content"
+			if (
+				band["label_y0"] - 3.0 <= center_y <= band["label_y1"] + 3.0
+				and self._panel_styles_match(style, band["label_style"])
+			):
+				role = "label"
+			elif (
+				band["payload_y0"] - 3.0 <= center_y <= band["payload_y1"] + 3.0
+				and self._panel_styles_match(style, band["payload_style"])
+			):
+				role = "payload"
+			elif center_y >= band["list_y0"] - 3.0 and panel_index == band["list_panel"]:
+				role = "list"
+			bounds = [band["x0"], *band["separators"], band["x1"]]
+			return {
+				"mode": band["mode"],
+				"group": "p%d-triptych-%d" % (line.page, band_index + 1),
+				"index": panel_index,
+				"role": role,
+				"start": band["starts"][panel_index],
+				"right": bounds[panel_index + 1],
+				"bbox": (
+					bounds[panel_index],
+					band["y0"],
+					bounds[panel_index + 1],
+					band["y1"],
+				),
+				"confidence": float(band.get("confidence", 0.90)),
+				"evidence": dict(band.get("evidence", {})),
+			}
+		return None
 
 	def _three_panel_groups(self, line: Line) -> List[Dict[str, Any]]:
 		boxes = word_boxes(line)
@@ -6988,6 +7409,12 @@ class MarkdownRenderer:
 	def _is_heading(self, line: Line, body_size: float, prev: Optional[Line], nxt: Optional[Line]) -> bool:
 		if self._tagged_heading_level(line) is not None:
 			return True
+		panel_context = self._panel_line_context(line)
+		if panel_context is not None:
+			if panel_context["role"] == "label":
+				return True
+			if panel_context["role"] == "payload":
+				return False
 		text = plain_text(line_text_tokens(line)).strip()
 		if not text or len(text) > 140:
 			return False
@@ -8791,7 +9218,12 @@ class MarkdownRenderer:
 				<= max(line.size * 1.6, 18.0)
 			):
 				return False
-			frame_left, _frame_right = self._text_frame(line.page)
+			panel_context = self._panel_line_context(line)
+			frame_left = (
+				float(panel_context["start"])
+				if panel_context is not None
+				else self._text_frame(line.page)[0]
+			)
 			indent = line.x0 - frame_left
 			if not (
 				max(line.size * 1.6, 16.0)
@@ -9213,6 +9645,11 @@ class MarkdownRenderer:
 		if cached is not None:
 			return cached
 		page_width, _height = self.conv.page_sizes.get(line.page, (612, 792))
+		panel_context = self._panel_line_context(line)
+		if panel_context is not None:
+			available = max(20.0, float(panel_context["right"]) - line.x0)
+			self._available_width_cache[id(line)] = available
+			return available
 		left_margin = min((l.x0 for l in self.lines_by_page.get(line.page, []) if plain_text(line_text_tokens(l)).strip()), default=72)
 		right_edge = page_width - left_margin
 		for sep_x, y0, y1 in self._column_separator_infos(line.page):
@@ -9234,7 +9671,12 @@ class MarkdownRenderer:
 		if prev_marker and lines[i].x0 - prev.x0 >= max(lines[i].size * 2.0, 18):
 			prefix = "%s. " % prev_marker[2] if prev_marker[0] == "ol" else "- "
 			return self._explicit_list_indent(prev, prev_marker) + " " * len(prefix)
-		frame_left, _frame_right = self._text_frame(lines[i].page)
+		panel_context = self._panel_line_context(lines[i])
+		frame_left = (
+			float(panel_context["start"])
+			if panel_context is not None
+			else self._text_frame(lines[i].page)[0]
+		)
 		step = max(lines[i].size * 2.2, 20.0)
 		anchor_x = lines[i].x0
 		visual_marker = self._visual_list_marker(lines[i])
@@ -9275,7 +9717,12 @@ class MarkdownRenderer:
 		return render_inline(out_tokens, self.conv.options).strip()
 
 	def _visual_list_level(self, line: Line) -> int:
-		frame_left, _frame_right = self._text_frame(line.page)
+		panel_context = self._panel_line_context(line)
+		frame_left = (
+			float(panel_context["start"])
+			if panel_context is not None
+			else self._text_frame(line.page)[0]
+		)
 		delta = max(0.0, line.x0 - frame_left)
 		step = max(line.size * 2.2, 24.0)
 		return max(0, int(delta // step))

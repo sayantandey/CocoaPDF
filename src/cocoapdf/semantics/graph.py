@@ -190,6 +190,26 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
     attrs["bottom_zone"] = bool(bbox and bbox[1] >= page_height * 0.72)
     confidence = _event_confidence(event.kind, region_kinds)
     evidence = [Evidence("geometric_semantic_detector", confidence, detail=event.kind, page=event.page, data={"region_ids": region_ids})]
+    if attrs.get("panel_local"):
+        panel_confidence = max(0.0, min(1.0, float(attrs.get("panel_confidence", 0.90))))
+        confidence = min(confidence, panel_confidence)
+        panel_evidence = attrs.get("panel_evidence")
+        if not isinstance(panel_evidence, dict):
+            panel_evidence = {}
+        evidence.append(Evidence(
+            "panel_local_flow",
+            panel_confidence,
+            detail="labelled three-panel flow reconstructed from geometry and typography",
+            page=event.page,
+            data={
+                "panel_group": attrs.get("panel_group"),
+                "panel_index": attrs.get("panel_index"),
+                "panel_count": attrs.get("panel_count"),
+                "panel_role": attrs.get("panel_role"),
+                "panel_bbox": attrs.get("panel_bbox"),
+                "admission": panel_evidence,
+            },
+        ))
     artifact_text_recovered = bool(attrs.get("artifact_text_recovered"))
     if artifact_text_recovered:
         reasons = attrs.get("artifact_recovery_reasons")
