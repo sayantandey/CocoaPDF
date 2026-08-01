@@ -29,7 +29,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-from cocoapdf import ConvertOptions, convert_file
+from cocoapdf import ConvertOptions, convert
 
 
 class _ODLTableParser(HTMLParser):
@@ -197,7 +197,11 @@ def to_markdown(doc_paths: Iterable[Path], input_path: Path, output_dir: Path) -
         doc_path = Path(doc_path)
         output_file = output_dir / ("%s.md" % doc_path.stem)
         try:
-            result = convert_file(doc_path, ConvertOptions(heading_level_mode="flat"))
+            # The benchmark consumes Markdown only. Keep conversion in memory so
+            # reference-mode image extraction cannot write an unscored ``assets/``
+            # directory beside the worker process (whose root filesystem is
+            # deliberately read-only).
+            result = convert(doc_path.read_bytes(), ConvertOptions(heading_level_mode="flat"))
             output_file.write_text(
                 project_for_odl(result.markdown), encoding="utf-8", newline="\n"
             )
