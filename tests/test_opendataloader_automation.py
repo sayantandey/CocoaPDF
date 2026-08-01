@@ -134,7 +134,7 @@ class BenchmarkPolicyTests(unittest.TestCase):
 	def test_exact_published_baseline_and_regression_gates(self):
 		policy = load_policy()
 		self.assertEqual(policy["baseline"]["scores"]["overall_mean"], 0.869665721357887)
-		self.assertEqual(policy["worker"]["commit"], "be0fa9822aa968860ffa04d49629711b475d8d9c")
+		self.assertEqual(policy["worker"]["commit"], "4a9a8f766da4b90f6f1f5f48c77d03456b9cd9b2")
 		self.assertEqual(policy["gates"]["overall_floor"], 0.8)
 		self.assertEqual(
 			policy["gates"]["component_floors"],
