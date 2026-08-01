@@ -1778,6 +1778,159 @@ class AdvancedTableTests(unittest.TestCase):
         self.assertNotIn("writing-mode: vertical-rl", result.html)
         self.assertNotIn("artifact", wrapped_text.casefold())
 
+    def test_fragmented_artifact_lattice_spans_only_empty_neighbours(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0 g",
+            # Per-band vertical rectangles reproduce the fragmented border
+            # dialect emitted by office-document producers.
+            b"72 450.5 0.5 49 re f 72 500.5 0.5 49 re f "
+            b"72 550.5 0.5 49 re f 72 600.5 0.5 49 re f "
+            b"72 650.5 0.5 49 re f",
+            b"260 450.5 0.5 49 re f 260 500.5 0.5 49 re f "
+            b"260 550.5 0.5 49 re f 260 600.5 0.5 49 re f "
+            b"260 650.5 0.5 49 re f",
+            b"540 450.5 0.5 49 re f 540 500.5 0.5 49 re f "
+            b"540 550.5 0.5 49 re f 540 600.5 0.5 49 re f "
+            b"540 650.5 0.5 49 re f",
+            b"72 700 468 0.5 re f 72 650 468 0.5 re f ",
+            b"260 600 280 0.5 re f 72 550 468 0.5 re f ",
+            b"260 500 280 0.5 re f 72 450 468 0.5 re f EMC",
+            b"BT /F2 10 Tf 1 0 0 1 82 675 Tm (Area) Tj "
+            b"1 0 0 1 270 675 Tm (Competence) Tj",
+            b"/F1 10 Tf 1 0 0 1 82 625 Tm (Group A) Tj "
+            b"1 0 0 1 270 625 Tm (A1) Tj",
+            b"1 0 0 1 82 575 Tm (Separate A) Tj "
+            b"1 0 0 1 270 575 Tm (A2) Tj",
+            b"1 0 0 1 82 525 Tm (Group B) Tj "
+            b"1 0 0 1 270 525 Tm (B1) Tj",
+            b"1 0 0 1 270 475 Tm (B2) Tj ET",
+        ])
+        resources = b"/Resources << /Font << /F1 1 0 R /F2 2 0 R >> >>"
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 612 792] " + resources + b" /Contents 3 0 R >>",
+            b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+            b"<< /Type /Catalog /Pages 5 0 R >>",
+        ]
+        result = convert(render_pdf(objects, 6))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        self.assertEqual(tables[0].attrs["row_count"], 5)
+        self.assertEqual(tables[0].attrs["column_count"], 2)
+        evidence = next(
+            item
+            for item in tables[0].evidence
+            if item.kind == "artifact_fragmented_lattice"
+        )
+        self.assertEqual(evidence.data["physical_spans"], 1)
+        cells = {
+            (cell.attrs["row"], cell.attrs["col"]): cell
+            for cell in semantic_nodes(result, "table_cell")
+        }
+        self.assertEqual(cells[(1, 0)].attrs["rowspan"], 1)
+        self.assertEqual(cells[(2, 0)].attrs["rowspan"], 1)
+        group_a = "".join(
+            node.text or ""
+            for node in cells[(1, 0)].walk()
+            if node.kind == "text"
+        )
+        separate_a = "".join(
+            node.text or ""
+            for node in cells[(2, 0)].walk()
+            if node.kind == "text"
+        )
+        self.assertEqual(group_a, "Group A")
+        self.assertEqual(separate_a, "Separate A")
+        self.assertTrue(any(source.glyph_ids for source in cells[(1, 0)].sources))
+        self.assertTrue(any(source.glyph_ids for source in cells[(2, 0)].sources))
+        self.assertNotIn('rowspan="2">Group A', result.markdown)
+        self.assertIn("<td>Separate A</td>", result.markdown)
+        self.assertIn('<td rowspan="2">Group B</td>', result.markdown)
+        self.assertNotIn("Artifact", result.markdown)
+
+    def test_fragmented_artifact_lattice_infers_clipped_page_edge(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0 g",
+            b"72 450.5 0.5 49 re f 72 500.5 0.5 49 re f "
+            b"72 550.5 0.5 49 re f 72 600.5 0.5 49 re f "
+            b"72 650.5 0.5 49 re f",
+            b"240 450.5 0.5 49 re f 240 500.5 0.5 49 re f "
+            b"240 550.5 0.5 49 re f 240 600.5 0.5 49 re f "
+            b"240 650.5 0.5 49 re f",
+            b"410 450.5 0.5 49 re f 410 500.5 0.5 49 re f "
+            b"410 550.5 0.5 49 re f 410 600.5 0.5 49 re f",
+            b"72 700 540 0.5 re f 72 650 540 0.5 re f "
+            b"72 600 540 0.5 re f 72 550 540 0.5 re f "
+            b"72 500 540 0.5 re f 72 450 540 0.5 re f EMC",
+            b"BT /F1 10 Tf 1 0 0 1 250 675 Tm (Current) Tj "
+            b"1 0 0 1 420 675 Tm (Target) Tj",
+            b"1 0 0 1 82 625 Tm (Alpha) Tj",
+            b"1 0 0 1 82 575 Tm (Bravo) Tj",
+            b"1 0 0 1 82 525 Tm (Charlie) Tj",
+            b"1 0 0 1 82 475 Tm (Delta) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        self.assertEqual(tables[0].attrs["row_count"], 5)
+        self.assertEqual(tables[0].attrs["column_count"], 3)
+        evidence = next(
+            item
+            for item in tables[0].evidence
+            if item.kind == "artifact_fragmented_lattice"
+        )
+        self.assertEqual(evidence.data["inferred_outer_boundaries"], 1)
+        self.assertIn("<tr><td>Alpha</td><td></td><td></td></tr>", result.markdown)
+
+    def test_captioned_sparse_two_column_table_preserves_blank_response_cells(self) -> None:
+        parts = [
+            text_op(60, 720, "Table 9. Observation record.", font="F2", size=14),
+            text_op(60, 670, "Field", font="F2", size=8),
+            text_op(140, 670, "Recorded observation value", font="F2", size=8),
+        ]
+        for text, y in zip(("Aster", "Birch", "Cedar", "Dogwood", "Elm"), (650, 630, 610, 590, 570)):
+            parts.append(text_op(60, y, text, size=8))
+        result = convert(make_pdf([b" ".join(parts)]))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        self.assertEqual(tables[0].attrs["row_count"], 6)
+        self.assertEqual(tables[0].attrs["column_count"], 2)
+        self.assertEqual(tables[0].attrs["header_rows"], 1)
+        evidence = next(
+            item
+            for item in tables[0].evidence
+            if item.kind == "captioned_sparse_two_column"
+        )
+        self.assertTrue(evidence.data["blank_response_column"])
+        self.assertEqual(evidence.data["right_column_rows"], 0)
+        headers = [
+            cell for cell in semantic_nodes(result, "table_cell")
+            if cell.attrs["row"] == 0
+        ]
+        self.assertEqual([cell.attrs["role"] for cell in headers], ["th", "th"])
+        self.assertTrue(all(any(source.glyph_ids for source in cell.sources) for cell in headers))
+        self.assertIn("<thead>", result.markdown)
+        self.assertIn("<thead>", result.html)
+        self.assertIn('<th scope="col"', result.html)
+        self.assertIn("<tr><td>Aster</td><td></td></tr>", result.markdown)
+        self.assertIn("<caption>Table 9. Observation record.</caption>", result.markdown)
+
+    def test_sparse_two_column_run_without_caption_remains_prose(self) -> None:
+        parts = [
+            text_op(60, 670, "Field", font="F2", size=8),
+            text_op(140, 670, "Recorded observation value", font="F2", size=8),
+        ]
+        for text, y in zip(("Aster", "Birch", "Cedar", "Dogwood", "Elm"), (650, 630, 610, 590, 570)):
+            parts.append(text_op(60, y, text, size=8))
+        result = convert(make_pdf([b" ".join(parts)]))
+        self.assertFalse(any(
+            item.kind == "captioned_sparse_two_column"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
     def test_dense_complete_two_by_two_artifact_table_is_recovered(self) -> None:
         content = b" ".join([
             b"/Artifact BMC 0 g "
@@ -3528,6 +3681,146 @@ class HeadingLevelModeTests(unittest.TestCase):
     def test_invalid_heading_level_mode_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             convert(self._heading_document(), ConvertOptions(heading_level_mode="H1"))
+
+
+class ArtifactDisplayHeadingRecoveryTests(unittest.TestCase):
+    @staticmethod
+    def _body() -> list[bytes]:
+        return [
+            text_op(72, 650, "The survey describes the participating firms.", size=10),
+            text_op(72, 630, "Responses were grouped by operating profile.", size=10),
+            text_op(72, 610, "Additional observations follow in this section.", size=10),
+        ]
+
+    def test_numbered_artifact_display_title_is_recovered_with_provenance(self) -> None:
+        content = b" ".join([
+            line_op(54, 732, 558, 732, width=0.75),
+            b"/Artifact BMC",
+            text_op(
+                72,
+                700,
+                "2. General Profile of Enterprises",
+                font="F2",
+                size=28,
+            ),
+            b"EMC",
+            line_op(54, 684, 558, 684, width=0.75),
+            *self._body(),
+        ])
+        result = convert(make_pdf([content]))
+
+        headings = semantic_nodes(result, "heading")
+        self.assertEqual(len(headings), 1, result.semantic.to_dict())
+        heading = headings[0]
+        heading_text = "".join(
+            node.text or "" for node in heading.walk() if node.kind == "text"
+        )
+        self.assertEqual(heading_text, "2. General Profile of Enterprises")
+        self.assertTrue(heading.attrs["artifact_text_recovered"])
+        self.assertTrue(heading.attrs["source_marked_artifact"])
+        self.assertEqual(heading.warnings, ["ARTIFACT_TEXT_RECOVERED"])
+        self.assertLessEqual(heading.confidence, 0.86)
+        self.assertTrue(heading.sources)
+        self.assertTrue(heading.sources[0].glyph_ids)
+        evidence = next(
+            item for item in heading.evidence
+            if item.kind == "artifact_text_recovery"
+        )
+        self.assertTrue(evidence.data["source_marked_artifact"])
+        self.assertGreater(evidence.data["glyph_count"], 20)
+        self.assertIn("numbered_display_title", evidence.data["admission_reasons"])
+        self.assertIn("paired_title_rules", evidence.data["admission_reasons"])
+        self.assertIn("# 2. General Profile of Enterprises", result.markdown)
+        self.assertIn("2. General Profile of Enterprises</h1>", result.html)
+        self.assertIn('data-warning-count="1"', result.html)
+        self.assertIn(
+            "ARTIFACT_TEXT_RECOVERED",
+            {warning.code for warning in result.warnings},
+        )
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+        report_heading = next(
+            node for node in result.report["semantic_nodes"]
+            if node["kind"] == "heading"
+        )
+        self.assertEqual(report_heading["warnings"], ["ARTIFACT_TEXT_RECOVERED"])
+        self.assertEqual(
+            next(
+                item for item in report_heading["evidence"]
+                if item["kind"] == "artifact_text_recovery"
+            )["data"]["source_marked_artifact"],
+            True,
+        )
+        self.assertFalse(result.report["ocr_used"])
+        self.assertFalse(result.report["image_text_extraction_attempted"])
+
+    def test_large_artifact_folio_is_not_recovered(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC",
+            text_op(285, 700, "14", font="F2", size=30),
+            b"EMC",
+            *self._body(),
+        ])
+        result = convert(make_pdf([content]))
+        self.assertNotIn("14", result.markdown)
+        self.assertEqual(semantic_nodes(result, "heading"), [])
+        self.assertNotIn(
+            "ARTIFACT_TEXT_RECOVERED",
+            {warning.code for warning in result.warnings},
+        )
+
+    def test_repeated_artifact_running_title_is_not_recovered(self) -> None:
+        page = b" ".join([
+            b"/Artifact BMC",
+            text_op(72, 700, "2. Quarterly Operations Overview", font="F2", size=28),
+            b"EMC",
+            *self._body(),
+        ])
+        result = convert(make_pdf([page, page]))
+        self.assertNotIn("Quarterly Operations Overview", result.markdown)
+        self.assertEqual(semantic_nodes(result, "heading"), [])
+        self.assertNotIn(
+            "ARTIFACT_TEXT_RECOVERED",
+            {warning.code for warning in result.warnings},
+        )
+
+    def test_artifact_logo_in_top_furniture_zone_is_not_recovered(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC",
+            text_op(72, 765, "2. ACME Global Brand", font="F2", size=28),
+            b"EMC",
+            *self._body(),
+        ])
+        result = convert(make_pdf([content]))
+        self.assertNotIn("ACME Global Brand", result.markdown)
+        self.assertEqual(semantic_nodes(result, "heading"), [])
+
+    def test_artifact_chart_label_over_raster_is_not_recovered(self) -> None:
+        content = b" ".join([
+            b"q 220 0 0 90 60 590 cm /Im1 Do Q",
+            b"/Artifact BMC",
+            text_op(82, 635, "2. Quarterly Revenue Growth", font="F2", size=28),
+            b"EMC",
+            text_op(72, 550, "The narrative beneath the chart remains authored text.", size=10),
+            text_op(72, 530, "It describes the measurements without reading the image.", size=10),
+            text_op(72, 510, "The original raster is preserved as a figure.", size=10),
+        ])
+        result = convert(
+            make_pdf(
+                [content],
+                xobjects={
+                    "Im1": image_xobject_rgb(
+                        2,
+                        2,
+                        b"\x33\x66\x99" * 4,
+                    )
+                },
+            )
+        )
+        self.assertNotIn("Quarterly Revenue Growth", result.markdown)
+        self.assertEqual(semantic_nodes(result, "heading"), [])
+        self.assertEqual(len(semantic_nodes(result, "image")), 1)
+        self.assertIn("<img ", result.html)
+        self.assertFalse(result.report["image_text_extraction_attempted"])
 
 
 if __name__ == "__main__":

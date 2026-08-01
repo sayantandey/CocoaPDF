@@ -190,6 +190,28 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
     attrs["bottom_zone"] = bool(bbox and bbox[1] >= page_height * 0.72)
     confidence = _event_confidence(event.kind, region_kinds)
     evidence = [Evidence("geometric_semantic_detector", confidence, detail=event.kind, page=event.page, data={"region_ids": region_ids})]
+    artifact_text_recovered = bool(attrs.get("artifact_text_recovered"))
+    if artifact_text_recovered:
+        reasons = attrs.get("artifact_recovery_reasons")
+        if not isinstance(reasons, (list, tuple)):
+            reasons = []
+        confidence = min(confidence, 0.86)
+        evidence.append(Evidence(
+            "artifact_text_recovery",
+            confidence,
+            detail="authored display heading retained despite defective source Artifact tag",
+            page=event.page,
+            data={
+                "source_marked_artifact": True,
+                "admission_reasons": [str(reason) for reason in reasons],
+                "glyph_count": sum(
+                    1
+                    for line in event.lines
+                    for character in getattr(line, "chars", ())
+                    if getattr(character, "text", "")
+                ),
+            },
+        ))
     kind = event.kind
     if kind == "anchor":
         return factory.make("anchor", attrs={"name": attrs.get("anchor"), "page": event.page, "y": attrs.get("y")}, confidence=1.0)
@@ -200,7 +222,10 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
         elif layout and layout.startswith("indent:"):
             attrs["text_indent_em"] = float(layout.split(":", 1)[1])
     if kind == "heading":
-        return factory.make("heading", children=_paragraph_inlines(factory, renderer, event.lines), attrs=attrs, confidence=confidence, evidence=evidence, sources=sources)
+        node = factory.make("heading", children=_paragraph_inlines(factory, renderer, event.lines), attrs=attrs, confidence=confidence, evidence=evidence, sources=sources)
+        if artifact_text_recovered:
+            node.warnings.append("ARTIFACT_TEXT_RECOVERED")
+        return node
     if kind == "paragraph":
         return factory.make("paragraph", children=_paragraph_inlines(factory, renderer, event.lines), attrs=attrs, confidence=confidence, evidence=evidence, sources=sources)
     if kind == "list":
