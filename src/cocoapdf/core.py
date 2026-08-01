@@ -2967,6 +2967,7 @@ class MarkdownRenderer:
 		self._available_width_cache: Dict[int, float] = {}
 		self._inferred_column_bands: Dict[int, List[Tuple[float, float, float]]] = {}
 		self._compact_column_bands: Dict[int, List[Tuple[float, float, float]]] = {}
+		self._filled_sidebar_bands: Dict[int, List[Dict[str, Any]]] = {}
 		self._inferred_panel_bands: Dict[int, List[Dict[str, Any]]] = {}
 		self._table_cache: Dict[
 			int,
@@ -3267,6 +3268,7 @@ class MarkdownRenderer:
 		# Clear both positive and negative entries if a renderer is rebuilt.
 		self._inferred_column_bands.clear()
 		self._compact_column_bands.clear()
+		self._filled_sidebar_bands.clear()
 		self._inferred_panel_bands.clear()
 		chars = [
 			c
@@ -3837,6 +3839,7 @@ class MarkdownRenderer:
 	def _split_lines_on_column_gaps(self, page: int, lines: List[Line]) -> List[Line]:
 		panel_bands = self._cached_three_panel_bands(page, lines)
 		sep_infos = self._column_separator_infos(page)
+		sep_infos.extend(self._cached_filled_sidebar_separator_infos(page, lines))
 		if not sep_infos and not panel_bands:
 			sep_infos = self._cached_inferred_column_separator_infos(page, lines)
 		if not sep_infos and not panel_bands:
@@ -3928,6 +3931,7 @@ class MarkdownRenderer:
 		if panel_bands:
 			return self._order_three_panel_bands(lines, panel_bands)
 		sep_infos = self._column_separator_infos(page)
+		sep_infos.extend(self._cached_filled_sidebar_separator_infos(page, lines))
 		if not sep_infos:
 			sep_infos = self._cached_inferred_column_separator_infos(page, lines)
 		if not sep_infos:
@@ -4020,6 +4024,238 @@ class MarkdownRenderer:
 		if page not in self._inferred_panel_bands:
 			self._inferred_panel_bands[page] = self._three_panel_bands(page, lines)
 		return [dict(band) for band in self._inferred_panel_bands[page]]
+
+	def _cached_filled_sidebar_separator_infos(
+		self,
+		page: int,
+		lines: List[Line],
+	) -> List[Tuple[float, float, float]]:
+		"""Return conservative separator evidence from a painted edge sidebar.
+
+		A few presentation-oriented PDF producers paint one tall, narrow band at
+		the page edge and place an independent sequence of headings, prose, rules,
+		and images inside it.  Text at the same baseline as the main column is then
+		collected into one physical line unless the paint boundary is used as a
+		separator.  Fill geometry alone is much too common to establish columns,
+		so admission also requires authored text on both sides and repeated
+		structural anchors inside the band.
+		"""
+		if page not in self._filled_sidebar_bands:
+			self._filled_sidebar_bands[page] = self._filled_sidebar_separator_bands(
+				page,
+				lines,
+			)
+		return [
+			(band["separator"], band["y0"], band["y1"])
+			for band in self._filled_sidebar_bands[page]
+		]
+
+	def _filled_sidebar_separator_bands(
+		self,
+		page: int,
+		lines: List[Line],
+	) -> List[Dict[str, Any]]:
+		page_width, page_height = self.conv.page_sizes.get(page, (612.0, 792.0))
+		body = self._body_font_size(lines)
+		if page_width <= 0 or page_height <= 0 or body <= 0:
+			return []
+
+		def authored(chars: Sequence[Char]) -> List[Char]:
+			return [
+				char
+				for char in chars
+				if char.text.strip()
+				and not char.artifact
+				and not char.invisible
+			]
+
+		def alpha_count(chars: Sequence[Char]) -> int:
+			return sum(character.isalpha() for char in chars for character in char.text)
+
+		candidates: List[Dict[str, Any]] = []
+		for fill in self.conv.fills:
+			if fill.page != page:
+				continue
+			fill_width = fill.x1 - fill.x0
+			fill_height = fill.y1 - fill.y0
+			if not (
+				max(70.0, page_width * 0.10) <= fill_width <= page_width * 0.30
+				and fill_height >= page_height * 0.42
+			):
+				continue
+			right_side = fill.x1 >= page_width * 0.88 and fill.x0 >= page_width * 0.58
+			left_side = fill.x0 <= page_width * 0.12 and fill.x1 <= page_width * 0.42
+			if right_side == left_side:
+				continue
+			if (
+				max(fill.color) - min(fill.color) < 0.18
+				or color_contrast(fill.color, (1.0, 1.0, 1.0)) < 1.20
+			):
+				continue
+
+			inside_runs: List[Tuple[Line, List[Char]]] = []
+			main_runs: List[Tuple[Line, List[Char]]] = []
+			all_main_runs: List[Tuple[Line, List[Char]]] = []
+			for line in lines:
+				visible = authored(line.chars)
+				if not visible:
+					continue
+				inside = [
+					char
+					for char in visible
+					if fill.x0 - 1.5 <= (char.x0 + char.x1) / 2.0 <= fill.x1 + 1.5
+					and fill.y0 - 2.0 <= (char.y0 + char.y1) / 2.0 <= fill.y1 + 2.0
+				]
+				if alpha_count(inside) >= 3:
+					inside_runs.append((line, inside))
+				outside = [
+					char
+					for char in visible
+					if (
+						(char.x0 + char.x1) / 2.0 < fill.x0 - 2.0
+						if right_side
+						else (char.x0 + char.x1) / 2.0 > fill.x1 + 2.0
+					)
+				]
+				if alpha_count(outside) < 3:
+					continue
+				all_main_runs.append((line, outside))
+				if fill.y0 - 2.0 <= (line.y0 + line.y1) / 2.0 <= fill.y1 + 2.0:
+					main_runs.append((line, outside))
+
+			if (
+				len(inside_runs) < 6
+				or alpha_count([char for _line, run in inside_runs for char in run]) < 45
+				or len(main_runs) < 4
+				or alpha_count([char for _line, run in main_runs for char in run]) < 50
+			):
+				continue
+
+			inside_y0 = min(line.y0 for line, _run in inside_runs)
+			inside_y1 = max(line.y1 for line, _run in inside_runs)
+			main_y0 = min(line.y0 for line, _run in main_runs)
+			main_y1 = max(line.y1 for line, _run in main_runs)
+			overlap = min(inside_y1, main_y1) - max(inside_y0, main_y0)
+			if overlap < min(inside_y1 - inside_y0, main_y1 - main_y0) * 0.35:
+				continue
+
+			inside_edges = [
+				min(char.x0 for char in run) if right_side else max(char.x1 for char in run)
+				for _line, run in inside_runs
+			]
+			main_edges = [
+				max(char.x1 for char in run) if right_side else min(char.x0 for char in run)
+				for _line, run in main_runs
+			]
+			gutter = (
+				median(inside_edges) - median(main_edges)
+				if right_side
+				else median(main_edges) - median(inside_edges)
+			)
+			if gutter < max(8.0, body * 0.60):
+				continue
+
+			contained_images = [
+				image
+				for image in self.conv.images
+				if image.page == page
+				and fill.x0 - 3.0 <= (image.x0 + image.x1) / 2.0 <= fill.x1 + 3.0
+				and fill.y0 - 3.0 <= (image.y0 + image.y1) / 2.0 <= fill.y1 + 3.0
+				and image.x0 >= fill.x0 - 6.0
+				and image.x1 <= fill.x1 + 6.0
+			]
+			horizontal_rules = [
+				segment
+				for segment in self.conv.segments
+				if segment.page == page
+				and segment.horizontal
+				and fill_width * 0.65 <= segment.length <= fill_width * 1.10
+				and min(segment.x0, segment.x1) >= fill.x0 - 5.0
+				and max(segment.x0, segment.x1) <= fill.x1 + 5.0
+				and fill.y0 - 3.0 <= (segment.y0 + segment.y1) / 2.0 <= fill.y1 + 3.0
+			]
+			if len(contained_images) < 2 and len(horizontal_rules) < 2:
+				continue
+			vertical_grid_rules = [
+				segment
+				for segment in self.conv.segments
+				if segment.page == page
+				and segment.vertical
+				and segment.length >= fill_height * 0.25
+				and fill.x0 - 3.0 <= (segment.x0 + segment.x1) / 2.0 <= fill.x1 + 3.0
+				and min(segment.y0, segment.y1) <= fill.y1
+				and max(segment.y0, segment.y1) >= fill.y0
+			]
+			if vertical_grid_rules:
+				continue
+
+			regular_sizes = [
+				char.size
+				for _line, run in inside_runs
+				for char in run
+				if char.size > 0 and not char.bold
+			]
+			sidebar_body = median(regular_sizes) if regular_sizes else body
+
+			# A main-column paragraph may continue a few baselines below the paint.
+			# Keep that short tail before the sidebar, while refusing bottom-zone
+			# furniture and any new block separated by a material vertical gap.
+			extended_y1 = fill.y1
+			last_end = max(
+				[fill.y1]
+				+ [
+					line.y1
+					for line, _run in main_runs
+					if line.y1 >= fill.y1 - body * 1.25
+				]
+			)
+			limit = fill.y1 + max(48.0, body * 4.8)
+			for line, _run in sorted(all_main_runs, key=lambda item: (item[0].y0, item[0].seq)):
+				center = (line.y0 + line.y1) / 2.0
+				if line.y1 < fill.y1 - body * 1.25 or line.y0 > limit:
+					continue
+				if center > page_height * 0.92:
+					break
+				if line.y0 > last_end + max(20.0, body * 1.6):
+					break
+				last_end = max(last_end, line.y1)
+				extended_y1 = max(extended_y1, line.y1)
+
+			candidates.append(
+				{
+					"x0": fill.x0,
+					"x1": fill.x1,
+					"y0": fill.y0,
+					"y1": extended_y1,
+					"fill_y1": fill.y1,
+					"separator": fill.x0 if right_side else fill.x1,
+					"side": "right" if right_side else "left",
+					"sidebar_body_size": sidebar_body,
+					"inside_baselines": len(inside_runs),
+					"main_baselines": len(main_runs),
+					"image_anchors": len(contained_images),
+					"rule_anchors": len(horizontal_rules),
+				}
+			)
+
+		deduped: List[Dict[str, Any]] = []
+		for candidate in sorted(
+			candidates,
+			key=lambda band: (-(band["y1"] - band["y0"]), band["x0"]),
+		):
+			if any(
+				candidate["side"] == other["side"]
+				and min(candidate["y1"], other["y1"])
+					- max(candidate["y0"], other["y0"])
+					>= min(
+						candidate["y1"] - candidate["y0"],
+						other["y1"] - other["y0"],
+					) * 0.60
+				for other in deduped
+			):
+				continue
+			deduped.append(candidate)
+		return sorted(deduped, key=lambda band: (band["y0"], band["x0"]))
 
 	def _three_panel_bands(
 		self,
@@ -4900,7 +5136,15 @@ class MarkdownRenderer:
 		one stable central gutter and rejects ruled/grid-like geometry, so
 		compact cards and small tables remain in physical order.
 		"""
-		evidence: List[Tuple[float, float, float, int, int, Line]] = []
+		# Keep the complete whitespace interval, rather than only its midpoint.
+		# Ragged prose columns can end at substantially different x positions
+		# while still sharing one real gutter: the midpoint then drifts even though
+		# every interval contains the same separator.  The downstream admission
+		# gates remain unchanged; interval intersection is strictly the geometric
+		# reconciliation used to form candidate cohorts.
+		interval_evidence: List[
+			Tuple[float, float, float, float, int, int, Line]
+		] = []
 		for line in lines:
 			if line.writing_mode != "horizontal" or line.size <= 0:
 				continue
@@ -4915,7 +5159,7 @@ class MarkdownRenderer:
 			for text_length in text_lengths:
 				prefix.append(prefix[-1] + text_length)
 			total = prefix[-1]
-			best: Optional[Tuple[float, float, int, int]] = None
+			best: Optional[Tuple[float, float, int, int, float, float]] = None
 			for index, (left_char, right_char) in enumerate(zip(chars, chars[1:]), 1):
 				gap = right_char.x0 - left_char.x1
 				separator = (left_char.x1 + right_char.x0) / 2.0
@@ -4928,13 +5172,21 @@ class MarkdownRenderer:
 				right_count = total - left_count
 				if left_count < 20 or right_count < 20:
 					continue
-				candidate = (gap, separator, left_count, right_count)
+				candidate = (
+					gap,
+					separator,
+					left_count,
+					right_count,
+					left_char.x1,
+					right_char.x0,
+				)
 				if best is None or candidate[0] > best[0]:
 					best = candidate
 			if best is not None:
-				evidence.append(
+				interval_evidence.append(
 					(
-						best[1],
+						max(best[4], width * 0.37),
+						min(best[5], width * 0.63),
 						(line.y0 + line.y1) / 2.0,
 						best[0],
 						best[2],
@@ -4943,14 +5195,62 @@ class MarkdownRenderer:
 					)
 				)
 
-		groups: List[List[Tuple[float, float, float, int, int, Line]]] = []
-		for item in sorted(evidence, key=lambda value: value[0]):
-			for group in groups:
-				if abs(item[0] - median([value[0] for value in group])) <= 14.0:
-					group.append(item)
-					break
+		interval_groups: List[
+			List[Tuple[float, float, float, float, int, int, Line]]
+		] = []
+		for item in sorted(
+			interval_evidence,
+			key=lambda value: (
+				(value[0] + value[1]) / 2.0,
+				value[2],
+				value[6].seq,
+			),
+		):
+			compatible: List[
+				Tuple[
+					float,
+					float,
+					int,
+					List[Tuple[float, float, float, float, int, int, Line]],
+				]
+			] = []
+			for index, group in enumerate(interval_groups):
+				left = max(item[0], max(value[0] for value in group))
+				right = min(item[1], min(value[1] for value in group))
+				if left <= right:
+					group_center = (
+						max(value[0] for value in group)
+						+ min(value[1] for value in group)
+					) / 2.0
+					item_center = (item[0] + item[1]) / 2.0
+					compatible.append(
+						(abs(item_center - group_center), -(right - left), index, group)
+					)
+			if compatible:
+				min(compatible, key=lambda value: value[:3])[3].append(item)
 			else:
-				groups.append([item])
+				interval_groups.append([item])
+
+		groups: List[List[Tuple[float, float, float, int, int, Line]]] = []
+		for interval_group in interval_groups:
+			common_left = max(value[0] for value in interval_group)
+			common_right = min(value[1] for value in interval_group)
+			if common_left > common_right:
+				continue
+			separator = (common_left + common_right) / 2.0
+			groups.append(
+				[
+					(
+						separator,
+						value[2],
+						value[3],
+						value[4],
+						value[5],
+						value[6],
+					)
+					for value in interval_group
+				]
+			)
 		cohorts: List[List[Tuple[float, float, float, int, int, Line]]] = []
 		for group in groups:
 			ordered = sorted(group, key=lambda value: value[1])
@@ -6218,6 +6518,109 @@ class MarkdownRenderer:
 					levels.add(int(match.group(1)))
 		return next(iter(levels)) if len(levels) == 1 else None
 
+	def _is_filled_sidebar_heading(
+		self,
+		line: Line,
+		body_size: float,
+		prev: Optional[Line],
+		nxt: Optional[Line],
+		text: str,
+	) -> bool:
+		"""Admit a wrapped, bold label inside a verified painted sidebar."""
+		if (
+			line.writing_mode != "horizontal"
+			or line.bold_ratio < 0.75
+			or len(text) > 90
+			or not 1 <= len(text.split()) <= 10
+			or sum(character.isalpha() for character in text) < 4
+			or text[-1:] in ".!?;:"
+			or list_marker(text) is not None
+			or self._is_explicit_caption_label(text)
+			or self._is_toc_navigation_row(line, text)
+			or re.fullmatch(r"[A-Z0-9]+(?:[-_][A-Z0-9]+)+", text) is not None
+			or self._has_adjacent_ordered_peer(line, text)
+		):
+			return False
+
+		visible = [char for char in line.chars if char.text.strip()]
+		if not visible:
+			return False
+		x0 = min(char.x0 for char in visible)
+		x1 = max(char.x1 for char in visible)
+		center_y = median([(char.y0 + char.y1) / 2.0 for char in visible])
+
+		def inside(candidate: Line, band: Dict[str, Any]) -> bool:
+			candidate_visible = [char for char in candidate.chars if char.text.strip()]
+			if not candidate_visible:
+				return False
+			candidate_x0 = min(char.x0 for char in candidate_visible)
+			candidate_x1 = max(char.x1 for char in candidate_visible)
+			candidate_y = median(
+				[(char.y0 + char.y1) / 2.0 for char in candidate_visible]
+			)
+			return (
+				candidate.page == line.page
+				and candidate_x0 >= band["x0"] - 2.0
+				and candidate_x1 <= band["x1"] + 2.0
+				and band["y0"] - 2.0 <= candidate_y <= band["fill_y1"] + 2.0
+			)
+
+		band = next(
+			(
+				candidate
+				for candidate in self._filled_sidebar_bands.get(line.page, [])
+				if x0 >= candidate["x0"] - 2.0
+				and x1 <= candidate["x1"] + 2.0
+				and candidate["y0"] - 2.0 <= center_y <= candidate["fill_y1"] + 2.0
+			),
+			None,
+		)
+		if band is None:
+			return False
+		sidebar_body = float(band.get("sidebar_body_size") or body_size)
+		if not (
+			line.size >= body_size * 0.65
+			and sidebar_body * 0.80 <= line.size <= sidebar_body * 1.30
+		):
+			return False
+
+		for peer in (prev, nxt):
+			if peer is None or not inside(peer, band) or peer.bold_ratio < 0.75:
+				continue
+			peer_text = plain_text(line_text_tokens(peer)).strip()
+			if (
+				not peer_text
+				or len(peer_text) > 90
+				or not 1 <= len(peer_text.split()) <= 10
+				or peer_text[-1:] in ".!?;:"
+				or list_marker(peer_text) is not None
+				or self._is_explicit_caption_label(peer_text)
+				or self._is_toc_navigation_row(peer, peer_text)
+				or abs(peer.size - line.size) > max(0.65, line.size * 0.08)
+				or abs(peer.x0 - line.x0) > max(6.0, line.size * 0.65)
+			):
+				continue
+			upper, lower = (
+				(peer, line)
+				if (peer.y0, peer.seq) < (line.y0, line.seq)
+				else (line, peer)
+			)
+			gap = line_flow_gap(upper, lower)
+			if 0 < gap <= max(line.size * 1.75, 20.0):
+				ordered_text = (
+					(peer_text, text)
+					if (peer.y0, peer.seq) < (line.y0, line.seq)
+					else (text, peer_text)
+				)
+				combined = cleanup_spaces("%s %s" % ordered_text)
+				first_alpha = next(
+					(character for character in combined if character.isalpha()),
+					"",
+				)
+				if first_alpha.isupper() and len(combined.split()) <= 14:
+					return True
+		return False
+
 	def _is_heading(self, line: Line, body_size: float, prev: Optional[Line], nxt: Optional[Line]) -> bool:
 		if self._tagged_heading_level(line) is not None:
 			return True
@@ -6241,6 +6644,8 @@ class MarkdownRenderer:
 			# Standalone machine identifiers are safer as emphasized prose than
 			# invented document-outline entries when tags provide no heading role.
 			return False
+		if self._is_filled_sidebar_heading(line, body_size, prev, nxt, text):
+			return True
 		if line.size < body_size * 0.88:
 			return False
 		if self._has_adjacent_ordered_peer(line, text):
@@ -6840,7 +7245,7 @@ class MarkdownRenderer:
 			and abs(candidate.size - line.size) <= 1.0
 		]
 		nested_number = re.match(
-			r"^\d+(?:\.\d+){1,5}\.?\s+\S",
+			r"^(?:\d+|[A-Z])(?:\.\d+){1,5}\.?\s+\S",
 			text,
 		) is not None
 		numbered_upper = (
@@ -7005,11 +7410,113 @@ class MarkdownRenderer:
 			and b.bold_ratio >= 0.65
 		)
 
+	def _is_numbered_hanging_display_continuation(
+		self,
+		upper: Line,
+		lower: Line,
+		following: Optional[Line],
+	) -> bool:
+		"""Recognize one hanging-indent wrap of a numbered display heading.
+
+		Some report producers place the section marker in its own fixed-width
+		field, start the title after a tab-like gap, and align every continuation
+		with the first title word rather than with the marker.  That is distinct
+		from an ordered-list wrap: both title lines use the same display style,
+		the complete run is followed by smaller same-margin prose, and no nearby
+		list, caption, navigation, or machine-label evidence is allowed.
+		"""
+		if (
+			following is None
+			or upper.page != lower.page
+			or upper.page != following.page
+			or any(
+				candidate.writing_mode != "horizontal"
+				for candidate in (upper, lower, following)
+			)
+		):
+			return False
+		upper_text = plain_text(line_text_tokens(upper)).strip()
+		lower_text = plain_text(line_text_tokens(lower)).strip()
+		following_text = plain_text(line_text_tokens(following)).strip()
+		if not upper_text or not lower_text or not following_text:
+			return False
+		if any(
+			self._is_explicit_caption_label(text)
+			or self._is_toc_navigation_row(candidate, text)
+			or re.fullmatch(r"[A-Z0-9]+(?:[-_][A-Z0-9]+)+", text) is not None
+			for candidate, text in (
+				(upper, upper_text),
+				(lower, lower_text),
+				(following, following_text),
+			)
+		):
+			return False
+		if list_marker(lower_text) is not None or list_marker(following_text) is not None:
+			return False
+
+		boxes = word_boxes(upper)
+		if len(boxes) < 2:
+			return False
+		marker, marker_x0, _marker_y0, marker_x1, _marker_y1 = boxes[0]
+		first_word, first_word_x0, _word_y0, _word_x1, _word_y1 = boxes[1]
+		if re.fullmatch(r"\d{1,3}(?:\.\d+){0,5}\.?", marker) is None:
+			return False
+		if not first_word[:1].isupper():
+			return False
+		if first_word_x0 - marker_x1 < max(4.0, upper.size * 0.30):
+			return False
+		if abs(lower.x0 - first_word_x0) > max(3.0, upper.size * 0.28):
+			return False
+		if lower.x0 <= marker_x0 or lower.x1 > upper.x1 + max(6.0, upper.size * 0.45):
+			return False
+
+		combined = cleanup_spaces("%s %s" % (upper_text, lower_text))
+		if (
+			not 4 <= len(combined.split()) <= 18
+			or len(combined) > 120
+			or lower_text[-1:] in ".!?;:"
+		):
+			return False
+		if (
+			upper.bold_ratio < 0.75
+			or lower.bold_ratio < 0.75
+			or abs(upper.size - lower.size) > max(0.75, upper.size * 0.05)
+		):
+			return False
+
+		all_lines = [
+			line
+			for page_lines in self.lines_by_page.values()
+			for line in page_lines
+		]
+		body_size = self._body_font_size(all_lines)
+		if body_size <= 0 or upper.size < body_size * 1.10:
+			return False
+		if (
+			abs(following.size - body_size) > max(0.75, body_size * 0.08)
+			or following.size > lower.size * 0.94
+			or following.bold_ratio >= 0.35
+			or abs(following.x0 - upper.x0) > max(8.0, body_size * 0.75)
+			or len(following_text.split()) < 5
+			or not any(character.islower() for character in following_text)
+		):
+			return False
+		if self._has_adjacent_ordered_peer(upper, upper_text):
+			return False
+
+		wrap_gap = line_flow_gap(upper, lower)
+		body_gap = line_flow_gap(lower, following)
+		if wrap_gap <= 0 or wrap_gap > max(upper.size * 1.55, 24.0):
+			return False
+		return body_gap > max(wrap_gap * 1.12, lower.size * 1.35)
+
 	def _is_heading_continuation(self, prev: Line, cur: Line, nxt: Optional[Line]) -> bool:
 		prev_tagged = self._tagged_heading_level(prev)
 		cur_tagged = self._tagged_heading_level(cur)
 		if prev_tagged is not None or cur_tagged is not None:
 			return prev_tagged is not None and prev_tagged == cur_tagged and prev.page == cur.page
+		if self._is_numbered_hanging_display_continuation(prev, cur, nxt):
+			return True
 		if not self._display_wrap_peer(prev, cur):
 			return False
 		gap = line_flow_gap(prev, cur)
@@ -9669,6 +10176,12 @@ class MarkdownRenderer:
 						if any(
 							cell_occupancy[row + rowspan][peer]
 							for peer in range(column, column + colspan)
+						) and self._artifact_fragmented_band_has_distinct_text(
+							table_lines,
+							xs[column],
+							xs[column + colspan],
+							boundary,
+							ys[row + rowspan + 1],
 						):
 							break
 						rowspan += 1
@@ -9800,6 +10313,30 @@ class MarkdownRenderer:
 		return max(
 			self._partial_interval_coverage(group["intervals"], x0, x1)
 			for group in matching
+		)
+
+	def _artifact_fragmented_band_has_distinct_text(
+		self,
+		lines: Sequence[Line],
+		x0: float,
+		x1: float,
+		boundary: float,
+		band_end: float,
+	) -> bool:
+		"""Distinguish a populated next cell from boundary-straddling wrap text.
+
+		The occupancy grid deliberately uses a two-point boundary tolerance so a
+		baseline cannot disappear through rounding. That makes a wrapped line
+		whose centre sits just below a boundary appear in both adjacent rows.
+		Only glyphs strictly beyond that shared tolerance are independent evidence
+		for a populated downstream cell and therefore veto a rowspan.
+		"""
+		return any(
+			char.text.strip()
+			and x0 <= (char.x0 + char.x1) / 2.0 <= x1
+			and boundary + 2.0 < (char.y0 + char.y1) / 2.0 <= band_end + 2.0
+			for line in lines
+			for char in line.chars
 		)
 
 	def _artifact_lattice_header_rows(

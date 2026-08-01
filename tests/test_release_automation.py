@@ -179,10 +179,14 @@ class BuildAutomationTests(unittest.TestCase):
 		examples_readme = (examples / "README.md").read_text(encoding="utf-8")
 		self.assertTrue(examples_readme.startswith("# CocoaPDF conversion examples\n"))
 		self.assertIn(
-			"[Browse this revision's side-by-side PDF-to-HTML demo](review.html)",
+			"[Open the rendered side-by-side PDF-to-HTML demo from `main`]"
+			"(https://raw.githack.com/sayantandey/CocoaPDF/main/examples/review.html)",
 			examples_readme,
 		)
-		self.assertNotIn("raw.githack.com", examples_readme)
+		self.assertIn(
+			"[Browse this revision's committed demo source](review.html)",
+			examples_readme,
+		)
 		self.assertNotIn("rendered HTML on main", examples_readme)
 		self.assertIn(
 			"[Markdown](cases/strategic_corner_cases/full/output.md)<br/>"

@@ -684,6 +684,63 @@ class FoundationDiagnosticTests(unittest.TestCase):
 		self.assertIn("#### 3.2.6. Nested Numbered Section", markdown)
 		self.assertIn("###### 4. UPPERCASE SECTION LABEL", markdown)
 
+	def test_letter_number_section_heading_keeps_semantic_provenance(self):
+		stream = b"\n".join(
+			[
+				text_op(72, 760, "Opening prose establishes the ordinary document size.", "F1", 10),
+				text_op(72, 700, "B Related Work", "F2", 10),
+				text_op(72, 670, "B.1 Large Language Models", "F2", 10),
+				text_op(
+					72,
+					640,
+					"Following explanatory prose establishes this section content.",
+					"F1",
+					10,
+				),
+				text_op(72, 624, "A second ordinary line confirms the governed prose block.", "F1", 10),
+			]
+		)
+		result = convert(make_pdf([stream]), ConvertOptions())
+		self.assertIn("# B.1 Large Language Models", result.markdown)
+		self.assertIn("B.1 Large Language Models", result.html)
+		headings = [node for node in result.semantic.walk() if node.kind == "heading"]
+		targets = [
+			node
+			for node in headings
+			if "".join(child.text for child in node.walk() if child.kind == "text")
+			== "B.1 Large Language Models"
+		]
+		self.assertEqual(len(targets), 1)
+		self.assertEqual(targets[0].source_pages(), [1])
+		self.assertTrue(all(source.glyph_ids for source in targets[0].sources))
+		self.assertTrue(all(source.region_ids for source in targets[0].sources))
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+		self.assertEqual(result.semantic.validate(require_provenance=True), [])
+
+	def test_letter_number_legal_peers_remain_non_heading_content(self):
+		stream = b"\n".join(
+			[
+				text_op(72, 740, "Context before contractual subclauses.", "F1", 10),
+				text_op(72, 700, "B.1 Required records for each submitted claim", "F2", 10),
+				text_op(72, 686, "B.2 Supporting records for each submitted claim", "F2", 10),
+				text_op(72, 672, "B.3 Approval records for each submitted claim", "F2", 10),
+				text_op(72, 638, "Ordinary prose follows the contractual sequence.", "F1", 10),
+				text_op(72, 622, "A second ordinary line stabilizes the body size.", "F1", 10),
+			]
+		)
+		result = convert(make_pdf([stream]), ConvertOptions())
+		heading_text = " ".join(
+			child.text
+			for node in result.semantic.walk()
+			if node.kind == "heading"
+			for child in node.walk()
+			if child.kind == "text"
+		)
+		self.assertNotIn("B.1 Required records", heading_text)
+		self.assertNotIn("B.2 Supporting records", heading_text)
+		self.assertNotIn("B.3 Approval records", heading_text)
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+
 	def test_compact_section_labels_reject_list_peers_and_orphan_fragments(self):
 		list_stream = b"\n".join(
 			[
@@ -1245,6 +1302,71 @@ class FoundationDiagnosticTests(unittest.TestCase):
 			markdown.index("Right prose 00"),
 		)
 		self.assertNotIn("prose.Right", markdown)
+
+	def test_ragged_compact_columns_share_one_whitespace_interval(self):
+		left = [
+			"Coastal surveys describe changing habitat patterns",
+			"Regional analysts document gradual shoreline recovery",
+			"Field researchers record diverse seasonal migration",
+			"Community observers report resilient wetland species",
+			"Ecology teams measure improving estuary conditions",
+			"Short field notes confirm habitat renewal",
+		]
+		right = [
+			"Marine scientists track separate offshore populations",
+			"Independent reports explain regional species movement",
+			"Archived observations preserve long term ocean trends",
+			"Seasonal reviews compare distinct migration evidence",
+			"Current studies follow measurable coastal restoration",
+			"Later surveys verify continuing ecosystem recovery",
+		]
+		parts = []
+		for index, (left_text, right_text) in enumerate(zip(left, right)):
+			y = 740 - index * 16
+			parts.extend(
+				[
+					text_op(60, y, left_text, "F1", 10),
+					text_op(330, y, right_text, "F1", 10),
+				]
+			)
+		result = convert(make_pdf([b"\n".join(parts)]), ConvertOptions())
+		self.assertLess(result.markdown.index(left[-1]), result.markdown.index(right[0]))
+		self.assertLess(result.html.index(left[-1]), result.html.index(right[0]))
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
+		paragraphs = [node for node in result.semantic.walk() if node.kind == "paragraph"]
+		self.assertEqual(len(paragraphs), 2)
+		self.assertTrue(all(node.source_pages() == [1] for node in paragraphs))
+		self.assertTrue(
+			all(
+				source.glyph_ids and source.region_ids
+				for node in paragraphs
+				for source in node.sources
+			)
+		)
+		self.assertEqual(result.semantic.validate(require_provenance=True), [])
+
+	def test_ragged_repeated_cards_remain_row_major(self):
+		parts = []
+		for index in range(6):
+			y = 740 - index * 16
+			left = (
+				"Service card left %02d carries several descriptive words." % index
+				if index < 5
+				else "Service card left 05 remains descriptive."
+			)
+			right = "Service card right %02d carries several descriptive words." % index
+			parts.extend(
+				[
+					text_op(60, y, left, "F1", 10),
+					text_op(330, y, right, "F1", 10),
+				]
+			)
+		result = convert(make_pdf([b"\n".join(parts)]), ConvertOptions())
+		self.assertLess(
+			result.markdown.index("Service card right 00"),
+			result.markdown.index("Service card left 01"),
+		)
+		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
 
 	def test_qualified_columns_include_a_contiguous_one_sided_prose_tail(self):
 		parts = []

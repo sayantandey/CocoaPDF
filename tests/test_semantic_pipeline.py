@@ -1803,6 +1803,9 @@ class AdvancedTableTests(unittest.TestCase):
             b"1 0 0 1 270 575 Tm (A2) Tj",
             b"1 0 0 1 82 525 Tm (Group B) Tj "
             b"1 0 0 1 270 525 Tm (B1) Tj",
+            # This wrapped baseline straddles the detector's two-point row
+            # tolerance and therefore belongs to the originating cell.
+            b"1 0 0 1 82 496 Tm (continues here) Tj",
             b"1 0 0 1 270 475 Tm (B2) Tj ET",
         ])
         resources = b"/Resources << /Font << /F1 1 0 R /F2 2 0 R >> >>"
@@ -1847,7 +1850,10 @@ class AdvancedTableTests(unittest.TestCase):
         self.assertTrue(any(source.glyph_ids for source in cells[(2, 0)].sources))
         self.assertNotIn('rowspan="2">Group A', result.markdown)
         self.assertIn("<td>Separate A</td>", result.markdown)
-        self.assertIn('<td rowspan="2">Group B</td>', result.markdown)
+        self.assertIn(
+            '<td rowspan="2">Group B<br />continues here</td>',
+            result.markdown,
+        )
         self.assertNotIn("Artifact", result.markdown)
 
     def test_fragmented_artifact_lattice_infers_clipped_page_edge(self) -> None:
@@ -3641,6 +3647,346 @@ class ResidualPhysicalTableRecoveryTests(unittest.TestCase):
             renderer._partial_table_models[(1, box)]["model_kind"],
             "accepted_model",
         )
+
+
+class FilledSidebarRecoveryTests(unittest.TestCase):
+    @staticmethod
+    def _node_text(node: SemanticNode) -> str:
+        return "".join(
+            child.text or "" for child in node.walk() if child.kind == "text"
+        )
+
+    @staticmethod
+    def _main_rows(prefix: str) -> list[bytes]:
+        return [
+            text_op(
+                72,
+                680 - index * 30,
+                "%s row %d carries ordinary explanatory words." % (prefix, index),
+                font="F1",
+                size=13,
+            )
+            for index in range(6)
+        ]
+
+    def test_fill_backed_sidebar_is_an_independent_provenanced_heading_stream(self) -> None:
+        parts = [
+            b"1 0.15 0 rg 454 80 118 630 re f 0 g",
+            # Repeated short rules are independent evidence that the narrow
+            # edge fill is a structured sidebar, not incidental decoration.
+            b"1 1 1 RG 1 w "
+            b"462 610 m 564 610 l 462 430 m 564 430 l "
+            b"462 250 m 564 250 l S 0 G",
+            text_op(72, 740, "Main Study Overview", font="F2", size=16),
+            *self._main_rows("Main narrative"),
+            text_op(462, 650, "Cellular Cycle", font="F2", size=10),
+            text_op(462, 635, "and Replication", font="F2", size=10),
+            text_op(462, 610, "A short sidebar", font="F1", size=11),
+            text_op(462, 594, "description follows", font="F1", size=11),
+            text_op(462, 560, "Mitosis and", font="F2", size=10),
+            text_op(462, 545, "Meiosis", font="F2", size=10),
+            text_op(462, 520, "Different results", font="F1", size=11),
+            text_op(462, 504, "are summarized here", font="F1", size=11),
+        ]
+        result = convert(make_pdf([b"\n".join(parts)]))
+
+        headings = {
+            self._node_text(node): node
+            for node in semantic_nodes(result, "heading")
+        }
+        for expected in (
+            "Main Study Overview",
+            "Cellular Cycle and Replication",
+            "Mitosis and Meiosis",
+        ):
+            self.assertIn(expected, headings, result.markdown)
+        self.assertLess(
+            result.markdown.index("Main narrative row 5"),
+            result.markdown.index("Cellular Cycle and Replication"),
+        )
+        self.assertLess(
+            result.markdown.index("description follows"),
+            result.markdown.index("Mitosis and Meiosis"),
+        )
+        for expected in ("Cellular Cycle and Replication", "Mitosis and Meiosis"):
+            heading = headings[expected]
+            self.assertEqual({source.page for source in heading.sources}, {1})
+            self.assertTrue(
+                {glyph_id for source in heading.sources for glyph_id in source.glyph_ids},
+                heading.to_dict(),
+            )
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertEqual(semantic_nodes(result, "list"), [])
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+
+    def test_unanchored_edge_fill_does_not_invent_a_sidebar_or_heading(self) -> None:
+        side_text = [
+            "Sidebar Emphasis",
+            "continues here",
+            "A short note follows",
+            "with ordinary wording",
+            "Another note remains",
+            "inside the decoration",
+        ]
+        parts = [
+            b"1 0.15 0 rg 454 80 118 630 re f 0 g",
+            text_op(72, 740, "Context before the decorative band.", size=13),
+        ]
+        for index, (main, side) in enumerate(
+            zip(self._main_rows("Main"), side_text)
+        ):
+            parts.append(main)
+            parts.append(
+                text_op(
+                    462,
+                    680 - index * 30,
+                    side,
+                    font="F2" if index < 2 else "F1",
+                    size=10 if index < 2 else 11,
+                )
+            )
+        result = convert(make_pdf([b"\n".join(parts)]))
+
+        heading_texts = {
+            self._node_text(node) for node in semantic_nodes(result, "heading")
+        }
+        self.assertNotIn("Sidebar Emphasis continues here", heading_texts)
+        paragraph_nodes = semantic_nodes(result, "paragraph")
+        paragraph_texts = [self._node_text(node) for node in paragraph_nodes]
+        self.assertLess(
+            next(index for index, text in enumerate(paragraph_texts) if "Sidebar Emphasis" in text),
+            next(index for index, text in enumerate(paragraph_texts) if "Main row 1" in text),
+            paragraph_texts,
+        )
+        paragraphs = [
+            node
+            for node in paragraph_nodes
+            if "Sidebar Emphasis" in self._node_text(node)
+        ]
+        self.assertTrue(paragraphs, result.semantic.to_dict())
+        self.assertTrue(any(source.glyph_ids for source in paragraphs[0].sources))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertEqual(semantic_nodes(result, "list"), [])
+
+    def test_ruled_edge_grid_is_not_reinterpreted_as_a_sidebar(self) -> None:
+        parts = [
+            b"0.2 0.6 0.9 rg 454 80 118 630 re f 0 g",
+            b"1 1 1 RG 1 w "
+            b"462 610 m 564 610 l 462 430 m 564 430 l "
+            b"462 250 m 564 250 l "
+            # Long internal verticals are grid/form evidence and veto the
+            # otherwise sidebar-like fill, text, and horizontal separators.
+            b"510 200 m 510 600 l 540 200 m 540 600 l S 0 G",
+            text_op(72, 740, "Context before the ruled edge panel.", size=13),
+        ]
+        side_text = [
+            "Panel Emphasis",
+            "continues here",
+            "Ruled panel note two",
+            "Ruled panel note three",
+            "Ruled panel note four",
+            "Ruled panel note five",
+        ]
+        for index, (main, side) in enumerate(
+            zip(self._main_rows("Main ruled"), side_text)
+        ):
+            parts.append(main)
+            parts.append(
+                text_op(
+                    462,
+                    680 - index * 30,
+                    side,
+                    font="F2" if index < 2 else "F1",
+                    size=10 if index < 2 else 11,
+                )
+            )
+        result = convert(make_pdf([b"\n".join(parts)]))
+
+        heading_texts = {
+            self._node_text(node) for node in semantic_nodes(result, "heading")
+        }
+        self.assertNotIn("Panel Emphasis continues here", heading_texts)
+        paragraph_texts = [
+            self._node_text(node) for node in semantic_nodes(result, "paragraph")
+        ]
+        self.assertLess(
+            next(index for index, text in enumerate(paragraph_texts) if "Panel Emphasis" in text),
+            next(index for index, text in enumerate(paragraph_texts) if "Main ruled row 1" in text),
+            paragraph_texts,
+        )
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertEqual(semantic_nodes(result, "list"), [])
+
+
+class NumberedHangingDisplayHeadingTests(unittest.TestCase):
+    @staticmethod
+    def _body() -> list[bytes]:
+        return [
+            text_op(
+                72,
+                678,
+                "According to the survey, ordinary explanatory prose follows here.",
+                font="F1",
+                size=11,
+            ),
+            text_op(
+                72,
+                662,
+                "A second body line confirms the regular reading flow.",
+                font="F1",
+                size=11,
+            ),
+            text_op(
+                72,
+                646,
+                "A third body line stabilizes the body font size.",
+                font="F1",
+                size=11,
+            ),
+        ]
+
+    @staticmethod
+    def _node_text(node: SemanticNode) -> str:
+        return "".join(
+            child.text or "" for child in node.walk() if child.kind == "text"
+        )
+
+    def test_numbered_hanging_display_wrap_is_one_provenanced_heading(self) -> None:
+        expected = (
+            "3. Perspective of supply and demand balance of wood pellets and cost "
+            "structure in Japan"
+        )
+        content = b" ".join([
+            # The marker occupies its own field. Both physical title lines begin
+            # at x=100, while the complete semantic heading begins at x=72.
+            text_op(72, 720, "3.", font="F2", size=13),
+            text_op(
+                100,
+                720,
+                "Perspective of supply and demand balance of wood pellets and cost",
+                font="F2",
+                size=13,
+            ),
+            text_op(100, 702, "structure in Japan", font="F2", size=13),
+            *self._body(),
+        ])
+        result = convert(make_pdf([content]))
+
+        headings = semantic_nodes(result, "heading")
+        self.assertEqual(len(headings), 1, result.markdown)
+        heading = headings[0]
+        self.assertEqual(self._node_text(heading), expected)
+        heading_lines = [
+            line for line in result.markdown.splitlines() if line.startswith("#")
+        ]
+        self.assertEqual(len(heading_lines), 1, result.markdown)
+        self.assertTrue(heading_lines[0].endswith(expected), result.markdown)
+        self.assertLess(
+            result.markdown.index(expected),
+            result.markdown.index("According to the survey"),
+        )
+        semantic_order = [
+            node.kind
+            for node in result.semantic.walk()
+            if node.kind in {"heading", "paragraph"}
+        ]
+        self.assertEqual(semantic_order[:2], ["heading", "paragraph"])
+        glyph_ids = {
+            glyph_id
+            for source in heading.sources
+            for glyph_id in source.glyph_ids
+        }
+        self.assertGreaterEqual(
+            len(glyph_ids),
+            len(expected.replace(" ", "")),
+            heading.to_dict(),
+        )
+        self.assertEqual({source.page for source in heading.sources}, {1})
+        self.assertEqual(semantic_nodes(result, "list"), [])
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+
+    def test_ordered_list_hanging_wrap_remains_a_list(self) -> None:
+        content = b" ".join([
+            text_op(72, 720, "3.", font="F2", size=13),
+            text_op(100, 720, "Required supporting documents", font="F2", size=13),
+            text_op(100, 702, "submitted with the application", font="F2", size=13),
+            text_op(72, 678, "4.", font="F2", size=13),
+            text_op(100, 678, "Approval records remain attached", font="F2", size=13),
+            text_op(100, 660, "for final review", font="F2", size=13),
+            text_op(
+                72,
+                630,
+                "Ordinary prose establishes the body size for this fixture.",
+                font="F1",
+                size=11,
+            ),
+            text_op(
+                72,
+                614,
+                "A second ordinary line keeps the body-size mode stable.",
+                font="F1",
+                size=11,
+            ),
+        ])
+        result = convert(make_pdf([content]))
+
+        self.assertEqual(semantic_nodes(result, "heading"), [], result.markdown)
+        lists = semantic_nodes(result, "list")
+        self.assertEqual(len(lists), 1, result.semantic.to_dict())
+        self.assertTrue(lists[0].attrs["ordered"])
+        items = semantic_nodes(result, "item")
+        self.assertEqual([item.attrs["marker"] for item in items], [3, 4])
+        self.assertLess(
+            result.markdown.index("submitted with the application"),
+            result.markdown.index("Approval records remain attached"),
+        )
+        self.assertTrue(all(source.glyph_ids for item in items for source in item.sources))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+    def test_wrapped_numbered_figure_caption_remains_figure_content(self) -> None:
+        content = b" ".join([
+            text_op(
+                72,
+                700,
+                "Figure 3. Perspective of supply and demand balance of wood pellets and cost",
+                font="F1",
+                size=11,
+            ),
+            text_op(126, 684, "structure in Japan", font="F1", size=11),
+            b"q 360 0 0 100 110 560 cm /Im1 Do Q",
+            text_op(
+                72,
+                520,
+                "Ordinary prose follows the preserved figure and its caption.",
+                font="F1",
+                size=11,
+            ),
+            text_op(
+                72,
+                504,
+                "A second body line keeps the document body size stable.",
+                font="F1",
+                size=11,
+            ),
+        ])
+        result = convert(
+            make_pdf(
+                [content],
+                xobjects={"Im1": image_xobject_rgb(2, 2, b"\x33\x66\x99" * 4)},
+            )
+        )
+
+        self.assertEqual(semantic_nodes(result, "heading"), [], result.markdown)
+        figures = semantic_nodes(result, "figure")
+        self.assertEqual(len(figures), 1, result.semantic.to_dict())
+        self.assertIn("Figure 3.", result.markdown)
+        self.assertLess(
+            result.markdown.index("Figure 3."),
+            result.markdown.index("Ordinary prose follows"),
+        )
+        self.assertEqual(semantic_nodes(result, "list"), [])
+        self.assertEqual(semantic_nodes(result, "table"), [])
 
 
 class HeadingLevelModeTests(unittest.TestCase):
