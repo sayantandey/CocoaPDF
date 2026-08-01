@@ -5339,6 +5339,7 @@ class MarkdownRenderer:
 
 		prose_rows = 0
 		side_texts: List[List[str]] = [[], []]
+		has_explicit_caption_fragment = False
 		for value in group:
 			chars = sorted(value[5].chars, key=lambda char: (char.x0, char.seq))
 			left_text = cleanup_spaces(
@@ -5359,6 +5360,11 @@ class MarkdownRenderer:
 			right_words = [word for word in right_text.split() if any(char.isalpha() for char in word)]
 			side_texts[0].append(left_text)
 			side_texts[1].append(right_text)
+			has_explicit_caption_fragment = (
+				has_explicit_caption_fragment
+				or self._is_explicit_caption_label(left_text)
+				or self._is_explicit_caption_label(right_text)
+			)
 			if (
 				len(left_words) >= 4
 				and len(right_words) >= 4
@@ -5366,6 +5372,13 @@ class MarkdownRenderer:
 				and sum(char.isalpha() for char in right_text) >= 18
 			):
 				prose_rows += 1
+		# A short caption sharing physical baselines with an adjacent prose
+		# column does not establish one coherent two-column reading band.  The
+		# compact detector cannot safely move surrounding body text across that
+		# semantic boundary; longer/anchored column models still handle layouts
+		# whose independent flow is corroborated beyond the caption.
+		if has_explicit_caption_fragment:
+			return False
 		if prose_rows < math.ceil(len(group) * 0.68):
 			return False
 

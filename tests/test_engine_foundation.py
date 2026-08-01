@@ -1368,6 +1368,43 @@ class FoundationDiagnosticTests(unittest.TestCase):
 		)
 		self.assertEqual([node for node in result.semantic.walk() if node.kind == "table"], [])
 
+	def test_compact_caption_and_adjacent_prose_remain_row_major(self):
+		left = [
+			"Figure 7. Coastal habitat survey overview",
+			"The caption continues with descriptive source details",
+			"Separate narrative begins below the visual material",
+			"Additional narrative explains the observed conditions",
+			"Field notes preserve the independent source sequence",
+			"Final narrative wording closes the compact section",
+		]
+		right = [
+			"A neighboring article column starts with ordinary prose",
+			"Its next sentence remains aligned beside the caption",
+			"Further explanation continues in physical row order",
+			"Independent observations stay beside the left narrative",
+			"Later discussion retains the producer reading sequence",
+			"The neighboring article ends with a complete sentence",
+		]
+		parts = []
+		for index, (left_text, right_text) in enumerate(zip(left, right)):
+			y = 740 - index * 16
+			parts.extend(
+				[
+					text_op(60, y, left_text, "F1", 10),
+					text_op(330, y, right_text, "F1", 10),
+				]
+			)
+		result = convert(make_pdf([b"\n".join(parts)]), ConvertOptions())
+		self.assertLess(
+			result.markdown.index(right[0]),
+			result.markdown.index(left[1]),
+			result.markdown,
+		)
+		self.assertEqual(
+			[node for node in result.semantic.walk() if node.kind == "table"],
+			[],
+		)
+
 	def test_qualified_columns_include_a_contiguous_one_sided_prose_tail(self):
 		parts = []
 		for index in range(18):
