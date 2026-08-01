@@ -25,6 +25,7 @@ from validation.benchmarks.opendataloader_bench.ci_runner import (
 	download_candidate_artifact,
 	evaluate_gate,
 	load_policy,
+	score_predictions,
 	validate_candidate_output,
 	verify_corpus,
 	verify_privileged_boundary,
@@ -111,6 +112,74 @@ class FakeApi:
 
 
 class BenchmarkPolicyTests(unittest.TestCase):
+	def test_trusted_scorer_uses_absolute_evaluator_paths(self):
+		with tempfile.TemporaryDirectory() as directory:
+			root = Path(directory)
+			benchmark_root = root / "benchmark"
+			benchmark_root.mkdir()
+			engine_root = root / "prediction" / "cocoapdf"
+			prediction = engine_root / "markdown" / "001.md"
+			prediction.parent.mkdir(parents=True)
+			prediction.write_text("prediction\n", encoding="utf-8")
+			args = argparse.Namespace(
+				adapter=root / "adapter.py",
+				artifact_root=root / "artifact",
+				benchmark_root=Path("benchmark"),
+				cache_hit="false",
+				cache_key="cache-key",
+				candidate_output=engine_root,
+				corpus_root=root / "corpus",
+				policy=root / "policy.json",
+			)
+			policy = {
+				"adapter": {"sha256": "adapter-sha"},
+				"benchmark": {
+					"commit": SHA,
+					"corpus": {},
+					"evaluator_files": {},
+					"repository": "example/benchmark",
+					"tree": TRUSTED_SHA,
+				},
+				"worker": {"commit": SHA},
+			}
+			evaluation = {
+				"documents": [{"id": "001"}],
+				"metrics": {"missing_predictions": 0, "score": {"overall_mean": 0.9}},
+			}
+			context = {
+				"candidate": {"head_sha": SHA},
+				"run": {"attempt": 1, "event": "push", "id": 1},
+				"trusted_harness_sha": TRUSTED_SHA,
+			}
+			old_cwd = Path.cwd()
+			try:
+				os.chdir(root)
+				with patch("validation.benchmarks.opendataloader_bench.ci_runner.load_policy", return_value=policy), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner.verify_benchmark"), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner.verify_corpus", return_value={"001"}), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner._sha256", return_value="adapter-sha"), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner.load_run_context", return_value=context), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner.validate_candidate_output", return_value=([prediction], [])), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner._read_json", return_value={}), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner.validate_evaluation", return_value=evaluation), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner.evaluate_gate", return_value={"passed": True}), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner._copy_lf"), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner._write_json"), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner._manifest"), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner.platform.machine", return_value="test"), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner.platform.platform", return_value="test"), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner.platform.python_version", return_value="test"), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner.platform.python_implementation", return_value="test"), \
+					patch("validation.benchmarks.opendataloader_bench.ci_runner.subprocess.run") as run:
+					self.assertTrue(score_predictions(args))
+			finally:
+				os.chdir(old_cwd)
+			command = run.call_args.args[0]
+			options = run.call_args.kwargs
+			self.assertEqual(Path(command[1]), benchmark_root / "src" / "evaluator.py")
+			self.assertEqual(Path(options["cwd"]), benchmark_root)
+			self.assertEqual(Path(options["env"]["PYTHONPATH"]), benchmark_root / "src")
+
 	def test_adapter_does_not_export_unscored_image_assets(self):
 		with tempfile.TemporaryDirectory() as directory:
 			root = Path(directory)
@@ -829,7 +898,7 @@ class WorkflowBoundaryTests(unittest.TestCase):
 		runner = (ROOT / "validation/benchmarks/opendataloader_bench/ci_runner.py").read_text(encoding="utf-8")
 		self.assertNotIn("Path(__file__).resolve().parents[3]", runner)
 		self.assertNotIn("environment = os.environ.copy()", runner)
-		self.assertIn('"PYTHONPATH": str(args.benchmark_root / "src")', runner)
+		self.assertIn('"PYTHONPATH": str(benchmark_root / "src")', runner)
 
 	def test_actions_are_full_sha_pinned_and_badge_is_fixed_path(self):
 		workflows = "\n".join(
