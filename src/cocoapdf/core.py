@@ -3316,6 +3316,10 @@ class MarkdownRenderer:
 				)
 			)
 			lines = self._split_lines_on_column_gaps(page, lines)
+			# A display/prose separator can expose the lowercase first-line target
+			# that was previously fused with the title rail.  Re-run the idempotent
+			# drop-cap repair on those newly independent physical lines.
+			lines = self._repair_drop_cap_lines(lines)
 			lines = self._order_column_bands(page, lines)
 			lines = self._order_directional_regions(lines)
 			self.lines_by_page[page] = lines
@@ -4855,12 +4859,145 @@ class MarkdownRenderer:
 				continue
 			out.append((sep_x, y0, y1))
 		out.extend(self._unruled_prose_column_infos(page, lines))
+		out.extend(self._side_display_prose_column_infos(page, lines))
 		deduped: List[Tuple[float, float, float]] = []
 		for sep_x, y0, y1 in sorted(out, key=lambda item: (item[1], item[0])):
 			if any(abs(sep_x - x) <= 12 and not (y1 < oy0 or y0 > oy1) for x, oy0, oy1 in deduped):
 				continue
 			deduped.append((sep_x, y0, y1))
 		return deduped
+
+	def _side_display_prose_column_infos(
+		self,
+		page: int,
+		lines: Sequence[Line],
+	) -> List[Tuple[float, float, float]]:
+		"""Recover a display-title rail beside one sustained prose stream.
+
+		Editorial reports sometimes reserve a narrow left rail for a large,
+		multi-line section title while the article starts beside it and continues
+		down the page.  Baseline clustering can then splice title fragments into
+		the prose.  This is not a general two-column layout: admission requires a
+		sparse, bold display cohort, an independently stable body column, and no
+		ordinary prose stream in the title rail.
+		"""
+		width, height = self.conv.page_sizes.get(page, (612.0, 792.0))
+		if height < width * 1.18 or len(lines) < 14:
+			return []
+		body_size = self._body_font_size(lines)
+		if body_size <= 0:
+			return []
+
+		display_fragments: List[Tuple[Line, List[Char]]] = []
+		body_fragments: List[Tuple[Line, List[Char]]] = []
+		for line in lines:
+			if line.writing_mode != "horizontal":
+				continue
+			visible = [char for char in ordered_line_chars(line) if char.text.strip()]
+			display = [
+				char
+				for char in visible
+				if char.bold
+				and char.size >= max(body_size * 2.10, body_size + 10.0)
+			]
+			if display:
+				display_fragments.append((line, display))
+			body = [
+				char
+				for char in visible
+				if not char.bold
+				and abs(char.size - body_size) <= max(0.65, body_size * 0.07)
+			]
+			if body:
+				body_fragments.append((line, body))
+
+		if not 2 <= len(display_fragments) <= 4 or len(body_fragments) < 12:
+			return []
+		display_chars = [char for _line, chars in display_fragments for char in chars]
+		if sum(character.isalpha() for char in display_chars for character in char.text) < 12:
+			return []
+		display_x0 = min(char.x0 for char in display_chars)
+		display_x1 = max(char.x1 for char in display_chars)
+		display_y0 = min(char.y0 for char in display_chars)
+		display_y1 = max(char.y1 for char in display_chars)
+		if (
+			display_x0 > width * 0.30
+			or display_x1 > width * 0.47
+			or display_y0 > height * 0.22
+			or display_y1 > height * 0.33
+		):
+			return []
+
+		body_starts = [min(char.x0 for char in chars) for _line, chars in body_fragments]
+		body_start = median(body_starts)
+		stable_body = [
+			(line, chars)
+			for line, chars in body_fragments
+			if abs(min(char.x0 for char in chars) - body_start) <= max(12.0, body_size * 1.25)
+		]
+		if len(stable_body) < 10 or body_start < width * 0.48:
+			return []
+		if display_x1 + max(body_size * 2.0, width * 0.04) >= body_start:
+			return []
+		body_y0 = min(min(char.y0 for char in chars) for _line, chars in stable_body)
+		body_y1 = max(max(char.y1 for char in chars) for _line, chars in stable_body)
+		if body_y1 - body_y0 < height * 0.48:
+			return []
+		if max(body_y0, display_y0) > min(body_y1, display_y1):
+			return []
+
+		separator = (display_x1 + body_start) / 2.0
+		left_body_rows = [
+			(line, chars)
+			for line, chars in body_fragments
+			if sum(
+				character.isalpha()
+				for char in chars
+				if (char.x0 + char.x1) / 2 < separator
+				for character in char.text
+			) >= 16
+		]
+		if len(left_body_rows) >= 3:
+			return []
+		prose_rows = 0
+		for _line, chars in stable_body:
+			text = cleanup_spaces("".join(char.text for char in chars))
+			if (
+				sum(character.isalpha() for character in text) >= 18
+				and any(character.islower() for character in text)
+			):
+				prose_rows += 1
+		if prose_rows < math.ceil(len(stable_body) * 0.65):
+			return []
+		if any(
+			self._is_explicit_caption_label(
+				cleanup_spaces("".join(char.text for char in chars))
+			)
+			for _line, chars in stable_body
+		):
+			return []
+
+		title_box = (display_x0, display_y0, display_x1, display_y1)
+		if any(
+			image.page == page
+			and rects_intersect(
+				title_box,
+				(image.x0 - body_size, image.y0 - body_size, image.x1 + body_size, image.y1 + body_size),
+			)
+			for image in self.conv.images
+		):
+			return []
+		coextensive_vertical_rules = [
+			segment
+			for segment in self.conv.segments
+			if segment.page == page
+			and segment.vertical
+			and segment.length >= (body_y1 - body_y0) * 0.45
+			and display_x0 - body_size <= (segment.x0 + segment.x1) / 2 <= body_start + body_size
+		]
+		if len(coextensive_vertical_rules) >= 2:
+			return []
+		return [(separator, min(body_y0, display_y0), body_y1)]
 
 	def _unruled_prose_column_infos(
 		self,
@@ -7523,11 +7660,116 @@ class MarkdownRenderer:
 			return False
 		return body_gap > max(wrap_gap * 1.12, lower.size * 1.35)
 
+	def _is_standalone_display_marker_continuation(
+		self,
+		upper: Line,
+		lower: Line,
+		following: Optional[Line],
+	) -> bool:
+		"""Join a standalone chapter marker to its governed display title."""
+		if following is None or upper.page != lower.page or lower.page != following.page:
+			return False
+		upper_text = plain_text(line_text_tokens(upper)).strip()
+		lower_text = plain_text(line_text_tokens(lower)).strip()
+		if re.fullmatch(r"(?:\d{1,3}|[IVXLCDM]+)[.)]?", upper_text, re.I) is None:
+			return False
+		if (
+			not lower_text
+			or not lower_text[:1].isupper()
+			or not 1 <= len(lower_text.split()) <= 10
+			or lower_text[-1:] in ".!?;:"
+			or self._is_explicit_caption_label(lower_text)
+			or self._is_toc_navigation_row(lower, lower_text)
+			or upper.bold_ratio < 0.75
+			or lower.bold_ratio < 0.75
+		):
+			return False
+		page_lines = self.lines_by_page.get(upper.page, [])
+		body_size = self._body_font_size(page_lines)
+		if (
+			body_size <= 0
+			or lower.size < body_size * 1.45
+			or upper.size < lower.size * 1.03
+			or upper.size > lower.size * 1.60
+			or abs(upper.x0 - lower.x0) > max(8.0, lower.size * 0.55)
+			or self._has_adjacent_ordered_peer(upper, upper_text)
+		):
+			return False
+		gap = line_flow_gap(upper, lower)
+		if gap <= 0 or gap > max(upper.size * 1.65, 58.0):
+			return False
+		if self._display_wrap_peer(lower, following):
+			return True
+		following_text = plain_text(line_text_tokens(following)).strip()
+		return bool(
+			following_text
+			and following.bold_ratio < 0.35
+			and following.size <= lower.size * 0.82
+			and abs(following.x0 - lower.x0) <= max(9.0, body_size * 0.80)
+			and len(following_text.split()) >= 5
+			and line_flow_gap(lower, following) > lower.size * 1.25
+		)
+
+	def _is_numbered_outdented_display_continuation(
+		self,
+		upper: Line,
+		lower: Line,
+		following: Optional[Line],
+	) -> bool:
+		"""Join a numbered display line to one full-margin title continuation."""
+		if following is None or upper.page != lower.page or lower.page != following.page:
+			return False
+		upper_text = plain_text(line_text_tokens(upper)).strip()
+		lower_text = plain_text(line_text_tokens(lower)).strip()
+		following_text = plain_text(line_text_tokens(following)).strip()
+		if re.match(r"^\d{1,3}(?:\.\d+){0,5}\.\s+[A-Z]", upper_text) is None:
+			return False
+		if any(
+			self._is_explicit_caption_label(text)
+			or self._is_toc_navigation_row(candidate, text)
+			for candidate, text in ((upper, upper_text), (lower, lower_text))
+		):
+			return False
+		if (
+			not 4 <= len(upper_text.split()) <= 12
+			or not 5 <= len(lower_text.split()) <= 12
+			or len(cleanup_spaces("%s %s" % (upper_text, lower_text))) > 140
+			or lower_text[-1:] in ".!?;:"
+			or upper.bold_ratio < 0.75
+			or lower.bold_ratio < 0.75
+			or abs(upper.size - lower.size) > max(0.65, upper.size * 0.06)
+		):
+			return False
+		body_size = self._body_font_size(self.lines_by_page.get(upper.page, []))
+		outdent = upper.x0 - lower.x0
+		if (
+			body_size <= 0
+			or not body_size * 0.85 <= outdent <= body_size * 2.25
+			or abs(following.x0 - lower.x0) > max(7.0, body_size * 0.65)
+			or abs(following.size - body_size) > max(0.65, body_size * 0.07)
+			or following.bold_ratio >= 0.35
+			or len(following_text.split()) < 5
+			or self._has_adjacent_ordered_peer(upper, upper_text)
+		):
+			return False
+		wrap_gap = line_flow_gap(upper, lower)
+		body_gap = line_flow_gap(lower, following)
+		return bool(
+			wrap_gap > 0
+			and body_gap > 0
+			and 0.72 <= body_gap / wrap_gap <= 1.45
+			and wrap_gap <= max(upper.size * 2.10, 30.0)
+		)
+
 	def _is_heading_continuation(self, prev: Line, cur: Line, nxt: Optional[Line]) -> bool:
 		prev_tagged = self._tagged_heading_level(prev)
 		cur_tagged = self._tagged_heading_level(cur)
 		if prev_tagged is not None or cur_tagged is not None:
 			return prev_tagged is not None and prev_tagged == cur_tagged and prev.page == cur.page
+		if self._is_standalone_display_marker_continuation(prev, cur, nxt):
+			return True
+		if self._is_numbered_outdented_display_continuation(prev, cur, nxt):
+			return True
 		if self._is_numbered_hanging_display_continuation(prev, cur, nxt):
 			return True
 		if not self._display_wrap_peer(prev, cur):

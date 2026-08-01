@@ -3988,6 +3988,131 @@ class NumberedHangingDisplayHeadingTests(unittest.TestCase):
         self.assertEqual(semantic_nodes(result, "list"), [])
         self.assertEqual(semantic_nodes(result, "table"), [])
 
+    def test_standalone_chapter_marker_joins_its_display_title(self) -> None:
+        content = b" ".join([
+            text_op(72, 740, "4", font="F2", size=25),
+            text_op(72, 706, "Basis Fields", font="F2", size=17),
+            text_op(72, 660, "Ordinary explanatory prose begins below the title.", size=11),
+            text_op(72, 644, "A second body line stabilizes the document font size.", size=11),
+            text_op(72, 628, "A third body line confirms the governed content block.", size=11),
+        ])
+        result = convert(make_pdf([content]))
+
+        headings = semantic_nodes(result, "heading")
+        self.assertEqual(len(headings), 1, result.markdown)
+        self.assertEqual(self._node_text(headings[0]), "4 Basis Fields")
+        self.assertTrue(all(source.glyph_ids for source in headings[0].sources))
+        self.assertIn('id="4-basis-fields"', result.html)
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+
+    def test_repeated_display_markers_do_not_merge_navigation_peers(self) -> None:
+        content = b" ".join([
+            text_op(72, 740, "1", font="F2", size=25),
+            text_op(72, 706, "Installation", font="F2", size=17),
+            text_op(72, 650, "2", font="F2", size=25),
+            text_op(72, 616, "Configuration", font="F2", size=17),
+            text_op(96, 570, "Ordinary prose uses a deliberately different content margin.", size=11),
+            text_op(96, 554, "A second ordinary line keeps the size mode stable.", size=11),
+        ])
+        result = convert(make_pdf([content]))
+
+        heading_texts = [self._node_text(node) for node in semantic_nodes(result, "heading")]
+        self.assertNotIn("1 Installation", heading_texts)
+        self.assertNotIn("2 Configuration", heading_texts)
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+    def test_numbered_outdented_title_continuation_is_one_heading(self) -> None:
+        expected = (
+            "1. Shipping as a vector for marine species "
+            "List of regional ports is provided in Appendix 3"
+        )
+        content = b" ".join([
+            text_op(90, 720, "1. Shipping as a vector for marine species", font="F2", size=12),
+            text_op(72, 698, "List of regional ports is provided in Appendix 3", font="F2", size=12),
+            text_op(72, 676, "Ordinary prose begins at the full content margin below it.", size=12),
+            text_op(72, 654, "A second body line confirms the producer's regular leading.", size=12),
+            text_op(72, 632, "A third ordinary line stabilizes the body-size mode.", size=12),
+        ])
+        result = convert(make_pdf([content]))
+
+        headings = semantic_nodes(result, "heading")
+        self.assertEqual(len(headings), 1, result.markdown)
+        self.assertEqual(self._node_text(headings[0]), expected)
+        self.assertTrue(all(source.glyph_ids for source in headings[0].sources))
+        self.assertEqual(semantic_nodes(result, "list"), [])
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+    def test_outdented_bold_subtitle_without_governed_margin_stays_separate(self) -> None:
+        content = b" ".join([
+            text_op(90, 720, "1. Shipping policy and operational controls", font="F2", size=12),
+            text_op(72, 698, "Background notes for participating organizations", font="F2", size=12),
+            text_op(108, 676, "Ordinary prose starts on a distinct nested content margin.", size=12),
+            text_op(108, 654, "A second body line confirms that independent margin.", size=12),
+            text_op(108, 632, "A third ordinary line keeps the body-size mode stable.", size=12),
+        ])
+        result = convert(make_pdf([content]))
+
+        heading_texts = [self._node_text(node) for node in semantic_nodes(result, "heading")]
+        self.assertNotIn(
+            "1. Shipping policy and operational controls Background notes for participating organizations",
+            heading_texts,
+        )
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+
+class SideDisplayProseColumnTests(unittest.TestCase):
+    @staticmethod
+    def _right_column() -> list[bytes]:
+        return [
+            text_op(
+                330,
+                740 - index * 20,
+                "Right article row %02d carries ordinary prose." % index,
+                size=10,
+            )
+            for index in range(28)
+        ]
+
+    @staticmethod
+    def _node_text(node: SemanticNode) -> str:
+        return "".join(child.text or "" for child in node.walk() if child.kind == "text")
+
+    def test_display_title_rail_precedes_the_independent_prose_stream(self) -> None:
+        content = b" ".join([
+            text_op(72, 740, "Executive", font="F2", size=30),
+            text_op(72, 700, "Summary", font="F2", size=30),
+            *self._right_column(),
+        ])
+        result = convert(make_pdf([content]))
+
+        headings = semantic_nodes(result, "heading")
+        self.assertEqual(len(headings), 1, result.markdown)
+        self.assertEqual(self._node_text(headings[0]), "Executive Summary")
+        self.assertLess(result.markdown.index("Executive Summary"), result.markdown.index("Right article row 00"))
+        self.assertIn('id="executive-summary"', result.html)
+        self.assertTrue(all(source.glyph_ids for source in headings[0].sources))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+
+    def test_left_prose_rows_veto_the_sparse_title_rail_model(self) -> None:
+        content = b" ".join([
+            text_op(72, 740, "Executive", font="F2", size=30),
+            text_op(72, 700, "Summary", font="F2", size=30),
+            *self._right_column(),
+            text_op(72, 620, "Left card row zero carries prose.", size=10),
+            text_op(72, 600, "Left card row one carries prose.", size=10),
+            text_op(72, 580, "Left card row two carries prose.", size=10),
+        ])
+        result = convert(make_pdf([content]))
+
+        self.assertLess(
+            result.markdown.index("Right article row 00"),
+            result.markdown.index("Left card row zero"),
+            result.markdown,
+        )
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
 
 class HeadingLevelModeTests(unittest.TestCase):
     def _heading_document(self) -> bytes:
