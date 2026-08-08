@@ -303,6 +303,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "page-scope-review"
       },
       "children": [
@@ -764,6 +765,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "selected-evidence-page"
       },
       "children": [

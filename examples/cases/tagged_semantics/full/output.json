@@ -26,11 +26,11 @@
       "language": "en-US",
       "bindings": 16,
       "conflicts": [
-        "TAGGED_GEOMETRY_AMBIGUOUS:tag-5",
-        "TAGGED_GEOMETRY_AMBIGUOUS:tag-6",
+        "TAGGED_GEOMETRY_LOW_SCORE:tag-5",
+        "TAGGED_GEOMETRY_LOW_SCORE:tag-6",
         "TAGGED_GEOMETRY_AMBIGUOUS:tag-7",
-        "TAGGED_GEOMETRY_AMBIGUOUS:tag-10",
-        "TAGGED_GEOMETRY_AMBIGUOUS:tag-11",
+        "TAGGED_GEOMETRY_LOW_SCORE:tag-10",
+        "TAGGED_GEOMETRY_LOW_SCORE:tag-11",
         "TAGGED_GEOMETRY_AMBIGUOUS:tag-12",
         "TAGGED_GEOMETRY_LOW_SCORE:tag-14",
         "TAGGED_GEOMETRY_AMBIGUOUS:tag-16",
@@ -60,6 +60,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "tagged-semantics-review",
         "tag_role": "H2",
         "raw_tag_role": "H2",
@@ -1193,6 +1194,38 @@
           "detail": "",
           "page": null,
           "data": {}
+        },
+        {
+          "kind": "tagged_structure_parent_tree_validated",
+          "confidence": 0.995,
+          "detail": "all materialized MCID claims match one ParentTree-authorized structure subtree",
+          "page": null,
+          "data": {
+            "tagged_node": "tag-14",
+            "claim_count": 4,
+            "authorized_mcid_claims": [
+              {
+                "page": 1,
+                "mcid": 5,
+                "struct_parents": 0
+              },
+              {
+                "page": 1,
+                "mcid": 6,
+                "struct_parents": 0
+              },
+              {
+                "page": 1,
+                "mcid": 7,
+                "struct_parents": 0
+              },
+              {
+                "page": 1,
+                "mcid": 8,
+                "struct_parents": 0
+              }
+            ]
+          }
         }
       ],
       "sources": [
@@ -1255,11 +1288,11 @@
     }
   ],
   "warnings": [
-    "TAGGED_GEOMETRY_AMBIGUOUS:tag-5",
-    "TAGGED_GEOMETRY_AMBIGUOUS:tag-6",
+    "TAGGED_GEOMETRY_LOW_SCORE:tag-5",
+    "TAGGED_GEOMETRY_LOW_SCORE:tag-6",
     "TAGGED_GEOMETRY_AMBIGUOUS:tag-7",
-    "TAGGED_GEOMETRY_AMBIGUOUS:tag-10",
-    "TAGGED_GEOMETRY_AMBIGUOUS:tag-11",
+    "TAGGED_GEOMETRY_LOW_SCORE:tag-10",
+    "TAGGED_GEOMETRY_LOW_SCORE:tag-11",
     "TAGGED_GEOMETRY_AMBIGUOUS:tag-12",
     "TAGGED_GEOMETRY_LOW_SCORE:tag-14",
     "TAGGED_GEOMETRY_AMBIGUOUS:tag-16",

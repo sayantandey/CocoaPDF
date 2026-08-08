@@ -10,8 +10,11 @@ from cocoapdf import convert
 from cocoapdf.cli import _format_payload
 from cocoapdf.content.runtime import _attach_marked_content
 from cocoapdf.core import (
+    Char,
     ConvertOptions,
     Converter,
+    Font,
+    Line,
     MarkdownRenderer,
     painted_path_contains_point,
 )
@@ -24,10 +27,24 @@ from cocoapdf.markdown.semantic import render_semantic_markdown
 from cocoapdf.reporting.report import attach_semantic_document
 from cocoapdf.semantics.navigation import _best_heading_target
 from cocoapdf.semantics.graph import _project_table_alignments
-from cocoapdf.semantics.output import render_reconciled_outputs
-from cocoapdf.semantics.reconcile import _tagged_list_node, reconcile_tagged_content
+from cocoapdf.semantics.notes import enrich_notes_references_crossrefs
+from cocoapdf.semantics.output import (
+    _overlay_changed_blocks,
+    render_reconciled_outputs,
+)
+from cocoapdf.semantics.reconcile import (
+    _apply_tagged_child_order,
+    _apply_tagged_order,
+    _apply_tagged_prior,
+    _binding_score,
+    _materialize_tagged_structures,
+    _merge_same_owner_paragraph_events,
+    _tagged_list_node,
+    _tagged_table_node,
+    reconcile_tagged_content,
+)
 from cocoapdf.semantics.source import inline_nodes_from_tokens
-from cocoapdf.semantics.tables import _prune_vacuous_narrow_edge_columns
+from cocoapdf.semantics.tables import _cell_blocks, _prune_vacuous_narrow_edge_columns
 from cocoapdf.semantics.tagged import parse_tagged_structure
 from cocoapdf.synthetic import image_xobject_rgb, line_op, make_pdf, rect_fill_op, text_op
 from cocoapdf.text.bidi import reorder_text, reorder_tokens
@@ -950,6 +967,216 @@ class TableGraphTests(unittest.TestCase):
 
 
 class TaggedReconciliationIntegrationTests(unittest.TestCase):
+    @staticmethod
+    def _tagged_paragraph_pdf(
+        groups,
+        *,
+        validated: bool = True,
+        within_gap: float = 12.0,
+        boundary_gap: float = 16.0,
+    ) -> bytes:
+        operations = []
+        owners = []
+        y = 720.0
+        mcid = 0
+        for group_index, group in enumerate(groups):
+            group_mcids = []
+            for line_index, text in enumerate(group):
+                operations.append(
+                    b"/P <</MCID %d>> BDC " % mcid
+                    + text_op(72, y, text, "F1", 10)
+                    + b" EMC"
+                )
+                group_mcids.append(mcid)
+                mcid += 1
+                if line_index + 1 < len(group):
+                    y -= within_gap
+            owners.append(group_mcids)
+            if group_index + 1 < len(groups):
+                y -= boundary_gap
+
+        content = b"\n".join(operations)
+        owner_numbers = [5 + index for index in range(len(groups))]
+        parent_tree_number = 5 + len(groups)
+        root_number = parent_tree_number + 1
+        catalog_number = root_number + 1
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Page /Parent 4 0 R /StructParents 0 /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        ]
+        for owner_number, group_mcids in zip(owner_numbers, owners):
+            kids = b" ".join(str(value).encode("ascii") for value in group_mcids)
+            objects.append(
+                b"<< /Type /StructElem /S /P /P %d 0 R /Pg 3 0 R /K [%s] >>"
+                % (root_number, kids)
+            )
+        parent_entries = []
+        for owner_number, group_mcids in zip(owner_numbers, owners):
+            parent_entries.extend([owner_number] * len(group_mcids))
+        parent_refs = b" ".join(
+            b"%d 0 R" % value for value in parent_entries
+        )
+        objects.append(
+            b"<< /Nums [0 [%s]] >>" % parent_refs if validated else b"<< >>"
+        )
+        root = b"<< /Type /StructTreeRoot /K [%s]" % b" ".join(
+            b"%d 0 R" % value for value in owner_numbers
+        )
+        if validated:
+            root += b" /ParentTree %d 0 R" % parent_tree_number
+        root += b" >>"
+        objects.append(root)
+        objects.append(
+            b"<< /Type /Catalog /Pages 4 0 R /StructTreeRoot %d 0 R /MarkInfo << /Marked true >> >>"
+            % root_number
+        )
+        return render_pdf(objects, catalog_number)
+
+    def test_validated_sibling_paragraph_tags_recover_block_boundaries(self) -> None:
+        groups = [
+            ("Alpha paragraph begins", "and continues here."),
+            ("Bravo paragraph begins", "and continues here."),
+            ("Charlie paragraph begins", "and continues here."),
+            ("Delta paragraph begins", "and continues here."),
+        ]
+        result = convert(self._tagged_paragraph_pdf(groups))
+        paragraphs = semantic_nodes(result, "paragraph")
+        self.assertEqual(len(paragraphs), 4, result.semantic.to_dict())
+        self.assertEqual(
+            [
+                " ".join(
+                    " ".join(
+                        node.text or ""
+                        for node in paragraph.walk()
+                        if node.kind == "text"
+                    ).split()
+                )
+                for paragraph in paragraphs
+            ],
+            [" ".join(group) for group in groups],
+        )
+        self.assertTrue(
+            all("TAGGED_BLOCK_BOUNDARY_RECOVERED" in node.warnings for node in paragraphs)
+        )
+        self.assertTrue(
+            all(
+                any(item.kind == "tagged_block_boundary_geometry" for item in node.evidence)
+                for node in paragraphs
+            )
+        )
+        self.assertTrue(all(node.sources and node.sources[0].mcids for node in paragraphs))
+        self.assertEqual(result.markdown.count("\n\n"), 3)
+        self.assertEqual(result.html.count("<p "), 4)
+        payload = json.loads(_format_payload(result, "json"))
+        recovered = [
+            node
+            for node in payload["semantic_document"]["children"]
+            if node["kind"] == "paragraph"
+        ]
+        self.assertEqual(len(recovered), 4)
+
+    def test_unvalidated_sibling_tags_cannot_split_geometry(self) -> None:
+        groups = [
+            ("Alpha line one", "Alpha line two"),
+            ("Bravo line one", "Bravo line two"),
+            ("Charlie line one", "Charlie line two"),
+            ("Delta line one", "Delta line two"),
+        ]
+        result = convert(self._tagged_paragraph_pdf(groups, validated=False))
+        self.assertEqual(len(semantic_nodes(result, "paragraph")), 1, result.semantic.to_dict())
+        self.assertFalse(
+            any(
+                "TAGGED_BLOCK_BOUNDARY_RECOVERED" in node.warnings
+                for node in result.semantic.walk()
+            )
+        )
+
+    def test_uniform_per_line_paragraph_tags_do_not_manufacture_boundaries(self) -> None:
+        groups = [("Row %d remains one geometric paragraph" % index,) for index in range(1, 7)]
+        result = convert(
+            self._tagged_paragraph_pdf(
+                groups,
+                within_gap=12.0,
+                boundary_gap=12.0,
+            )
+        )
+        self.assertEqual(len(semantic_nodes(result, "paragraph")), 1, result.semantic.to_dict())
+        self.assertFalse(
+            any(
+                "TAGGED_BLOCK_BOUNDARY_RECOVERED" in node.warnings
+                for node in result.semantic.walk()
+            )
+        )
+
+    def test_one_validated_paragraph_repairs_style_only_split(self) -> None:
+        result = convert(
+            self._tagged_paragraph_pdf(
+                (("Parameters:", "x = 2 + 3"),),
+                boundary_gap=12.0,
+            )
+        )
+        paragraphs = semantic_nodes(result, "paragraph")
+        self.assertEqual(len(paragraphs), 1, result.semantic.to_dict())
+        self.assertIn("Parameters:", result.markdown)
+        self.assertIn("x = 2 + 3", result.markdown)
+        evidence = next(
+            item
+            for item in paragraphs[0].evidence
+            if item.kind == "tagged_block_boundary_geometry"
+        )
+        self.assertEqual(evidence.data["action"], "merge")
+        self.assertIn("TAGGED_BLOCK_BOUNDARY_RECOVERED", paragraphs[0].warnings)
+
+    def test_coarse_single_paragraph_tag_does_not_merge_real_paragraphs(self) -> None:
+        font = Font(name="F1", base_font="Helvetica")
+
+        def line(text: str, y: float, mcid: int) -> Line:
+            return Line(
+                chars=[Char(
+                    text=text,
+                    x0=72.0,
+                    y0=y,
+                    x1=300.0,
+                    y1=y + 10.0,
+                    size=10.0,
+                    font=font,
+                    page=1,
+                    seq=mcid + 1,
+                    mc=({"tag": "P", "mcid": mcid},),
+                )],
+                page=1,
+                seq=mcid + 1,
+            )
+
+        previous = SimpleNamespace(
+            page=1,
+            rank=1.0,
+            kind="paragraph",
+            lines=[line("The first paragraph ends with a complete sentence.", 72.0, 0)],
+            attrs={},
+            legacy_markdown="",
+            semantic={},
+        )
+        current = SimpleNamespace(
+            page=1,
+            rank=2.0,
+            kind="paragraph",
+            lines=[line("The second paragraph begins a distinct subject.", 89.0, 1)],
+            attrs={},
+            legacy_markdown="",
+            semantic={},
+        )
+        merged = _merge_same_owner_paragraph_events(
+            SimpleNamespace(_render_paragraph=lambda lines: ""),
+            previous,
+            current,
+            {"owner": {"parent_id": "root"}},
+            {(1, 0): "owner", (1, 1): "owner"},
+        )
+        self.assertIsNone(merged)
+
     def test_rolemap_and_actualtext_drive_authoritative_heading(self) -> None:
         content = b"/Span <</MCID 0>> BDC BT /F1 12 Tf 1 0 0 1 72 720 Tm (Wrong) Tj ET EMC"
         actual = b"<FEFF0043006F00720072006500630074>"
@@ -1284,6 +1511,49 @@ class TaggedReconciliationIntegrationTests(unittest.TestCase):
         self.assertIn('id="period"', result.html)
         self.assertIn('headers="period"', result.html)
 
+    def test_tagged_table_with_reversed_structure_rows_uses_physical_order(self) -> None:
+        content = (
+            b"/Span <</MCID 0>> BDC BT /F1 12 Tf 1 0 0 1 72 720 Tm (Header) Tj ET EMC "
+            b"/Span <</MCID 1>> BDC BT /F1 12 Tf 1 0 0 1 72 680 Tm (Left) Tj ET EMC "
+            b"/Span <</MCID 2>> BDC BT /F1 12 Tf 1 0 0 1 240 680 Tm (Right) Tj ET EMC"
+        )
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Page /Parent 4 0 R /StructParents 0 /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /StructElem /S /Table /P 13 0 R /K [7 0 R 6 0 R] >>",
+            b"<< /Type /StructElem /S /TR /P 5 0 R /K [8 0 R] >>",
+            b"<< /Type /StructElem /S /TR /P 5 0 R /K [9 0 R 10 0 R] >>",
+            b"<< /Type /StructElem /S /TH /P 6 0 R /Pg 3 0 R /K 0 >>",
+            b"<< /Type /StructElem /S /TD /P 7 0 R /Pg 3 0 R /K 1 >>",
+            b"<< /Type /StructElem /S /TD /P 7 0 R /Pg 3 0 R /K 2 >>",
+            b"<< /Nums [0 [8 0 R 9 0 R 10 0 R]] >>",
+            b"<< >>",
+            b"<< /Type /StructTreeRoot /K [5 0 R] /ParentTree 11 0 R >>",
+            b"<< /Type /Catalog /Pages 4 0 R /StructTreeRoot 13 0 R /MarkInfo << /Marked true >> >>",
+        ]
+        result = convert(render_pdf(objects, 14))
+        table = semantic_nodes(result, "table")[0]
+        rows = [child for child in table.children if child.kind == "table_row"]
+        self.assertEqual([node_text(row) for row in rows], ["Header", "LeftRight"])
+        self.assertEqual([row.attrs["role"] for row in rows], ["header", "body"])
+        self.assertIn("TAGGED_TABLE_ORDER_GEOMETRY_REPAIRED", table.warnings)
+        order_evidence = next(
+            evidence
+            for evidence in table.evidence
+            if evidence.kind == "tagged_table_geometry_order"
+        )
+        self.assertEqual(len(order_evidence.data["physical_row_ids"]), 2)
+        self.assertNotEqual(
+            order_evidence.data["original_row_ids"],
+            order_evidence.data["physical_row_ids"],
+        )
+        self.assertTrue(all(cell.sources[0].mcids for cell in semantic_nodes(result, "table_cell")))
+        self.assertLess(result.markdown.index("Header"), result.markdown.index("Left"))
+        self.assertLess(result.html.index("Header"), result.html.index("Left"))
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+
     def test_classmap_attribute_arrays_apply_table_spans_and_scope(self) -> None:
         content = (
             b"/Span <</MCID 0>> BDC BT /F1 12 Tf 1 0 0 1 72 720 Tm (Header) Tj ET EMC "
@@ -1445,6 +1715,153 @@ class AdvancedNavigationAndNotesTests(unittest.TestCase):
         self.assertEqual(len(references), 1)
         self.assertTrue(any(node.attrs.get("target_id") == references[0].id for node in crossrefs))
         self.assertIn("#ref-1", result.markdown)
+
+    def test_titled_reference_suffix_requires_consecutive_numbered_entries(self) -> None:
+        content = b" ".join([
+            text_op(72, 700, "Appendix Z - Audited source references", "F1", 18),
+            text_op(72, 650, "[4] First source. 2021.", "F1", 10),
+            text_op(72, 625, "[5] Second source. 2022.", "F1", 10),
+            text_op(72, 600, "[8] Separate numbered note.", "F1", 10),
+        ])
+        result = convert(one_page_pdf(content))
+        sections = semantic_nodes(result, "reference_section")
+        references = semantic_nodes(result, "reference")
+        self.assertEqual(len(sections), 1, result.semantic.to_dict())
+        self.assertEqual([node.attrs["label"] for node in references], ["4", "5"])
+        self.assertIn("Separate numbered note", result.markdown)
+        self.assertTrue(all(node.sources for node in references))
+        self.assertTrue(
+            all(any(item.kind == "reference_entry" for item in node.evidence) for node in references)
+        )
+
+    def test_cross_references_heading_does_not_capture_ordinary_prose(self) -> None:
+        content = b" ".join([
+            text_op(72, 700, "Cross references", "F1", 18),
+            text_op(72, 650, "See the following sections for context.", "F1", 10),
+            text_op(72, 625, "No bibliography begins here.", "F1", 10),
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertEqual(semantic_nodes(result, "reference_section"), [])
+        self.assertEqual(semantic_nodes(result, "reference"), [])
+        self.assertIn("See the following sections", result.markdown)
+
+    def test_canonical_references_keep_numeric_and_author_year_entries(self) -> None:
+        factory = NodeFactory()
+        document = SemanticDocument([
+            factory.make("heading", text="References", attrs={"level": 2}),
+            factory.make("paragraph", text="[1] Rivera, A. Reliable systems. 2024."),
+            factory.make("paragraph", text="Chen, B. (2023). Deterministic parsing."),
+            factory.make("paragraph", text="Patel, C. (2022). Semantic fidelity."),
+        ])
+        enrich_notes_references_crossrefs(document, factory)
+        references = [node for node in document.walk() if node.kind == "reference"]
+        self.assertEqual(len(references), 3)
+        self.assertEqual([node.attrs["label"] for node in references], ["1", None, None])
+        self.assertEqual(references[1].attrs["style"], "author_year")
+        self.assertIn("Deterministic parsing", node_text(references[1]))
+        rendered = render_semantic_html(document)
+        self.assertNotIn('id="None"', rendered)
+        self.assertEqual(rendered.count('role="doc-biblioentry"'), 3)
+
+    def test_navigation_reference_headings_reject_numbered_citation_like_rows(self) -> None:
+        for title in ("Cross references", "Figure references", "Section references"):
+            with self.subTest(title=title):
+                content = b" ".join([
+                    text_op(72, 700, title, "F1", 18),
+                    text_op(72, 650, "[1] Rivera, A. Linked topic. 2024.", "F1", 10),
+                    text_op(72, 625, "[2] Chen, B. Related topic. 2023.", "F1", 10),
+                ])
+                result = convert(one_page_pdf(content))
+                self.assertEqual(semantic_nodes(result, "reference_section"), [])
+                self.assertEqual(semantic_nodes(result, "reference"), [])
+
+    def test_noncanonical_source_words_need_bibliographic_entry_evidence(self) -> None:
+        for title in ("Configuring data sources", "Resources"):
+            with self.subTest(title=title):
+                content = b" ".join([
+                    text_op(72, 700, title, "F1", 18),
+                    text_op(72, 650, "[1] Open the configuration panel.", "F1", 10),
+                    text_op(72, 625, "[2] Select the available input.", "F1", 10),
+                ])
+                result = convert(one_page_pdf(content))
+                self.assertEqual(semantic_nodes(result, "reference_section"), [])
+                self.assertEqual(semantic_nodes(result, "reference"), [])
+
+    def test_reference_runs_preserve_anchor_and_page_break_sentinels(self) -> None:
+        factory = NodeFactory()
+        first_source = [SourceRef(page=1, glyph_ids=(1,), bbox=(72, 100, 300, 112))]
+        second_source = [SourceRef(page=2, glyph_ids=(2,), bbox=(72, 80, 300, 92))]
+        heading = factory.make("heading", text="References", attrs={"level": 2})
+        first = factory.make(
+            "paragraph",
+            text="[1] Rivera, A. First source. 2024.",
+            sources=first_source,
+        )
+        anchor = factory.make("anchor", attrs={"name": "page-two"})
+        page_break = factory.make("page_break", attrs={"page": 2})
+        second = factory.make(
+            "paragraph",
+            text="[2] Chen, B. Second source. 2023.",
+            sources=second_source,
+        )
+        document = SemanticDocument([heading, first, anchor, page_break, second])
+        enrich_notes_references_crossrefs(document, factory)
+        self.assertEqual(
+            [node.kind for node in document.children],
+            ["heading", "reference_section", "anchor", "page_break", "reference_section"],
+        )
+        sections = [node for node in document.children if node.kind == "reference_section"]
+        self.assertEqual([node.attrs.get("continuation_index", 0) for node in sections], [0, 1])
+        self.assertEqual(sections[0].children[0].sources[0].glyph_ids, (1,))
+        self.assertEqual(sections[1].children[0].sources[0].glyph_ids, (2,))
+
+    def test_structural_references_retain_boundary_recovery_provenance(self) -> None:
+        factory = NodeFactory()
+        heading = factory.make(
+            "heading",
+            text="Appendix Z - Audited source references",
+            attrs={"level": 2},
+        )
+        candidates = []
+        for index, label in enumerate((4, 5, 8)):
+            source = SourceRef(
+                page=1,
+                glyph_ids=(100 + index,),
+                mcids=(index,),
+                bbox=(72.0, 100.0 + index * 20.0, 300.0, 112.0 + index * 20.0),
+            )
+            candidates.append(factory.make(
+                "paragraph",
+                text="[%d] Authored source entry %d." % (label, label),
+                evidence=[Evidence(
+                    "tagged_block_boundary_geometry",
+                    0.97,
+                    page=1,
+                    data={"action": "split"},
+                )],
+                sources=[source],
+                warnings=["TAGGED_BLOCK_BOUNDARY_RECOVERED"],
+            ))
+        document = SemanticDocument([heading, *candidates])
+        enrich_notes_references_crossrefs(document, factory)
+        references = [node for node in document.walk() if node.kind == "reference"]
+        self.assertEqual([node.attrs["label"] for node in references], ["4", "5"])
+        self.assertTrue(
+            all("TAGGED_BLOCK_BOUNDARY_RECOVERED" in node.warnings for node in references)
+        )
+        self.assertTrue(
+            all(
+                {"reference_entry", "tagged_block_boundary_geometry"}
+                <= {item.kind for item in node.evidence}
+                for node in references
+            )
+        )
+        self.assertEqual(
+            [node.sources[0].glyph_ids for node in references],
+            [(100,), (101,)],
+        )
+        self.assertEqual(document.children[-1].kind, "paragraph")
+        self.assertIn("[8]", document.children[-1].text or "")
 
 
 class AdvancedTableTests(unittest.TestCase):
@@ -1783,6 +2200,237 @@ class AdvancedTableTests(unittest.TestCase):
         self.assertNotIn("writing-mode: vertical-rl", result.html)
         self.assertNotIn("artifact", wrapped_text.casefold())
 
+    @staticmethod
+    def _continuous_header_lattice(mode: str = "positive") -> bytes:
+        operations = [b"/Artifact BMC"]
+        row_bands = [(630.5, 69.0), (580.5, 49.0), (530.5, 49.0), (480.5, 49.0)]
+        for x in (72.0, 540.0):
+            for bottom, height in row_bands:
+                operations.append(rect_fill_op(x, bottom, 0.5, height, 0.0))
+        internal_bands = (
+            [row_bands[0], row_bands[1], row_bands[3]]
+            if mode == "body"
+            else row_bands[1:]
+        )
+        for x in (230.0, 390.0):
+            for bottom, height in internal_bands:
+                operations.append(rect_fill_op(x, bottom, 0.5, height, 0.0))
+        for y in (700.0, 630.0, 580.0, 530.0, 480.0):
+            operations.append(rect_fill_op(72.0, y, 468.0, 0.5, 0.0))
+        operations.append(b"EMC")
+
+        if mode in {"positive", "single", "body"}:
+            operations.append(b"/Span <</MCID 7>> BDC")
+            if mode == "body":
+                operations.extend([
+                    text_op(82, 682, "Field", font="F2", size=10),
+                    text_op(240, 682, "Policy", font="F2", size=10),
+                    text_op(400, 682, "Status", font="F2", size=10),
+                ])
+            elif mode == "single":
+                operations.extend([
+                    text_op(82, 682, "Unified policy governs every supported acquisition validation review and publication stage", font="F2", size=10),
+                    text_op(82, 664, "Left", font="F2", size=10),
+                    text_op(250, 664, "Middle", font="F2", size=10),
+                    text_op(410, 664, "Right", font="F2", size=10),
+                    text_op(82, 646, "Short", font="F2", size=10),
+                ])
+            else:
+                operations.extend([
+                    text_op(82, 682, "Unified policy governs every supported acquisition validation review and publication stage", font="F2", size=10),
+                    text_op(82, 664, "Continuous guidance applies across acquisition calibration analysis reporting and review", font="F2", size=10),
+                    text_op(82, 646, "One semantic heading remains continuous across the complete inherited table grid", font="F2", size=10),
+                ])
+            operations.append(b"EMC")
+        elif mode == "separated":
+            operations.append(b"/Span <</MCID 7>> BDC")
+            for y, suffix in ((682, "A"), (652, "B")):
+                operations.extend([
+                    text_op(82, y, "Left " + suffix, font="F2", size=10),
+                    text_op(250, y, "Middle " + suffix, font="F2", size=10),
+                    text_op(410, y, "Right " + suffix, font="F2", size=10),
+                ])
+            operations.append(b"EMC")
+        elif mode == "distinct_mcids":
+            for y in (682, 664, 646):
+                for mcid, x, text in (
+                    (7, 82, "Continuous first segment"),
+                    (8, 225, "continues through center"),
+                    (9, 375, "and reaches the far edge"),
+                ):
+                    operations.extend([
+                        ("/Span <</MCID %d>> BDC" % mcid).encode("ascii"),
+                        text_op(x, y, text, font="F2", size=10),
+                        b"EMC",
+                    ])
+
+        body_rows = [
+            (605, "Alpha", "Measured", "Ready"),
+            (555, "Bravo", "Validated", "Review"),
+            (505, "Charlie", "Published", "Done"),
+        ]
+        if mode == "body":
+            operations.append(b"/Span <</MCID 11>> BDC")
+            operations.extend([
+                text_op(82, 568, "Continuous body prose crosses every false partition throughout the inherited grid", size=10),
+                text_op(82, 552, "but a populated body row cannot manufacture a semantic colspan from prose", size=10),
+                text_op(82, 536, "without verified header ownership and repeated structural evidence", size=10),
+            ])
+            operations.append(b"EMC")
+            body_rows = [body_rows[0], body_rows[2]]
+        for y, left, middle, right in body_rows:
+            operations.extend([
+                text_op(82, y, left, size=10),
+                text_op(240, y, middle, size=10),
+                text_op(400, y, right, size=10),
+            ])
+        return b"\n".join(operations)
+
+    def test_fragmented_lattice_explicit_cell_roles_override_boldness(self) -> None:
+        renderer = object.__new__(MarkdownRenderer)
+
+        def marked_line(role: str, *, bold: bool) -> Line:
+            font = Font(
+                name="F1",
+                base_font="Helvetica-Bold" if bold else "Helvetica",
+            )
+            char = Char(
+                text="Cell",
+                x0=10.0,
+                y0=5.0,
+                x1=34.0,
+                y1=15.0,
+                size=10.0,
+                font=font,
+                page=1,
+                seq=1,
+                mc=({"tag": role, "mcid": 4},),
+            )
+            return Line(chars=[char], page=1, seq=1)
+
+        self.assertEqual(
+            renderer._artifact_lattice_header_rows(
+                [marked_line("TD", bold=True)],
+                [0.0, 50.0],
+                [0.0, 20.0, 40.0],
+            ),
+            0,
+        )
+        self.assertEqual(
+            renderer._artifact_lattice_header_rows(
+                [marked_line("TH", bold=False)],
+                [0.0, 50.0],
+                [0.0, 20.0, 40.0],
+            ),
+            1,
+        )
+
+    def test_fragmented_colspan_veto_recognizes_repeated_column_anchors(self) -> None:
+        font = Font(name="F1", base_font="Helvetica-Bold")
+
+        def anchored_line(y: float, drift: float = 0.0) -> Line:
+            chars = [
+                Char("Left", 12.0, y, 36.0, y + 10.0, 10.0, font, 1, int(y) + 1),
+                Char("Middle", 104.0 + drift, y, 146.0 + drift, y + 10.0, 10.0, font, 1, int(y) + 2),
+                Char("Right", 204.0 - drift, y, 234.0 - drift, y + 10.0, 10.0, font, 1, int(y) + 3),
+            ]
+            return Line(chars=chars, page=1, seq=int(y) + 1)
+
+        stable = [anchored_line(y) for y in (5.0, 17.0, 29.0)]
+        self.assertTrue(MarkdownRenderer._artifact_header_has_stable_column_labels(
+            stable,
+            [0.0, 100.0, 200.0, 300.0],
+            10.0,
+            2,
+        ))
+        drifting = [
+            anchored_line(5.0, 0.0),
+            anchored_line(17.0, 8.0),
+            anchored_line(29.0, -8.0),
+        ]
+        self.assertFalse(MarkdownRenderer._artifact_header_has_stable_column_labels(
+            drifting,
+            [0.0, 100.0, 200.0, 300.0],
+            10.0,
+            2,
+        ))
+
+    def test_fragmented_lattice_recovers_continuous_marked_header_colspan(self) -> None:
+        result = convert(make_pdf([self._continuous_header_lattice()]))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        table = tables[0]
+        self.assertEqual(table.attrs["column_count"], 3)
+        self.assertEqual(table.attrs["header_rows"], 1)
+        header_cells = [
+            cell
+            for cell in semantic_nodes(result, "table_cell")
+            if cell.attrs["row"] == 0
+        ]
+        self.assertEqual(len(header_cells), 1)
+        self.assertEqual(header_cells[0].attrs["colspan"], 3)
+        self.assertTrue(any(source.glyph_ids for source in header_cells[0].sources))
+        self.assertEqual(
+            {mcid for source in header_cells[0].sources for mcid in source.mcids},
+            {7},
+        )
+        span_evidence = next(
+            item
+            for item in header_cells[0].evidence
+            if item.kind == "artifact_continuous_text_colspan"
+        )
+        self.assertEqual(span_evidence.data["colspan"], 3)
+        table_evidence = next(
+            item for item in table.evidence
+            if item.kind == "artifact_fragmented_lattice"
+        )
+        recovered = table_evidence.data["continuous_text_colspans"]
+        self.assertEqual(len(recovered), 1)
+        self.assertEqual(recovered[0]["shared_marked_identity"]["mcid"], 7)
+        self.assertTrue(all(count >= 2 for count in recovered[0]["crossing_line_counts"].values()))
+        self.assertIn('<th colspan="3">', result.markdown)
+        self.assertIn('<th colspan="3"', result.html)
+        self.assertEqual(result.markdown.count("Unified policy governs"), 1)
+        self.assertNotIn("Artifact", result.markdown)
+
+    def test_fragmented_lattice_keeps_gutter_separated_header_cells(self) -> None:
+        result = convert(make_pdf([self._continuous_header_lattice("separated")]))
+        table = semantic_nodes(result, "table")[0]
+        header_cells = [
+            cell for cell in semantic_nodes(result, "table_cell")
+            if cell.attrs["row"] == 0
+        ]
+        self.assertEqual(len(header_cells), 3)
+        self.assertTrue(all(cell.attrs["colspan"] == 1 for cell in header_cells))
+        evidence = next(
+            item for item in table.evidence
+            if item.kind == "artifact_fragmented_lattice"
+        )
+        self.assertEqual(evidence.data["continuous_text_colspans"], [])
+
+    def test_fragmented_lattice_requires_one_marked_header_identity(self) -> None:
+        result = convert(make_pdf([self._continuous_header_lattice("distinct_mcids")]))
+        header_cells = [
+            cell for cell in semantic_nodes(result, "table_cell")
+            if cell.attrs["row"] == 0
+        ]
+        self.assertEqual(len(header_cells), 3)
+        self.assertTrue(all(cell.attrs["colspan"] == 1 for cell in header_cells))
+
+    def test_fragmented_lattice_requires_repeated_boundary_crossings(self) -> None:
+        result = convert(make_pdf([self._continuous_header_lattice("single")]))
+        header_cells = [
+            cell for cell in semantic_nodes(result, "table_cell")
+            if cell.attrs["row"] == 0
+        ]
+        self.assertEqual(len(header_cells), 3)
+        self.assertTrue(all(cell.attrs["colspan"] == 1 for cell in header_cells))
+
+    def test_fragmented_lattice_does_not_span_populated_body_prose(self) -> None:
+        result = convert(make_pdf([self._continuous_header_lattice("body")]))
+        cells = semantic_nodes(result, "table_cell")
+        self.assertFalse(any(cell.attrs["colspan"] > 1 for cell in cells))
+
     def test_fragmented_artifact_lattice_spans_only_empty_neighbours(self) -> None:
         content = b" ".join([
             b"/Artifact BMC 0 g",
@@ -1827,6 +2475,7 @@ class AdvancedTableTests(unittest.TestCase):
         self.assertEqual(len(tables), 1, result.markdown)
         self.assertEqual(tables[0].attrs["row_count"], 5)
         self.assertEqual(tables[0].attrs["column_count"], 2)
+        self.assertEqual(tables[0].attrs["header_rows"], 1)
         evidence = next(
             item
             for item in tables[0].evidence
@@ -2648,6 +3297,102 @@ class CompleteTaggedBindingTests(unittest.TestCase):
 
 
 class CompleteTableStructureTests(unittest.TestCase):
+    @staticmethod
+    def _artifact_boundary_continuation_fixture(
+        mode: str = "positive",
+    ) -> bytes:
+        def lattice(
+            xs: list[float],
+            ys: list[float],
+            header: tuple[str, ...],
+            body: list[tuple[str, ...]],
+        ) -> bytes:
+            parts = [b"/Artifact BMC"]
+            for x in xs:
+                parts.append(
+                    rect_fill_op(x, ys[0], 0.5, ys[-1] - ys[0], 0.0)
+                )
+            for y in ys:
+                parts.append(
+                    rect_fill_op(xs[0], y, xs[-1] - xs[0], 0.5, 0.0)
+                )
+            parts.append(b"EMC")
+            header_y = (ys[-2] + ys[-1]) / 2.0 - 3.0
+            for column, text in enumerate(header):
+                parts.append(
+                    text_op(xs[column] + 10.0, header_y, text, font="F2", size=10)
+                )
+            for row_index, row in enumerate(body):
+                lower_index = len(ys) - 3 - row_index
+                row_y = (ys[lower_index] + ys[lower_index + 1]) / 2.0 - 3.0
+                for column, text in enumerate(row):
+                    parts.append(
+                        text_op(xs[column] + 10.0, row_y, text, size=10)
+                    )
+            return b" ".join(parts)
+
+        header = ("Field", "Policy", "Status")
+        fragment_header = (
+            ("Field", "Category", "Status")
+            if mode == "mismatched_header"
+            else header
+        )
+        fragment_xs = (
+            [72.0, 250.0, 395.0, 540.0]
+            if mode == "shifted_grid"
+            else [72.0, 220.0, 380.0, 540.0]
+        )
+        fragment_ys = (
+            [330.0, 380.0, 430.0]
+            if mode == "midpage"
+            else [40.0, 62.0, 84.0]
+            if mode == "compact_height"
+            else [40.0, 57.0, 74.0]
+            if mode == "subminimum_height"
+            else [40.0, 90.0, 140.0]
+        )
+        first = lattice(
+            fragment_xs,
+            fragment_ys,
+            fragment_header,
+            [("Aster", "Active", "Ready")],
+        )
+        peer_ys = (
+            [620.0, 670.0, 720.0]
+            if mode == "weak_peer"
+            else [520.0, 570.0, 620.0, 670.0, 720.0]
+        )
+        peer_body = (
+            [("Birch", "Review", "Open")]
+            if mode == "weak_peer"
+            else [
+                ("Birch", "Review", "Open"),
+                ("Cedar", "Active", "Ready"),
+                ("Dogwood", "Closed", "Filed"),
+            ]
+        )
+        second = lattice(
+            [72.0, 220.0, 380.0, 540.0],
+            peer_ys,
+            header,
+            peer_body,
+        )
+        if mode != "different_page_width":
+            return make_pdf([first, second])
+
+        resources = b"/Resources << /Font << /F1 1 0 R /F2 2 0 R >> >>"
+        objects = [
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+            b"<< /Length %d >>\nstream\n" % len(first) + first + b"\nendstream",
+            b"<< /Length %d >>\nstream\n" % len(second) + second + b"\nendstream",
+            b"<< /Type /Page /Parent 7 0 R /MediaBox [0 0 612 792] " + resources + b" /Contents 3 0 R >>",
+            b"<< /Type /Page /Parent 7 0 R /MediaBox [0 0 660 792] " + resources + b" /Contents 4 0 R >>",
+            b"<< /Type /Pages /Kids [5 0 R 6 0 R] /Count 2 >>",
+            b"<< /Type /Catalog /Pages 7 0 R >>",
+        ]
+        return render_pdf(objects, 8)
+
     def test_nested_list_blocks_inside_cell_force_html_without_flattening(self) -> None:
         content = (
             b"0.5 w 72 500 m 430 500 l 72 580 m 430 580 l "
@@ -2701,6 +3446,130 @@ class CompleteTableStructureTests(unittest.TestCase):
         self.assertIn("Alpha", result.html)
         self.assertIn("Beta", result.html)
         self.assertIn('data-source-pages="1 2"', result.html)
+
+    def test_artifact_boundary_fragment_requires_strong_repeated_peer(self) -> None:
+        result = convert(self._artifact_boundary_continuation_fixture())
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.semantic.to_dict())
+        table = tables[0]
+        self.assertEqual(table.source_pages(), [1, 2])
+        self.assertEqual(table.attrs["row_count"], 5)
+        self.assertEqual(table.attrs["column_count"], 3)
+        self.assertEqual(table.attrs["header_rows"], 1)
+        evidence = next(
+            item
+            for item in table.evidence
+            if item.kind == "artifact_boundary_continuation_lattice"
+        )
+        self.assertTrue(evidence.data["complete_edge_coverage"])
+        self.assertTrue(evidence.data["repeated_header_match"])
+        self.assertTrue(evidence.data["normalized_boundary_match"])
+        self.assertEqual(evidence.data["adjacent_peer_page"], 2)
+        self.assertTrue(any(source.page == 1 for source in table.sources))
+        self.assertTrue(any(source.page == 2 for source in table.sources))
+        self.assertTrue(any(source.glyph_ids for source in table.sources))
+        self.assertFalse(any(
+            "Field Policy Status" in node_text(node)
+            for node in semantic_nodes(result, "heading")
+        ))
+        self.assertEqual(result.markdown.count("Field"), 1)
+        self.assertEqual(result.html.count("Field"), 1)
+        self.assertEqual(render_semantic_html(result.semantic), result.html)
+
+        with_breaks = convert(
+            self._artifact_boundary_continuation_fixture(),
+            ConvertOptions(page_breaks=True),
+        )
+        # Explicit physical-page mode deliberately retains both fragments and
+        # their repeated headers around the sentinel.
+        self.assertEqual(with_breaks.markdown.count("Field"), 2)
+        self.assertIn("<!-- page 2 -->", with_breaks.markdown)
+
+    def test_missing_merged_layout_fragment_does_not_partially_overlay(self) -> None:
+        first = "<table><tr><td>First</td></tr></table>"
+        missing = "<table><tr><td>Missing</td></tr></table>"
+        table = SemanticNode(
+            "continued-table",
+            "table",
+            attrs={
+                "_layout_markdown": first,
+                "_merged_layout_markdown_fragments": [first, missing],
+            },
+            evidence=[Evidence("multi_page_table_continuation", 0.95)],
+        )
+        original = first + "\n\nUnrelated content\n"
+        self.assertEqual(
+            _overlay_changed_blocks(original, SemanticDocument([table])),
+            original,
+        )
+
+    def test_artifact_boundary_fragment_is_rejected_midpage(self) -> None:
+        result = convert(self._artifact_boundary_continuation_fixture("midpage"))
+        self.assertEqual(len(semantic_nodes(result, "table")), 1)
+        self.assertFalse(any(
+            item.kind == "artifact_boundary_continuation_lattice"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
+    def test_compact_artifact_boundary_fragment_uses_peer_specific_height(self) -> None:
+        result = convert(
+            self._artifact_boundary_continuation_fixture("compact_height")
+        )
+        self.assertEqual(len(semantic_nodes(result, "table")), 1)
+        self.assertTrue(any(
+            item.kind == "artifact_boundary_continuation_lattice"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
+    def test_subminimum_artifact_boundary_fragment_remains_prose(self) -> None:
+        result = convert(
+            self._artifact_boundary_continuation_fixture("subminimum_height")
+        )
+        self.assertEqual(len(semantic_nodes(result, "table")), 1)
+        self.assertFalse(any(
+            item.kind == "artifact_boundary_continuation_lattice"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
+    def test_artifact_boundary_fragment_requires_exact_header_match(self) -> None:
+        result = convert(
+            self._artifact_boundary_continuation_fixture("mismatched_header")
+        )
+        self.assertEqual(len(semantic_nodes(result, "table")), 1)
+        self.assertFalse(any(
+            item.kind == "artifact_boundary_continuation_lattice"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
+    def test_artifact_boundary_fragment_requires_matching_grid(self) -> None:
+        result = convert(
+            self._artifact_boundary_continuation_fixture("shifted_grid")
+        )
+        self.assertEqual(len(semantic_nodes(result, "table")), 1)
+        self.assertFalse(any(
+            item.kind == "artifact_boundary_continuation_lattice"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
+
+    def test_two_weak_artifact_boundary_fragments_cannot_bootstrap(self) -> None:
+        result = convert(self._artifact_boundary_continuation_fixture("weak_peer"))
+        self.assertEqual(semantic_nodes(result, "table"), [])
+
+    def test_artifact_boundary_fragment_rejects_incompatible_page_widths(self) -> None:
+        result = convert(
+            self._artifact_boundary_continuation_fixture("different_page_width")
+        )
+        self.assertEqual(len(semantic_nodes(result, "table")), 1)
+        self.assertFalse(any(
+            item.kind == "artifact_boundary_continuation_lattice"
+            for table in semantic_nodes(result, "table")
+            for item in table.evidence
+        ))
 
     def test_table_caption_and_note_are_typed_children(self) -> None:
         content = (
@@ -2819,6 +3688,110 @@ class SemanticGraphTests(unittest.TestCase):
 		self.assertIn("[example](https://example.com)", markdown)
 		self.assertIn("<h1", html)
 		self.assertIn('href="https://example.com"', html)
+
+	def test_html_image_markup_preserves_compound_figures_and_inline_caption_semantics(self) -> None:
+		source = [SourceRef(page=1, glyph_ids=(1, 2, 3))]
+		first = SemanticNode(
+			"first-image",
+			"image",
+			attrs={
+				"src": "assets/first.png",
+				"alt": "First",
+				"display_width_pt": 144.0,
+				"link": "https://example.com/details",
+			},
+			sources=source,
+		)
+		second = SemanticNode(
+			"second-image",
+			"image",
+			attrs={
+				"src": "assets/second.png",
+				"alt": "Second",
+				"display_height_pt": 96.0,
+			},
+			sources=source,
+		)
+		caption = SemanticNode(
+			"caption",
+			"caption",
+			children=[
+				SemanticNode(
+					"caption-strong",
+					"strong",
+					children=[SemanticNode("caption-label", "text", text="Figure 1", sources=source)],
+					sources=source,
+				),
+				SemanticNode("caption-space", "text", text=" — ", sources=source),
+				SemanticNode(
+					"caption-link",
+					"link",
+					children=[SemanticNode("caption-link-text", "text", text="details", sources=source)],
+					attrs={"href": "https://example.com/caption"},
+					sources=source,
+				),
+			],
+			sources=source,
+		)
+		document = SemanticDocument([
+			SemanticNode(
+				"compound-figure",
+				"figure",
+				children=[first, second, caption],
+				sources=source,
+			),
+		])
+		rendered = render_semantic_markdown(document, image_markup="html")
+		self.assertEqual(rendered.count("<img "), 2)
+		self.assertIn("width: 144.000pt", rendered)
+		self.assertIn("height: 96.000pt", rendered)
+		self.assertIn('<strong>Figure 1</strong>', rendered)
+		self.assertIn('href="https://example.com/caption"', rendered)
+		self.assertIn('href="https://example.com/details"', rendered)
+
+	def test_remote_image_sources_are_suppressed_without_suppressing_links(self) -> None:
+		source = [SourceRef(page=1)]
+		remote = SemanticNode(
+			"remote",
+			"image",
+			attrs={"src": "https://example.com/tracker.png", "alt": "Remote"},
+			sources=source,
+		)
+		linked_local = SemanticNode(
+			"local",
+			"image",
+			attrs={
+				"src": "assets/local.png",
+				"alt": "Local",
+				"link": "https://example.com/target",
+			},
+			sources=source,
+		)
+		document = SemanticDocument([
+			SemanticNode("remote-figure", "figure", children=[remote], sources=source),
+			SemanticNode("local-figure", "figure", children=[linked_local], sources=source),
+		])
+		markdown = render_semantic_markdown(document, image_markup="html")
+		html_output = render_semantic_html(document)
+		for rendered in (markdown, html_output):
+			self.assertNotIn("tracker.png", rendered)
+			self.assertIn("assets/local.png", rendered)
+			self.assertIn("https://example.com/target", rendered)
+
+	def test_aligned_raw_html_fallback_keeps_inline_semantics(self) -> None:
+		paragraph = SemanticNode(
+			"aligned",
+			"paragraph",
+			attrs={"alignment": "center"},
+			children=[SemanticNode(
+				"strong",
+				"strong",
+				children=[SemanticNode("text", "text", text="Centered label")],
+			)],
+		)
+		rendered = render_semantic_markdown(SemanticDocument([paragraph]))
+		self.assertIn("<strong>Centered label</strong>", rendered)
+		self.assertNotIn("**Centered label**", rendered)
 
 	def test_html_projects_sectioned_tables_expansions_and_exact_list_ordinals(self) -> None:
 		source = [SourceRef(page=1, glyph_ids=(1, 2, 3))]
@@ -4344,6 +5317,1143 @@ class TriFoldBrochureTests(unittest.TestCase):
         self.assertEqual(semantic_nodes(result, "table"), [])
 
 
+class TaggedGeometryAuthorityRegressionTests(unittest.TestCase):
+    @staticmethod
+    def _block(node_id: str, page: int, y: float) -> SemanticNode:
+        return SemanticNode(
+            id=node_id,
+            kind="paragraph",
+            text=node_id,
+            sources=[SourceRef(page=page, bbox=(72.0, y, 240.0, y + 12.0))],
+        )
+
+    def test_unbound_and_cross_page_nodes_anchor_tagged_root_order(self) -> None:
+        first = self._block("first", 1, 72.0)
+        unbound = self._block("unbound", 1, 100.0)
+        second_page = self._block("second-page", 2, 72.0)
+        page_break = SemanticNode(
+            id="page-break",
+            kind="page_break",
+            attrs={"page": 2},
+        )
+        geometric = SemanticDocument([first, unbound, page_break, second_page])
+        tag_first = SemanticNode(id="tag-first", kind="paragraph")
+        tag_second = SemanticNode(id="tag-second", kind="paragraph")
+        tagged = SemanticDocument([tag_second, tag_first])
+
+        _apply_tagged_order(
+            geometric,
+            tagged,
+            {"tag-first": first, "tag-second": second_page},
+        )
+
+        self.assertEqual(
+            [node.id for node in geometric.children],
+            ["first", "unbound", "page-break", "second-page"],
+        )
+
+    def test_fully_bound_same_page_cohort_can_follow_verified_tag_order(self) -> None:
+        first = self._block("first", 1, 72.0)
+        second = SemanticNode(
+            id="second",
+            kind="paragraph",
+            text="second",
+            sources=[SourceRef(page=1, bbox=(300.0, 72.0, 500.0, 84.0))],
+        )
+        geometric = SemanticDocument([first, second])
+        tag_first = SemanticNode(id="tag-first", kind="paragraph")
+        tag_second = SemanticNode(id="tag-second", kind="paragraph")
+
+        _apply_tagged_order(
+            geometric,
+            SemanticDocument([tag_second, tag_first]),
+            {"tag-first": first, "tag-second": second},
+        )
+
+        self.assertEqual([node.id for node in geometric.children], ["second", "first"])
+
+    def test_tag_order_cannot_invert_strict_single_column_geometry(self) -> None:
+        first = self._block("first", 1, 72.0)
+        second = self._block("second", 1, 100.0)
+        geometric = SemanticDocument([first, second])
+        tag_first = SemanticNode(id="tag-first", kind="paragraph")
+        tag_second = SemanticNode(id="tag-second", kind="paragraph")
+
+        _apply_tagged_order(
+            geometric,
+            SemanticDocument([tag_second, tag_first]),
+            {"tag-first": first, "tag-second": second},
+        )
+
+        self.assertEqual([node.id for node in geometric.children], ["first", "second"])
+        self.assertIn("TAGGED_ORDER_GEOMETRY_CONFLICT", geometric.warnings)
+
+    def test_conflicting_tag_order_cannot_rotate_geometric_table_rows(self) -> None:
+        header = SemanticNode(
+            id="header-row",
+            kind="table_row",
+            attrs={"row": 0, "role": "header"},
+            sources=[SourceRef(page=1, bbox=(72.0, 80.0, 500.0, 100.0))],
+        )
+        body = SemanticNode(
+            id="body-row",
+            kind="table_row",
+            attrs={"row": 1, "role": "body"},
+            sources=[SourceRef(page=1, bbox=(72.0, 100.0, 500.0, 124.0))],
+        )
+        table = SemanticNode(id="table", kind="table", children=[header, body])
+        tag_header = SemanticNode(id="tag-header", kind="table_row")
+        tag_body = SemanticNode(id="tag-body", kind="table_row")
+        tag_table = SemanticNode(
+            id="tag-table",
+            kind="table",
+            children=[tag_body, tag_header],
+        )
+
+        _apply_tagged_child_order(
+            SemanticDocument([tag_table]),
+            {
+                "tag-table": table,
+                "tag-header": header,
+                "tag-body": body,
+            },
+        )
+
+        self.assertEqual([row.id for row in table.children], ["header-row", "body-row"])
+        self.assertIn("TAGGED_ORDER_GEOMETRY_CONFLICT", table.warnings)
+        self.assertTrue(any(
+            evidence.kind == "tagged_child_order_rejected"
+            for evidence in table.evidence
+        ))
+
+    def test_tagged_table_order_applies_only_with_verified_proposed_geometry(self) -> None:
+        def cell(node_id: str, role: str, bbox, row: int) -> SemanticNode:
+            source = [SourceRef(page=1, bbox=bbox)]
+            return SemanticNode(
+                id=node_id,
+                kind="table_cell",
+                attrs={"row": row, "col": 0, "rowspan": 1, "colspan": 1, "role": role},
+                sources=source,
+            )
+
+        header_cell = cell("header-cell", "th", (72, 80, 500, 100), 1)
+        body_cell = cell("body-cell", "td", (72, 110, 500, 130), 0)
+        header = SemanticNode(
+            id="header-row",
+            kind="table_row",
+            children=[header_cell],
+            attrs={"row": 1, "role": "header"},
+            sources=list(header_cell.sources),
+        )
+        body = SemanticNode(
+            id="body-row",
+            kind="table_row",
+            children=[body_cell],
+            attrs={"row": 0, "role": "body"},
+            sources=list(body_cell.sources),
+        )
+        table = SemanticNode(
+            id="table",
+            kind="table",
+            children=[body, header],
+            attrs={"header_rows": 0, "row_count": 2, "column_count": 1},
+        )
+        tag_header = SemanticNode(id="tag-header", kind="table_row")
+        tag_body = SemanticNode(id="tag-body", kind="table_row")
+        tagged_table = SemanticNode(
+            id="tag-table",
+            kind="table",
+            children=[tag_header, tag_body],
+        )
+        _apply_tagged_child_order(
+            SemanticDocument([tagged_table]),
+            {
+                "tag-table": table,
+                "tag-header": header,
+                "tag-body": body,
+            },
+        )
+        self.assertEqual([row.id for row in table.children], ["header-row", "body-row"])
+        self.assertEqual([row.attrs["row"] for row in table.children], [0, 1])
+        self.assertEqual([header_cell.attrs["row"], body_cell.attrs["row"]], [0, 1])
+        self.assertEqual(table.attrs["header_rows"], 1)
+        self.assertEqual(table.attrs["row_count"], 2)
+        self.assertEqual(table.attrs["column_count"], 1)
+        self.assertTrue(any(
+            evidence.kind == "tagged_child_order_applied"
+            for evidence in table.evidence
+        ))
+
+    def test_tagged_cell_order_normalizes_column_coordinates(self) -> None:
+        def cell(node_id: str, bbox, col: int, colspan: int = 1) -> SemanticNode:
+            return SemanticNode(
+                id=node_id,
+                kind="table_cell",
+                attrs={"row": 0, "col": col, "rowspan": 1, "colspan": colspan, "role": "td"},
+                sources=[SourceRef(page=1, bbox=bbox)],
+            )
+
+        left = cell("left", (72, 80, 250, 100), 2, colspan=2)
+        right = cell("right", (250, 80, 500, 100), 0)
+        row = SemanticNode(
+            id="row",
+            kind="table_row",
+            children=[right, left],
+            attrs={"row": 0, "role": "body"},
+        )
+        tag_left = SemanticNode(id="tag-left", kind="table_cell")
+        tag_right = SemanticNode(id="tag-right", kind="table_cell")
+        tag_row = SemanticNode(
+            id="tag-row",
+            kind="table_row",
+            children=[tag_left, tag_right],
+        )
+        _apply_tagged_child_order(
+            SemanticDocument([tag_row]),
+            {"tag-row": row, "tag-left": left, "tag-right": right},
+        )
+        self.assertEqual([cell.id for cell in row.children], ["left", "right"])
+        self.assertEqual([cell.attrs["col"] for cell in row.children], [0, 2])
+        self.assertEqual([cell.attrs["row"] for cell in row.children], [0, 0])
+
+    def test_tagged_order_final_normalization_honors_rowspans(self) -> None:
+        spanning = SemanticNode(
+            id="spanning",
+            kind="table_cell",
+            attrs={"row": 0, "col": 0, "rowspan": 2, "colspan": 1, "role": "th"},
+        )
+        heading = SemanticNode(
+            id="heading",
+            kind="table_cell",
+            attrs={"row": 0, "col": 1, "rowspan": 1, "colspan": 1, "role": "th"},
+        )
+        value = SemanticNode(
+            id="value",
+            kind="table_cell",
+            attrs={"row": 1, "col": 0, "rowspan": 1, "colspan": 1, "role": "td"},
+        )
+        table = SemanticNode(
+            id="table",
+            kind="table",
+            children=[
+                SemanticNode(
+                    id="header-row",
+                    kind="table_row",
+                    children=[spanning, heading],
+                    attrs={"row": 0, "role": "header"},
+                ),
+                SemanticNode(
+                    id="body-row",
+                    kind="table_row",
+                    children=[value],
+                    attrs={"row": 1, "role": "body"},
+                ),
+            ],
+            attrs={"header_rows": 1, "row_count": 2, "column_count": 2},
+        )
+        tagged_table = SemanticNode(id="tagged-table", kind="table")
+        _apply_tagged_child_order(
+            SemanticDocument([tagged_table]),
+            {"tagged-table": table},
+        )
+        self.assertEqual(value.attrs["col"], 1)
+        self.assertEqual(table.attrs["column_count"], 2)
+
+    def test_partial_actual_text_never_discards_unowned_geometry(self) -> None:
+        def geometric(keys) -> SemanticNode:
+            return SemanticNode(
+                id="geometry",
+                kind="paragraph",
+                children=[
+                    SemanticNode(
+                        id="source-%d" % key,
+                        kind="text",
+                        text="Source%d" % key,
+                        sources=[SourceRef(page=1, mcids=(key,))],
+                    )
+                    for key in keys
+                ],
+                sources=[SourceRef(page=1, mcids=tuple(keys))],
+            )
+
+        def tagged(keys) -> SemanticNode:
+            return SemanticNode(
+                id="tagged",
+                kind="paragraph",
+                text="Replacement",
+                attrs={"actual_text": True},
+                children=[
+                    SemanticNode(
+                        id="tag-key-%d" % key,
+                        kind="text",
+                        attrs={"mcid": key},
+                        sources=[SourceRef(page=1, mcids=(key,))],
+                    )
+                    for key in keys
+                ],
+            )
+
+        for geometry_keys, tag_keys in (((0, 1), (0,)), ((0, 1, 2), (0, 1))):
+            with self.subTest(geometry_keys=geometry_keys, tag_keys=tag_keys):
+                node = geometric(geometry_keys)
+                tag = tagged(tag_keys)
+                if len(tag_keys) * 2 <= len(geometry_keys):
+                    self.assertLess(_binding_score(tag, node, len(tag_keys)), 0.55)
+                _apply_tagged_prior(node, tag, 1.0)
+                self.assertEqual(node_text(node), "".join("Source%d" % key for key in geometry_keys))
+                self.assertIn("TAGGED_ACTUALTEXT_OWNERSHIP_CONFLICT", node.warnings)
+                self.assertTrue(any(
+                    evidence.kind == "tagged_actual_text_rejected"
+                    for evidence in node.evidence
+                ))
+
+        exact = geometric((0, 1))
+        _apply_tagged_prior(exact, tagged((0, 1)), 1.0)
+        self.assertEqual(node_text(exact), "Replacement")
+        self.assertTrue(exact.attrs["actual_text"])
+
+    def test_unvalidated_parent_tree_cannot_materialize_a_list(self) -> None:
+        source = [SourceRef(page=1, mcids=(0, 1), bbox=(72, 80, 300, 112))]
+        paragraph = SemanticNode(
+            id="geometry",
+            kind="paragraph",
+            text="Geometry-owned text",
+            sources=source,
+        )
+        tagged_items = []
+        for mcid, validated in ((0, True), (1, False)):
+            leaf_source = [SourceRef(page=1, mcids=(mcid,))]
+            tagged_leaf = SemanticNode(
+                id="tagged-leaf-%d" % mcid,
+                kind="text",
+                text="Tagged text %d" % mcid,
+                attrs={
+                    "mcid": mcid,
+                    "parent_tree_validated": validated,
+                    "struct_parents": 0,
+                },
+                sources=leaf_source,
+            )
+            tagged_items.append(SemanticNode(
+                id="tagged-item-%d" % mcid,
+                kind="item",
+                children=[tagged_leaf],
+            ))
+        tagged_list = SemanticNode(id="tagged-list", kind="list", children=tagged_items)
+        geometric = SemanticDocument([paragraph])
+        conflicts = []
+        _materialize_tagged_structures(
+            geometric,
+            SemanticDocument([tagged_list]),
+            {},
+            {(1, 0): [paragraph], (1, 1): [paragraph]},
+            conflicts,
+        )
+        self.assertEqual([node.kind for node in geometric.children], ["paragraph"])
+        self.assertEqual(
+            conflicts,
+            ["TAGGED_STRUCTURE_UNVALIDATED_PARENTTREE:tagged-list"],
+        )
+
+    def test_validated_parent_tree_materialization_records_authorized_claims(self) -> None:
+        geometry = []
+        tagged_items = []
+        by_mcid = {}
+        for mcid, text in ((0, "Alpha"), (1, "Bravo")):
+            source = [SourceRef(page=1, mcids=(mcid,), bbox=(72, 80 + mcid * 20, 300, 92 + mcid * 20))]
+            paragraph = SemanticNode(
+                id="geometry-%d" % mcid,
+                kind="paragraph",
+                text=text,
+                sources=source,
+            )
+            geometry.append(paragraph)
+            by_mcid[(1, mcid)] = [paragraph]
+            leaf = SemanticNode(
+                id="leaf-%d" % mcid,
+                kind="text",
+                text=text,
+                attrs={
+                    "mcid": mcid,
+                    "parent_tree_validated": True,
+                    "struct_parents": 4,
+                },
+                sources=source,
+            )
+            tagged_items.append(SemanticNode(
+                id="item-%d" % mcid,
+                kind="item",
+                children=[leaf],
+            ))
+        tagged_list = SemanticNode(id="validated-list", kind="list", children=tagged_items)
+        document = SemanticDocument(geometry)
+        bindings = {}
+        conflicts = []
+        _materialize_tagged_structures(
+            document,
+            SemanticDocument([tagged_list]),
+            bindings,
+            by_mcid,
+            conflicts,
+        )
+        self.assertEqual(conflicts, [])
+        self.assertEqual([node.kind for node in document.children], ["list"])
+        evidence = next(
+            item for item in document.children[0].evidence
+            if item.kind == "tagged_structure_parent_tree_validated"
+        )
+        self.assertEqual(evidence.data["claim_count"], 2)
+        self.assertEqual(
+            [(claim["page"], claim["mcid"]) for claim in evidence.data["authorized_mcid_claims"]],
+            [(1, 0), (1, 1)],
+        )
+
+    def test_duplicate_or_stream_scoped_mcid_claims_cannot_materialize(self) -> None:
+        paragraph = SemanticNode(
+            id="geometry",
+            kind="paragraph",
+            text="One source block",
+            sources=[SourceRef(page=1, mcids=(0,), bbox=(72, 80, 300, 92))],
+        )
+
+        def tagged_list(*, stream_ref: str = "") -> SemanticNode:
+            items = []
+            for index in range(2):
+                attrs = {
+                    "mcid": 0,
+                    "parent_tree_validated": True,
+                    "struct_parents": 7,
+                }
+                if stream_ref:
+                    attrs["stream_ref"] = stream_ref
+                leaf = SemanticNode(
+                    id="leaf-%d" % index,
+                    kind="text",
+                    text="Repeated",
+                    attrs=attrs,
+                    sources=[SourceRef(page=1, mcids=(0,))],
+                )
+                items.append(SemanticNode(id="item-%d" % index, kind="item", children=[leaf]))
+            return SemanticNode(id="candidate", kind="list", children=items)
+
+        for stream_ref, code in (
+            ("", "TAGGED_STRUCTURE_DUPLICATE_MCID_CLAIM:candidate"),
+            ("9 0 R", "TAGGED_STRUCTURE_STREAM_SCOPE_UNRESOLVED:candidate"),
+        ):
+            with self.subTest(stream_ref=stream_ref):
+                document = SemanticDocument([paragraph])
+                conflicts = []
+                _materialize_tagged_structures(
+                    document,
+                    SemanticDocument([tagged_list(stream_ref=stream_ref)]),
+                    {},
+                    {(1, 0): [paragraph]},
+                    conflicts,
+                )
+                self.assertEqual([node.kind for node in document.children], ["paragraph"])
+                self.assertEqual(conflicts, [code])
+
+    def test_nested_validated_list_materializes_without_false_conflict(self) -> None:
+        outer_source = [SourceRef(page=1, mcids=(0,), bbox=(72, 80, 300, 92))]
+        inner_source = [SourceRef(page=1, mcids=(1,), bbox=(90, 100, 300, 112))]
+        geometry = [
+            SemanticNode(id="outer-geometry", kind="paragraph", text="Outer", sources=outer_source),
+            SemanticNode(id="inner-geometry", kind="paragraph", text="Inner", sources=inner_source),
+        ]
+        outer_leaf = SemanticNode(
+            id="outer-leaf",
+            kind="text",
+            text="Outer",
+            attrs={"mcid": 0, "parent_tree_validated": True, "struct_parents": 3},
+            sources=outer_source,
+        )
+        inner_leaf = SemanticNode(
+            id="inner-leaf",
+            kind="text",
+            text="Inner",
+            attrs={"mcid": 1, "parent_tree_validated": True, "struct_parents": 3},
+            sources=inner_source,
+        )
+        nested = SemanticNode(
+            id="nested-list",
+            kind="list",
+            children=[SemanticNode(id="inner-item", kind="item", children=[inner_leaf])],
+        )
+        outer = SemanticNode(
+            id="outer-list",
+            kind="list",
+            children=[SemanticNode(
+                id="outer-item",
+                kind="item",
+                children=[outer_leaf, nested],
+            )],
+        )
+        document = SemanticDocument(geometry)
+        bindings = {}
+        conflicts = []
+        _materialize_tagged_structures(
+            document,
+            SemanticDocument([outer]),
+            bindings,
+            {(1, 0): [geometry[0]], (1, 1): [geometry[1]]},
+            conflicts,
+        )
+        self.assertEqual(conflicts, [])
+        self.assertEqual(len([node for node in document.walk() if node.kind == "list"]), 2)
+        self.assertEqual(bindings["nested-list"].kind, "list")
+
+    def test_materialized_tagged_table_repairs_only_unambiguous_row_geometry(self) -> None:
+        def cell(node_id: str, text: str, y: float, role: str) -> SemanticNode:
+            source = [SourceRef(page=1, glyph_ids=(int(y),), bbox=(72.0, y, 240.0, y + 12.0))]
+            return SemanticNode(
+                id=node_id,
+                kind="table_cell",
+                children=[SemanticNode(id=node_id + "-text", kind="text", text=text, sources=source)],
+                attrs={"cell_role": role, "tag_role": role.upper()},
+                sources=source,
+            )
+
+        header = SemanticNode(
+            id="tag-row-header",
+            kind="table_row",
+            children=[cell("tag-cell-header", "Column", 80.0, "th")],
+        )
+        body = SemanticNode(
+            id="tag-row-body",
+            kind="table_row",
+            children=[cell("tag-cell-body", "Value", 110.0, "td")],
+        )
+        materialized = _tagged_table_node(SemanticNode(
+            id="tag-table",
+            kind="table",
+            children=[body, header],
+        ))
+
+        self.assertIsNotNone(materialized)
+        assert materialized is not None
+        rows = [child for child in materialized.children if child.kind == "table_row"]
+        self.assertEqual([row.attrs["row"] for row in rows], [0, 1])
+        self.assertEqual([row.attrs["role"] for row in rows], ["header", "body"])
+        self.assertEqual(materialized.attrs["header_rows"], 1)
+        self.assertIn("TAGGED_TABLE_ORDER_GEOMETRY_REPAIRED", materialized.warnings)
+
+    def test_materialized_tagged_table_reserves_rowspan_columns(self) -> None:
+        def tagged_cell(
+            node_id: str,
+            text: str,
+            bbox,
+            role: str,
+            *,
+            rowspan: int = 1,
+            colspan: int = 1,
+        ) -> SemanticNode:
+            source = [SourceRef(page=1, bbox=bbox, glyph_ids=(len(node_id),))]
+            return SemanticNode(
+                id=node_id,
+                kind="table_cell",
+                attrs={
+                    "cell_role": role,
+                    "tag_role": role.upper(),
+                    "structure_attributes": {
+                        "RowSpan": rowspan,
+                        "ColSpan": colspan,
+                    },
+                },
+                children=[SemanticNode(id=node_id + "-text", kind="text", text=text, sources=source)],
+                sources=source,
+            )
+
+        first_row = SemanticNode(
+            id="first-row",
+            kind="table_row",
+            children=[
+                tagged_cell("spanning", "Group", (72, 80, 180, 120), "th", rowspan=2),
+                tagged_cell("heading", "Value", (180, 80, 320, 100), "th"),
+            ],
+        )
+        second_row = SemanticNode(
+            id="second-row",
+            kind="table_row",
+            children=[tagged_cell("value", "42", (180, 100, 320, 120), "td")],
+        )
+        table = _tagged_table_node(SemanticNode(
+            id="rowspan-table",
+            kind="table",
+            children=[first_row, second_row],
+        ))
+        self.assertIsNotNone(table)
+        assert table is not None
+        rows = [node for node in table.children if node.kind == "table_row"]
+        self.assertEqual([cell.attrs["col"] for cell in rows[0].children], [0, 1])
+        self.assertEqual([cell.attrs["col"] for cell in rows[1].children], [1])
+        self.assertEqual(table.attrs["column_count"], 2)
+        self.assertEqual(table.attrs["row_count"], 2)
+        rendered = render_semantic_html(SemanticDocument([table]))
+        self.assertIn('rowspan="2"', rendered)
+        payload = table.to_dict()
+        self.assertEqual(payload["children"][1]["children"][0]["attrs"]["col"], 1)
+
+    def test_first_page_level_one_geometry_survives_generic_paragraph_tag(self) -> None:
+        heading = SemanticNode(
+            id="cover-title",
+            kind="heading",
+            attrs={
+                "level": 1,
+                "bottom_zone": False,
+                "upper_page_zone": True,
+            },
+            confidence=0.92,
+            evidence=[Evidence(
+                "geometric_semantic_detector",
+                0.92,
+                detail="heading",
+                page=1,
+            )],
+            sources=[SourceRef(page=1, bbox=(90.0, 100.0, 520.0, 150.0))],
+        )
+        _apply_tagged_prior(
+            heading,
+            SemanticNode(id="tag-title", kind="paragraph", attrs={"tag_role": "P"}),
+            0.94,
+        )
+        self.assertEqual(heading.kind, "heading")
+        self.assertIn("TAGGED_ROLE_CONFLICT_GEOMETRY_PRESERVED", heading.warnings)
+
+        subsection = SemanticNode(
+            id="ordinary-subsection",
+            kind="heading",
+            attrs={"level": 2, "bottom_zone": False},
+            confidence=0.92,
+            sources=[SourceRef(page=1, bbox=(90.0, 180.0, 420.0, 200.0))],
+        )
+        _apply_tagged_prior(
+            subsection,
+            SemanticNode(id="tag-subsection", kind="paragraph", attrs={"tag_role": "P"}),
+            0.94,
+        )
+        self.assertEqual(subsection.kind, "paragraph")
+
+    def test_cover_override_requires_complete_high_confidence_display_evidence(self) -> None:
+        cases = (
+            ({"level": "1", "bottom_zone": False, "upper_page_zone": True}, 0.95),
+            ({"level": 1, "bottom_zone": False, "upper_page_zone": False}, 0.95),
+            ({"level": 1, "bottom_zone": False, "upper_page_zone": True}, 0.70),
+        )
+        for index, (attrs, score) in enumerate(cases):
+            with self.subTest(index=index):
+                heading = SemanticNode(
+                    id="candidate-%d" % index,
+                    kind="heading",
+                    attrs=attrs,
+                    confidence=0.92,
+                    evidence=[Evidence(
+                        "geometric_semantic_detector",
+                        0.92,
+                        detail="heading",
+                        page=1,
+                    )],
+                    sources=[SourceRef(page=1, bbox=(90.0, 100.0, 520.0, 150.0))],
+                )
+                _apply_tagged_prior(
+                    heading,
+                    SemanticNode(id="tag-%d" % index, kind="paragraph"),
+                    score,
+                )
+                self.assertEqual(heading.kind, "paragraph")
+                self.assertNotIn(
+                    "TAGGED_ROLE_CONFLICT_GEOMETRY_PRESERVED",
+                    heading.warnings,
+                )
+
+    def test_unknown_or_descendant_only_geometry_cannot_authorize_tag_inversion(self) -> None:
+        missing_a = SemanticNode(id="missing-a", kind="paragraph", sources=[SourceRef(page=1)])
+        missing_b = SemanticNode(id="missing-b", kind="paragraph", sources=[SourceRef(page=1)])
+        missing = SemanticDocument([missing_a, missing_b])
+        tag_a = SemanticNode(id="tag-a", kind="paragraph")
+        tag_b = SemanticNode(id="tag-b", kind="paragraph")
+        _apply_tagged_order(
+            missing,
+            SemanticDocument([tag_b, tag_a]),
+            {"tag-a": missing_a, "tag-b": missing_b},
+        )
+        self.assertEqual([node.id for node in missing.children], ["missing-a", "missing-b"])
+        self.assertIn("TAGGED_ORDER_GEOMETRY_CONFLICT", missing.warnings)
+
+        descendant_a = SemanticNode(
+            id="parent-a",
+            kind="paragraph",
+            children=[self._block("child-a", 1, 72.0)],
+        )
+        descendant_b = SemanticNode(
+            id="parent-b",
+            kind="paragraph",
+            children=[self._block("child-b", 1, 100.0)],
+        )
+        descendant = SemanticDocument([descendant_a, descendant_b])
+        _apply_tagged_order(
+            descendant,
+            SemanticDocument([tag_b, tag_a]),
+            {"tag-a": descendant_a, "tag-b": descendant_b},
+        )
+        self.assertEqual([node.id for node in descendant.children], ["parent-a", "parent-b"])
+
+    def test_partial_table_binding_is_an_anchor_without_false_conflict(self) -> None:
+        header = SemanticNode(id="header", kind="table_row")
+        body = SemanticNode(id="body", kind="table_row")
+        table = SemanticNode(id="table", kind="table", children=[header, body])
+        tagged_body = SemanticNode(id="tagged-body", kind="table_row")
+        tagged_table = SemanticNode(id="tagged-table", kind="table", children=[tagged_body])
+
+        _apply_tagged_child_order(
+            SemanticDocument([tagged_table]),
+            {"tagged-table": table, "tagged-body": body},
+        )
+
+        self.assertEqual([child.id for child in table.children], ["header", "body"])
+        self.assertNotIn("TAGGED_ORDER_GEOMETRY_CONFLICT", table.warnings)
+
+    def test_overlapping_tagged_rows_are_not_claimed_as_geometric_repair(self) -> None:
+        def row(node_id: str, y0: float, y1: float) -> SemanticNode:
+            source = [SourceRef(page=1, bbox=(72.0, y0, 500.0, y1))]
+            return SemanticNode(
+                id=node_id,
+                kind="table_row",
+                sources=source,
+                children=[SemanticNode(
+                    id=node_id + "-cell",
+                    kind="table_cell",
+                    attrs={"cell_role": "td"},
+                    sources=source,
+                )],
+            )
+
+        lower = row("lower", 81.1, 101.1)
+        upper = row("upper", 80.0, 100.0)
+        table = _tagged_table_node(SemanticNode(
+            id="tagged-table-overlap",
+            kind="table",
+            children=[lower, upper],
+        ))
+        self.assertIsNotNone(table)
+        assert table is not None
+        self.assertNotIn("TAGGED_TABLE_ORDER_GEOMETRY_REPAIRED", table.warnings)
+
+    def test_empty_tagged_rows_do_not_leave_sparse_row_indices(self) -> None:
+        empty = SemanticNode(id="empty", kind="table_row")
+        source = [SourceRef(page=1, bbox=(72.0, 100.0, 240.0, 112.0))]
+        cell = SemanticNode(
+            id="cell",
+            kind="table_cell",
+            attrs={"cell_role": "th", "tag_role": "TH"},
+            children=[SemanticNode(id="text", kind="text", text="Header", sources=source)],
+            sources=source,
+        )
+        populated = SemanticNode(id="populated", kind="table_row", children=[cell], sources=source)
+        table = _tagged_table_node(SemanticNode(
+            id="tagged-table-empty",
+            kind="table",
+            children=[empty, populated],
+        ))
+        self.assertIsNotNone(table)
+        assert table is not None
+        rows = [child for child in table.children if child.kind == "table_row"]
+        self.assertEqual([row.attrs["row"] for row in rows], [0])
+        self.assertEqual(rows[0].children[0].attrs["row"], 0)
+        self.assertEqual(table.attrs["header_rows"], 1)
+
+    def test_empty_tagged_row_does_not_block_reversed_row_repair(self) -> None:
+        def tagged_row(node_id: str, text: str, y: float, role: str) -> SemanticNode:
+            source = [SourceRef(page=1, bbox=(72, y, 300, y + 14))]
+            cell = SemanticNode(
+                id=node_id + "-cell",
+                kind="table_cell",
+                attrs={"cell_role": role, "tag_role": role.upper()},
+                children=[SemanticNode(id=node_id + "-text", kind="text", text=text, sources=source)],
+                sources=source,
+            )
+            return SemanticNode(id=node_id, kind="table_row", children=[cell], sources=source)
+
+        header = tagged_row("header", "Header", 80.0, "th")
+        body = tagged_row("body", "Body", 110.0, "td")
+        empty = SemanticNode(id="phantom", kind="table_row")
+        table = _tagged_table_node(SemanticNode(
+            id="tagged-table",
+            kind="table",
+            children=[body, empty, header],
+        ))
+        self.assertIsNotNone(table)
+        assert table is not None
+        rows = [child for child in table.children if child.kind == "table_row"]
+        self.assertEqual([node_text(row) for row in rows], ["Header", "Body"])
+        self.assertEqual(table.attrs["header_rows"], 1)
+        self.assertTrue(any(
+            evidence.kind == "tagged_table_empty_rows_ignored"
+            for evidence in table.evidence
+        ))
+
+
+class ArtifactCalloutGeometryRegressionTests(unittest.TestCase):
+    def test_chromatic_artifact_background_can_support_authored_callout(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 1 0.95 0.78 rg 60 600 500 72 re f EMC",
+            b"BT /F1 10 Tf 0 g 1 0 0 1 72 646 Tm (Attention: verify the configuration.) Tj",
+            b"1 0 0 1 72 628 Tm (Keep the prior settings for rollback.) Tj",
+            b"1 0 0 1 72 610 Tm (Record the final validation result.) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+
+        callouts = semantic_nodes(result, "callout")
+        self.assertEqual(len(callouts), 1, result.semantic.to_dict())
+        callout = callouts[0]
+        self.assertTrue(callout.attrs["artifact_background_geometry"])
+        self.assertTrue(any(
+            evidence.kind == "artifact_callout_background"
+            and evidence.data["source_marked_artifact"]
+            for evidence in callout.evidence
+        ))
+        self.assertIn("ARTIFACT_CALLOUT_BACKGROUND_RECOVERED", callout.warnings)
+        self.assertIn(
+            "ARTIFACT_CALLOUT_BACKGROUND_RECOVERED",
+            {warning.code for warning in result.warnings},
+        )
+        self.assertTrue(callout.sources)
+        self.assertTrue(any(source.glyph_ids for source in callout.sources))
+        self.assertIn('background: #fff2c7', result.markdown)
+        self.assertIn('<aside class="cocoapdf-callout', result.html)
+        graph_markdown = render_semantic_markdown(result.semantic)
+        graph_html = render_semantic_html(result.semantic)
+        self.assertIn("background-color: #fff2c7", graph_markdown)
+        self.assertIn("background-color: rgb(255, 242, 199)", graph_html)
+        self.assertEqual(result.html, graph_html)
+        self.assertNotIn("_layout_html", callout.attrs)
+
+    def test_artifact_highlight_code_and_grid_near_misses_are_not_callouts(self) -> None:
+        cases = {
+            "single_line_highlight": b" ".join([
+                b"/Artifact BMC 1 0.90 0.70 rg 60 650 500 32 re f EMC",
+                b"BT /F1 10 Tf 0 g 1 0 0 1 72 662 Tm (One highlighted sentence.) Tj ET",
+            ]),
+            "neutral_code_panel": b" ".join([
+                b"/Artifact BMC 0.94 g 60 600 500 72 re f EMC",
+                b"BT /F1 10 Tf 0 g 1 0 0 1 72 646 Tm (first code-like line) Tj",
+                b"1 0 0 1 72 628 Tm (second code-like line) Tj ET",
+            ]),
+            "internal_grid": b" ".join([
+                b"/Artifact BMC 1 0.90 0.70 rg 60 600 500 72 re f EMC",
+                b"0 g 60 636 m 560 636 l S",
+                b"BT /F1 10 Tf 0 g 1 0 0 1 72 646 Tm (Upper band content.) Tj",
+                b"1 0 0 1 72 618 Tm (Lower band content.) Tj ET",
+            ]),
+            "post_text_overlay": b" ".join([
+                b"BT /F1 10 Tf 0 g 1 0 0 1 72 646 Tm (First visible source line.) Tj",
+                b"1 0 0 1 72 628 Tm (Second visible source line.) Tj ET",
+                b"/Artifact BMC 1 0.90 0.70 rg 60 600 500 72 re f EMC",
+            ]),
+        }
+        for name, content in cases.items():
+            with self.subTest(name=name):
+                result = convert(one_page_pdf(content))
+                self.assertEqual(semantic_nodes(result, "callout"), [], result.markdown)
+                self.assertNotIn(
+                    "ARTIFACT_CALLOUT_BACKGROUND_RECOVERED",
+                    {warning.code for warning in result.warnings},
+                )
+
+    def test_disjoint_rule_does_not_veto_verified_artifact_callout(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 1 0.95 0.78 rg 300 600 250 72 re f EMC",
+            b"0 g 20 636 m 120 636 l S",
+            b"BT /F1 10 Tf 0 g 1 0 0 1 312 646 Tm (Attention: verify the setting.) Tj",
+            b"1 0 0 1 312 628 Tm (Retain the prior value for rollback.) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertEqual(len(semantic_nodes(result, "callout")), 1, result.markdown)
+
+    def test_repeated_same_style_artifact_cards_are_not_callouts(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 1 0.95 0.78 rg 60 680 150 48 re f EMC",
+            b"/Artifact BMC 1 0.95 0.78 rg 230 680 150 48 re f EMC",
+            b"/Artifact BMC 1 0.95 0.78 rg 400 680 150 48 re f EMC",
+            b"BT /F1 8 Tf 0 g 1 0 0 1 68 710 Tm (Card one title.) Tj",
+            b"1 0 0 1 68 694 Tm (Card one detail.) Tj",
+            b"1 0 0 1 238 710 Tm (Card two title.) Tj",
+            b"1 0 0 1 238 694 Tm (Card two detail.) Tj",
+            b"1 0 0 1 408 710 Tm (Card three title.) Tj",
+            b"1 0 0 1 408 694 Tm (Card three detail.) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertEqual(semantic_nodes(result, "callout"), [], result.markdown)
+
+    def test_upper_page_artifact_title_banner_remains_heading_content(self) -> None:
+        content = b" ".join([
+            b"/Artifact BMC 0.20 0.55 0.85 rg 54 680 504 82 re f EMC",
+            b"BT /F1 24 Tf 1 g 1 0 0 1 84 730 Tm (Annual Operations Review) Tj",
+            b"/F1 12 Tf 1 0 0 1 84 704 Tm (Evidence and implementation guide) Tj",
+            b"/F1 10 Tf 0 g 1 0 0 1 72 640 Tm (This body paragraph establishes the local reading size.) Tj",
+            b"1 0 0 1 72 622 Tm (A second body line keeps the title typography distinct.) Tj",
+            b"1 0 0 1 72 604 Tm (The banner is not advisory content.) Tj ET",
+        ])
+        result = convert(one_page_pdf(content))
+        self.assertEqual(semantic_nodes(result, "callout"), [], result.semantic.to_dict())
+        self.assertIn("Annual Operations Review", result.markdown)
+        self.assertNotIn(
+            "ARTIFACT_CALLOUT_BACKGROUND_RECOVERED",
+            {warning.code for warning in result.warnings},
+        )
+
+
+class TableCellListAdmissionRegressionTests(unittest.TestCase):
+    @staticmethod
+    def _line(text: str, y: float, seq: int) -> Line:
+        font = Font(name="F1", base_font="Helvetica")
+        return Line(
+            chars=[Char(
+                text=text,
+                x0=72.0,
+                y0=y,
+                x1=72.0 + len(text) * 5.0,
+                y1=y + 10.0,
+                size=10.0,
+                font=font,
+                page=1,
+                seq=seq,
+            )],
+            page=1,
+            seq=seq,
+        )
+
+    def test_single_marker_like_table_row_label_remains_paragraph(self) -> None:
+        blocks = _cell_blocks(
+            NodeFactory(),
+            None,
+            [self._line("A. Review phase", 72.0, 1)],
+            {},
+        )
+        self.assertEqual([block.kind for block in blocks], ["paragraph"])
+        self.assertEqual(node_text(blocks[0]), "A. Review phase")
+
+    def test_repeated_in_cell_markers_still_form_a_list(self) -> None:
+        blocks = _cell_blocks(
+            NodeFactory(),
+            None,
+            [
+                self._line("1. First action", 72.0, 1),
+                self._line("2. Second action", 88.0, 2),
+            ],
+            {},
+        )
+        self.assertEqual([block.kind for block in blocks], ["list"])
+        self.assertEqual(len(blocks[0].children), 2)
+        self.assertEqual(
+            {item.kind for item in blocks[0].evidence},
+            {"table_cell_list_marker_cohort"},
+        )
+
+    def test_mixed_marker_families_remain_literal_cell_paragraphs(self) -> None:
+        blocks = _cell_blocks(
+            NodeFactory(),
+            None,
+            [
+                self._line("- Unordered action", 72.0, 1),
+                self._line("1. Ordered action", 88.0, 2),
+            ],
+            {},
+        )
+        self.assertEqual([block.kind for block in blocks], ["paragraph", "paragraph"])
+
+    def test_nonconsecutive_ordered_row_labels_do_not_form_a_list(self) -> None:
+        blocks = _cell_blocks(
+            NodeFactory(),
+            None,
+            [
+                self._line("1. First record", 72.0, 1),
+                self._line("3. Third record", 88.0, 2),
+            ],
+            {},
+        )
+        self.assertEqual([block.kind for block in blocks], ["paragraph", "paragraph"])
+
+    def test_single_visible_task_marker_remains_a_list(self) -> None:
+        blocks = _cell_blocks(
+            NodeFactory(),
+            None,
+            [self._line("- [ ] Complete review", 72.0, 1)],
+            {},
+        )
+        self.assertEqual([block.kind for block in blocks], ["list"])
+        self.assertEqual(len(blocks[0].children), 1)
+        item = blocks[0].children[0]
+        self.assertEqual(
+            item.attrs,
+            {"marker": "task-unchecked", "task": True, "checked": False},
+        )
+        self.assertEqual(
+            {evidence.kind for evidence in item.evidence},
+            {"table_cell_list_marker"},
+        )
+
+        source = [SourceRef(page=1)]
+        cell = SemanticNode(
+            id="task-cell",
+            kind="table_cell",
+            children=blocks,
+            attrs={"row": 0, "col": 0, "rowspan": 1, "colspan": 1, "role": "td"},
+            sources=source,
+        )
+        row = SemanticNode(
+            id="task-row",
+            kind="table_row",
+            children=[cell],
+            attrs={"row": 0, "role": "body"},
+            sources=source,
+        )
+        table = SemanticNode(
+            id="task-table",
+            kind="table",
+            children=[row],
+            attrs={"header_rows": 0, "output_mode": "html", "row_count": 1, "column_count": 1},
+            sources=source,
+        )
+        document = SemanticDocument([table])
+        markdown = render_semantic_markdown(document)
+        html = render_semantic_html(document)
+        payload = document.to_dict()
+        self.assertIn('type="checkbox"', markdown)
+        self.assertNotIn("- [ ]", markdown)
+        self.assertIn('type="checkbox"', html)
+        payload_item = payload["children"][0]["children"][0]["children"][0]["children"][0]["children"][0]
+        self.assertTrue(payload_item["attrs"]["task"])
+        self.assertFalse(payload_item["attrs"]["checked"])
+
+
+class SemanticMarkdownInlineRegressionTests(unittest.TestCase):
+    def test_intraword_underscores_remain_readable_without_enabling_emphasis(self) -> None:
+        paragraph = SemanticNode(
+            id="paragraph",
+            kind="paragraph",
+            children=[SemanticNode(
+                id="text",
+                kind="text",
+                text="alpha_beta A_B _edge_",
+            )],
+        )
+        self.assertEqual(
+            render_semantic_markdown(SemanticDocument([paragraph])),
+            "alpha_beta A_B \\_edge\\_\n",
+        )
+
+        def table_cell(node_id: str, text: str, row: int) -> SemanticNode:
+            return SemanticNode(
+                id=node_id,
+                kind="table_cell",
+                attrs={"row": row, "col": 0, "rowspan": 1, "colspan": 1},
+                children=[SemanticNode(id=node_id + "-text", kind="text", text=text)],
+            )
+
+        table = SemanticNode(
+            id="table",
+            kind="table",
+            attrs={"header_rows": 1},
+            children=[
+                SemanticNode(id="header", kind="table_row", children=[table_cell("h", "field_name", 0)]),
+                SemanticNode(id="body", kind="table_row", children=[table_cell("b", "value_one", 1)]),
+            ],
+        )
+        rendered_table = render_semantic_markdown(SemanticDocument([table]))
+        self.assertIn("| field_name |", rendered_table)
+        self.assertIn("| value_one |", rendered_table)
+        self.assertNotIn("\\_", rendered_table)
+
+    def test_adjacent_identical_styles_coalesce_with_sources(self) -> None:
+        factory = NodeFactory()
+        tokens = [
+            {
+                "text": "Alpha",
+                "style": (True, False, False, False, False, False, False, False),
+                "page": 1,
+                "glyph_ids": (1,),
+                "mcids": (),
+                "bbox": (72.0, 72.0, 102.0, 84.0),
+            },
+            {
+                "text": "Beta ",
+                "style": (True, False, False, False, False, False, False, False),
+                "page": 1,
+                "glyph_ids": (2,),
+                "mcids": (),
+                "bbox": (102.0, 72.0, 132.0, 84.0),
+            },
+        ]
+        inlines = inline_nodes_from_tokens(factory, tokens)
+        self.assertEqual(len(inlines), 1)
+        self.assertEqual(inlines[0].kind, "strong")
+        self.assertEqual(
+            {glyph for source in inlines[0].sources for glyph in source.glyph_ids},
+            {1, 2},
+        )
+        paragraph = SemanticNode(id="paragraph", kind="paragraph", children=inlines)
+        rendered = render_semantic_markdown(SemanticDocument([paragraph]))
+        self.assertEqual(rendered, "**AlphaBeta**\n")
+        self.assertNotIn("****", rendered)
+
+    def test_code_span_uses_unescaped_descendant_text(self) -> None:
+        code = SemanticNode(
+            id="code",
+            kind="code",
+            children=[SemanticNode(
+                id="code-text",
+                kind="text",
+                text="reader_mode_32",
+            )],
+        )
+        paragraph = SemanticNode(id="paragraph", kind="paragraph", children=[code])
+        self.assertEqual(
+            render_semantic_markdown(SemanticDocument([paragraph])),
+            "`reader_mode_32`\n",
+        )
+
+    def test_adjacent_code_tokens_coalesce_before_markdown_projection(self) -> None:
+        for strong in (False, True):
+            with self.subTest(strong=strong):
+                style = (strong, False, True, False, False, False, False, False)
+                tokens = [
+                    {"text": "foo", "style": style},
+                    {"text": "bar", "style": style},
+                ]
+                inlines = inline_nodes_from_tokens(NodeFactory(), tokens)
+                paragraph = SemanticNode(
+                    id="code-paragraph",
+                    kind="paragraph",
+                    children=inlines,
+                )
+                expected = "**`foobar`**\n" if strong else "`foobar`\n"
+                self.assertEqual(
+                    render_semantic_markdown(SemanticDocument([paragraph])),
+                    expected,
+                )
+
+    def test_adjacent_superscript_labels_keep_separate_semantic_boundaries(self) -> None:
+        superscript_style = (
+            False,
+            False,
+            False,
+            False,
+            False,
+            True,
+            False,
+            False,
+        )
+        inlines = inline_nodes_from_tokens(
+            NodeFactory(),
+            [
+                {"text": "2", "style": superscript_style},
+                {"text": "3", "style": superscript_style},
+            ],
+        )
+        self.assertEqual([node.kind for node in inlines], ["superscript", "superscript"])
+        self.assertEqual([node_text(node) for node in inlines], ["2", "3"])
+
+
 class HeadingLevelModeTests(unittest.TestCase):
     def _heading_document(self) -> bytes:
         content = b" ".join([
@@ -4522,6 +6632,213 @@ class ArtifactDisplayHeadingRecoveryTests(unittest.TestCase):
         self.assertEqual(len(semantic_nodes(result, "image")), 1)
         self.assertIn("<img ", result.html)
         self.assertFalse(result.report["image_text_extraction_attempted"])
+
+
+class TiledCodePanelTests(unittest.TestCase):
+    @staticmethod
+    def _panel_ops(
+        rows,
+        *,
+        top: float = 700.0,
+        left: float = 60.0,
+        width: float = 360.0,
+        height: float = 14.0,
+    ):
+        operations = []
+        for index, (text, font) in enumerate(rows):
+            bottom = top - index * height
+            operations.append(rect_fill_op(left, bottom, width, height, 0.94))
+            operations.append(
+                text_op(left + 10.0, bottom + 3.0, text, font=font, size=9.0)
+            )
+        return operations
+
+    def test_tiled_fill_code_panel_preserves_blank_and_style_outlier(self) -> None:
+        rows = [
+            ("alpha_value = transform(source_record)", "F4"),
+            ("beta_value = validate(alpha_value)", "F4"),
+            ("   ", "F4"),
+            ("gamma_value = persist(beta_value)", "F4"),
+            ("note", "F1"),
+            ("delta_value = publish(gamma_value)", "F4"),
+            ("return delta_value", "F4"),
+        ]
+        result = convert(make_pdf([b"\n".join(self._panel_ops(rows))]))
+
+        blocks = semantic_nodes(result, "code_block")
+        self.assertEqual(len(blocks), 1, result.semantic.to_dict())
+        block = blocks[0]
+        self.assertIn("beta_value = validate(alpha_value)\n\n", block.text)
+        self.assertIn("\nnote\n", block.text)
+        self.assertEqual(block.attrs["tiled_fill_strip_count"], len(rows))
+        self.assertTrue(block.attrs["tiled_fill_paint_order_backed"])
+        self.assertEqual(block.attrs["tiled_fill_style_outlier_count"], 1)
+        self.assertGreaterEqual(block.attrs["tiled_fill_mono_char_ratio"], 0.85)
+        self.assertEqual(block.warnings, ["CODE_PANEL_STYLE_OUTLIER_RECOVERED"])
+        evidence = next(
+            item for item in block.evidence if item.kind == "tiled_fill_code_panel"
+        )
+        self.assertEqual(evidence.data["strip_count"], len(rows))
+        self.assertTrue(evidence.data["paint_order_backed"])
+        self.assertEqual(evidence.data["style_outlier_count"], 1)
+        self.assertTrue(block.sources)
+        self.assertTrue(block.sources[0].glyph_ids)
+        self.assertEqual(result.markdown.count("```"), 2)
+        self.assertEqual(result.html.count("<pre"), 1)
+        self.assertEqual(result.html.count("<code"), 1)
+        self.assertIn(
+            "CODE_PANEL_STYLE_OUTLIER_RECOVERED",
+            {warning.code for warning in result.warnings},
+        )
+        self.assertTrue(result.report["semantic_valid"], result.report["semantic_errors"])
+
+    def test_tiled_proportional_prose_rows_are_not_code(self) -> None:
+        rows = [
+            ("First shaded prose statement remains a paragraph.", "F1"),
+            ("Second shaded prose statement remains a paragraph.", "F1"),
+            ("Third shaded prose statement remains a paragraph.", "F1"),
+            ("Fourth shaded prose statement remains a paragraph.", "F1"),
+        ]
+        result = convert(make_pdf([b"\n".join(self._panel_ops(rows))]))
+        self.assertEqual(semantic_nodes(result, "code_block"), [])
+        self.assertNotIn("<pre", result.html)
+
+    def test_isolated_monospace_label_in_shaded_rows_is_not_code(self) -> None:
+        rows = [
+            ("First descriptive value occupies this shaded row.", "F1"),
+            ("STATUS_LABEL", "F4"),
+            ("Second descriptive value occupies this shaded row.", "F1"),
+            ("Third descriptive value occupies this shaded row.", "F1"),
+        ]
+        result = convert(make_pdf([b"\n".join(self._panel_ops(rows))]))
+        blocks = semantic_nodes(result, "code_block")
+        self.assertEqual(len(blocks), 1)
+        self.assertNotIn("tiled_fill_code_panel", blocks[0].attrs)
+        self.assertNotIn(
+            "tiled_fill_code_panel",
+            {item.kind for item in blocks[0].evidence},
+        )
+
+    def test_disconnected_tiled_code_panels_remain_separate(self) -> None:
+        first = [
+            ("first_alpha = read()", "F4"),
+            ("first_beta = map(first_alpha)", "F4"),
+            ("first_gamma = save(first_beta)", "F4"),
+        ]
+        second = [
+            ("second_alpha = read()", "F4"),
+            ("second_beta = map(second_alpha)", "F4"),
+            ("second_gamma = save(second_beta)", "F4"),
+        ]
+        stream = b"\n".join([
+            *self._panel_ops(first, top=710.0),
+            *self._panel_ops(second, top=590.0),
+        ])
+        result = convert(make_pdf([stream]))
+        self.assertEqual(len(semantic_nodes(result, "code_block")), 2)
+        self.assertEqual(result.html.count("<pre"), 2)
+
+    def test_shaded_monospace_grid_retains_table_ownership(self) -> None:
+        operations = []
+        for index, (left_text, right_text) in enumerate([
+            ("FIELD", "VALUE"),
+            ("alpha", "one"),
+            ("beta", "two"),
+        ]):
+            bottom = 700.0 - index * 24.0
+            operations.extend([
+                rect_fill_op(60.0, bottom, 360.0, 24.0, 0.94),
+                text_op(70.0, bottom + 7.0, left_text, font="F4", size=9.0),
+                text_op(250.0, bottom + 7.0, right_text, font="F4", size=9.0),
+            ])
+        for x in (60.0, 240.0, 420.0):
+            operations.append(line_op(x, 652.0, x, 724.0, 1.0))
+        for y in (652.0, 676.0, 700.0, 724.0):
+            operations.append(line_op(60.0, y, 420.0, y, 1.0))
+        result = convert(make_pdf([b"\n".join(operations)]))
+        tables = semantic_nodes(result, "table")
+        self.assertEqual(len(tables), 1, result.markdown)
+        all_code_ids = {
+            block.id for block in semantic_nodes(result, "code_block")
+        }
+        table_code_ids = {
+            block.id for block in tables[0].walk() if block.kind == "code_block"
+        }
+        self.assertEqual(
+            all_code_ids,
+            table_code_ids,
+        )
+        self.assertFalse(
+            any(
+                item.kind == "tiled_fill_code_panel"
+                for block in semantic_nodes(result, "code_block")
+                for item in block.evidence
+            )
+        )
+
+    def test_unruled_monospace_record_rows_are_not_tiled_code(self) -> None:
+        operations = []
+        for index, (label, value) in enumerate([
+            ("ALPHA_FIELD", "ready"),
+            ("BRAVO_FIELD", "pending"),
+            ("CHARLIE_FIELD", "complete"),
+            ("DELTA_FIELD", "review"),
+        ]):
+            bottom = 700.0 - index * 18.0
+            operations.extend([
+                rect_fill_op(60.0, bottom, 360.0, 18.0, 0.94),
+                text_op(70.0, bottom + 5.0, label, font="F4", size=9.0),
+                text_op(285.0, bottom + 5.0, value, font="F4", size=9.0),
+            ])
+        result = convert(make_pdf([b"\n".join(operations)]))
+        self.assertFalse(any(
+            item.kind == "tiled_fill_code_panel"
+            for block in semantic_nodes(result, "code_block")
+            for item in block.evidence
+        ), result.semantic.to_dict())
+        self.assertNotIn("tiled_fill_code_panel", result.markdown)
+
+    def test_record_veto_is_honored_when_region_lookup_discovers_it_first(self) -> None:
+        font = Font(name="F4", base_font="Courier")
+        line = Line(
+            chars=[Char(
+                text="FIELD                         value",
+                x0=70.0,
+                y0=80.0,
+                x1=320.0,
+                y1=90.0,
+                size=9.0,
+                font=font,
+                page=1,
+                seq=1,
+            )],
+            page=1,
+            seq=1,
+        )
+        renderer = object.__new__(MarkdownRenderer)
+        renderer._tiled_noncode_line_ids = set()
+        renderer.conv = SimpleNamespace(
+            page_sizes={1: (612.0, 792.0)},
+            fills=[SimpleNamespace(
+                page=1,
+                x0=60.0,
+                y0=76.0,
+                x1=420.0,
+                y1=94.0,
+            )],
+        )
+
+        def discover(instance, candidate):
+            instance._tiled_noncode_line_ids.add(id(candidate))
+            return None
+
+        with patch.object(
+            MarkdownRenderer,
+            "_tiled_code_panel_for_line",
+            autospec=True,
+            side_effect=discover,
+        ):
+            self.assertIsNone(renderer._code_fill_key(line))
 
 
 if __name__ == "__main__":
