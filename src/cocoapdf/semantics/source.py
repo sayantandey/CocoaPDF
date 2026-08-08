@@ -278,6 +278,32 @@ def coalesce_inline_nodes(nodes: Sequence[SemanticNode]) -> List[SemanticNode]:
 	for node in nodes:
 		if (
 			out
+			and node.kind == out[-1].kind
+			and node.kind in {
+				"strong",
+				"emphasis",
+				"strikethrough",
+				"underline",
+				"mark",
+				"code",
+			}
+			and node.attrs == out[-1].attrs
+			and not node.text
+			and not out[-1].text
+		):
+			out[-1].children = coalesce_inline_nodes(
+				out[-1].children + node.children
+			)
+			out[-1].sources = merge_sources(out[-1].sources + node.sources)
+			out[-1].evidence.extend(node.evidence)
+			out[-1].warnings.extend(
+				warning for warning in node.warnings
+				if warning not in out[-1].warnings
+			)
+			out[-1].confidence = min(out[-1].confidence, node.confidence)
+			continue
+		if (
+			out
 			and node.kind == "text"
 			and out[-1].kind == "text"
 			and node.attrs == out[-1].attrs

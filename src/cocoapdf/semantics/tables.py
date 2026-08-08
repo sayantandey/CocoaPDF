@@ -158,6 +158,23 @@ def merge_continued_tables(nodes: Sequence[SemanticNode]) -> List[SemanticNode]:
         previous.sources = merge_sources(previous.sources + node.sources)
         previous.attrs["row_count"] = len([child for child in previous.children if child.kind == "table_row"])
         previous.attrs["source_pages"] = previous.source_pages()
+        previous_fragments = previous.attrs.get("_merged_layout_markdown_fragments")
+        if not isinstance(previous_fragments, list):
+            previous_layout = previous.attrs.get("_layout_markdown")
+            previous_fragments = [previous_layout] if isinstance(previous_layout, str) else []
+        current_fragments = node.attrs.get("_merged_layout_markdown_fragments")
+        if not isinstance(current_fragments, list):
+            current_layout = node.attrs.get("_layout_markdown")
+            current_fragments = [current_layout] if isinstance(current_layout, str) else []
+        merged_layout_fragments = [
+            fragment
+            for fragment in [*previous_fragments, *current_fragments]
+            if isinstance(fragment, str) and fragment
+        ]
+        if len(merged_layout_fragments) >= 2:
+            # Keep exact physical fragments separate.  Page-break comments can
+            # legitimately sit between them in the lossless layout stream.
+            previous.attrs["_merged_layout_markdown_fragments"] = merged_layout_fragments
         # A retained generated fragment describes only one physical page.
         # After semantic rows are merged it is necessarily incomplete, so the
         # HTML projection must use the complete typed table instead.
@@ -483,14 +500,33 @@ def _cell_blocks(factory: NodeFactory, renderer: Any, lines: Sequence[Any], regi
         if chars:
             lines = [Line(chars, chars[0].page, chars[0].seq, source_order=True, writing_mode="rotated")]
     blocks: List[SemanticNode] = []
-    if all(list_marker(plain_text(line_text_tokens(line)).strip()) for line in lines):
+    # A single ordered marker-looking row label (``A.``, ``1.``, ``v.``) is
+    # common table data, not independent evidence of a list inside that cell.
+    # A visible unordered bullet or task marker is independently structural,
+    # while ordered geometry needs a repeated in-cell marker cohort.
+    markers = [
+        list_marker(plain_text(line_text_tokens(line)).strip())
+        for line in lines
+    ]
+    marker_families = [
+        _table_cell_marker_family(marker)
+        for marker in markers
+        if marker is not None
+    ]
+    if (
+        all(marker is not None for marker in markers)
+        and (len(lines) >= 2 or markers[0][0] == "ul")
+        and len(set(marker_families)) == 1
+        and (
+            marker_families[0] != "ordered"
+            or _coherent_ordered_table_cell_markers(markers)
+        )
+    ):
         items = []
-        ordered = False
+        ordered = marker_families[0] == "ordered"
         start = 1
-        for index, line in enumerate(lines):
-            marker = list_marker(plain_text(line_text_tokens(line)).strip())
+        for index, (line, marker) in enumerate(zip(lines, markers)):
             assert marker is not None
-            ordered = ordered or marker[0] == "ol"
             if index == 0 and isinstance(marker[2], int):
                 start = marker[2]
             tokens = line_text_tokens(line)
@@ -506,8 +542,48 @@ def _cell_blocks(factory: NodeFactory, renderer: Any, lines: Sequence[Any], regi
                     token["text"] = text[remaining:]
                     remaining = 0
                 body_tokens.append(token)
-            items.append(factory.make("item", children=inline_nodes_from_tokens(factory, body_tokens), confidence=0.95, sources=sources_from_lines([line], regions_by_line)))
-        return [factory.make("list", children=items, attrs={"ordered": ordered, "start": start}, confidence=0.94, sources=sources_from_lines(lines, regions_by_line))]
+            marker_value = marker[2]
+            task = marker_families[0] == "task"
+            item_attrs: Dict[str, Any] = {"marker": marker_value}
+            if task:
+                item_attrs.update({
+                    "task": True,
+                    "checked": marker_value in {
+                        "task-checked", "☑", "☒", "✓", "✔", "✗", "✘",
+                    },
+                })
+            items.append(factory.make(
+                "item",
+                children=inline_nodes_from_tokens(factory, body_tokens),
+                attrs=item_attrs,
+                confidence=0.95,
+                evidence=[Evidence(
+                    "table_cell_list_marker",
+                    0.95,
+                    page=line.page,
+                    data={
+                        "family": marker_families[0],
+                        "marker": marker_value,
+                    },
+                )],
+                sources=sources_from_lines([line], regions_by_line),
+            ))
+        return [factory.make(
+            "list",
+            children=items,
+            attrs={"ordered": ordered, "start": start},
+            confidence=0.94,
+            evidence=[Evidence(
+                "table_cell_list_marker_cohort",
+                0.94,
+                page=lines[0].page,
+                data={
+                    "family": marker_families[0],
+                    "item_count": len(items),
+                },
+            )],
+            sources=sources_from_lines(lines, regions_by_line),
+        )]
     if all(getattr(line, "mono_ratio", 0.0) >= 0.80 for line in lines):
         return [factory.make("code_block", text="\n".join(plain_text(line_text_tokens(line)) for line in lines), confidence=0.93, sources=sources_from_lines(lines, regions_by_line))]
     for line in lines:
@@ -521,6 +597,56 @@ def _cell_blocks(factory: NodeFactory, renderer: Any, lines: Sequence[Any], regi
                     token["style"] = style[:4] + (False,) + style[5:]
         blocks.append(factory.make("paragraph", children=inline_nodes_from_tokens(factory, tokens), confidence=0.97, sources=sources_from_lines([line], regions_by_line)))
     return blocks
+
+
+def _table_cell_marker_family(
+    marker: Optional[Tuple[str, int, Any]],
+) -> str:
+    if marker is None:
+        return "none"
+    if marker[0] == "ol":
+        return "ordered"
+    value = marker[2]
+    if str(value).startswith("task-") or value in {
+        "☐", "☑", "☒", "□", "✓", "✔", "✗", "✘",
+    }:
+        return "task"
+    return "unordered"
+
+
+def _coherent_ordered_table_cell_markers(
+    markers: Sequence[Optional[Tuple[str, int, Any]]],
+) -> bool:
+    """Require an ordered cohort, not merely repeated row-label punctuation."""
+    values = [marker[2] for marker in markers if marker is not None]
+    if len(values) != len(markers) or len(values) < 2:
+        return False
+    if all(isinstance(value, int) for value in values):
+        numbers = [int(value) for value in values]
+        return all(current == previous + 1 for previous, current in zip(numbers, numbers[1:]))
+    texts = [str(value) for value in values]
+    if all(len(value) == 1 and value.isalpha() for value in texts):
+        positions = [ord(value.casefold()) for value in texts]
+        return all(current == previous + 1 for previous, current in zip(positions, positions[1:]))
+    roman_values = [_roman_list_value(value) for value in texts]
+    return all(value is not None for value in roman_values) and all(
+        current == previous + 1
+        for previous, current in zip(roman_values, roman_values[1:])
+    )
+
+
+def _roman_list_value(value: str) -> Optional[int]:
+    text = value.upper()
+    if not text or not re.fullmatch(r"[IVXLCDM]+", text):
+        return None
+    units = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+    total = 0
+    previous = 0
+    for char in reversed(text):
+        current = units[char]
+        total += -current if current < previous else current
+        previous = max(previous, current)
+    return total
 
 
 def _inline_lines(factory: NodeFactory, renderer: Any, lines: Sequence[Any], regions_by_line: Optional[Dict[str, Tuple[str, ...]]]) -> List[SemanticNode]:

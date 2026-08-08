@@ -1288,6 +1288,26 @@ class Converter:
 		self._postprocess_chars()
 		renderer = MarkdownRenderer(self)
 		events_by_page = renderer.analyze()
+		catalog = self.doc.catalog()
+		tagged_document = None
+		if isinstance(catalog, dict) and catalog.get("StructTreeRoot") is not None:
+			try:
+				from .semantics.tagged import parse_tagged_structure
+
+				tagged_document = parse_tagged_structure(self.doc)
+			except Exception as exc:
+				self.doc.warn("TAGGED_RECONCILE_FAILED", str(exc))
+			if tagged_document is not None:
+				try:
+					from .semantics.reconcile import refine_tagged_paragraph_events
+
+					refine_tagged_paragraph_events(
+						renderer,
+						events_by_page,
+						tagged_document,
+					)
+				except Exception as exc:
+					self.doc.warn("TAGGED_BLOCK_REFINE_FAILED", str(exc))
 		layout_markdown = renderer.render()
 		self.lines_by_page = renderer.lines_by_page
 		regions = []
@@ -1307,13 +1327,10 @@ class Converter:
 		from .semantics.graph import build_semantic_graph
 
 		semantic_document = build_semantic_graph(self, renderer, events_by_page, regions)
-		catalog = self.doc.catalog()
-		if isinstance(catalog, dict) and catalog.get("StructTreeRoot") is not None:
+		if tagged_document is not None:
 			try:
 				from .semantics.reconcile import reconcile_semantic_graph
-				from .semantics.tagged import parse_tagged_structure
 
-				tagged_document = parse_tagged_structure(self.doc)
 				reconcile_semantic_graph(semantic_document, tagged_document, self.chars)
 			except Exception as exc:
 				self.doc.warn("TAGGED_RECONCILE_FAILED", str(exc))
@@ -3024,6 +3041,9 @@ class MarkdownRenderer:
 		self._vector_line_ids: Dict[int, set[int]] = {}
 		self._panel_label_cache: Dict[int, set[int]] = {}
 		self._code_region_cache: Dict[int, Optional[Tuple[float, float, float, float]]] = {}
+		self._tiled_code_panels_cache: Dict[int, Tuple[Dict[str, Any], ...]] = {}
+		self._tiled_code_panel_by_line: Dict[int, Optional[Dict[str, Any]]] = {}
+		self._tiled_noncode_line_ids: set[int] = set()
 		self._code_border_boxes_cache: Dict[int, List[Tuple[float, float, float, float]]] = {}
 		self._quote_bars_cache: Dict[int, Tuple[Segment, ...]] = {}
 		self._visual_marker_cache: Dict[int, Optional[VisualListMarker]] = {}
@@ -3036,6 +3056,7 @@ class MarkdownRenderer:
 			self._stitch_page_boundary_rotated_text()
 			self._remove_furniture()
 			self._materialize_vector_figures()
+			self._materialize_artifact_boundary_continuation_tables()
 			self._materialize_formula_figures()
 			self._prepared = True
 		self._body_size_cache.clear()
@@ -3293,6 +3314,380 @@ class MarkdownRenderer:
 				"supported PDF fills, line segments, filled paths, and text replayed as one SVG; original authoring vector unavailable",
 				figure.page,
 			)
+
+	def _materialize_artifact_boundary_continuation_tables(self) -> None:
+		"""Promote a complete short lattice only when a strong peer proves it.
+
+		Some producers repeat a table header after a page break and leave only one
+		body row on that physical page.  The ordinary artifact-lattice detector
+		intentionally requires more body support, so such a fragment otherwise
+		falls through as a heading and prose.  This second pass runs only after all
+		normal table candidates have been cached.  It snapshots those candidates
+		before scanning, which prevents weak fragments from bootstrapping one
+		another and makes admission independent of page traversal order.
+		"""
+		strong_candidates = {
+			page: tuple(self._table_cache.get(page, ()))
+			for page in self.conv.page_sizes
+		}
+		additions: List[
+			Tuple[
+				int,
+				Tuple[float, str, List[Line], Tuple[float, float, float, float]],
+				Dict[str, Any],
+			]
+		] = []
+		for page in sorted(self.conv.page_sizes):
+			for component in segment_components([
+				segment
+				for segment in self.conv._artifact_rule_segments
+				if segment.page == page
+			]):
+				horizontal = [
+					segment for segment in component
+					if segment.horizontal and segment.length >= 4.0
+				]
+				vertical = [
+					segment for segment in component
+					if segment.vertical and segment.length >= 4.0
+				]
+				xs = cluster_values(
+					[(segment.x0 + segment.x1) / 2.0 for segment in vertical],
+					2.0,
+				)
+				ys = cluster_values(
+					[(segment.y0 + segment.y1) / 2.0 for segment in horizontal],
+					2.0,
+				)
+				columns = len(xs) - 1
+				if len(ys) != 3 or not 2 <= columns <= 12:
+					continue
+				page_width, page_height = self.conv.page_sizes.get(
+					page,
+					(612.0, 792.0),
+				)
+				if (
+					any(right - left < 12.0 for left, right in zip(xs, xs[1:]))
+					or any(bottom - top < 8.0 for top, bottom in zip(ys, ys[1:]))
+					or xs[-1] - xs[0] < max(120.0, page_width * 0.25)
+					or xs[-1] - xs[0] > page_width * 0.96
+					or ys[-1] - ys[0] < max(36.0, page_height * 0.045)
+					or grid_coverage(xs, ys, horizontal, vertical) < 0.96
+					or not lattice_has_all_cell_edges(
+						xs,
+						ys,
+						horizontal,
+						vertical,
+					)
+				):
+					continue
+				top_boundary = ys[0] <= page_height * 0.20
+				bottom_boundary = ys[-1] >= page_height * 0.80
+				if top_boundary == bottom_boundary:
+					continue
+				boundary_side = "top" if top_boundary else "bottom"
+				peer_page = page - 1 if top_boundary else page + 1
+				if peer_page not in self.conv.page_sizes:
+					continue
+				box = (
+					float(xs[0]),
+					float(ys[0]),
+					float(xs[-1]),
+					float(ys[-1]),
+				)
+				if any(
+					self._boxes_intersect(box, candidate[3])
+					for candidate in strong_candidates.get(page, ())
+				):
+					continue
+				if any(
+					self._boxes_intersect(box, artwork)
+					for artwork in self._vector_boxes.get(page, ())
+				):
+					continue
+				if any(
+					image.page == page
+					and self._boxes_intersect(
+						box,
+						(image.x0, image.y0, image.x1, image.y1),
+					)
+					for image in self.conv.images
+				):
+					continue
+				if any(
+					self._boxes_intersect(
+						box,
+						(
+							min(seg_bbox(segment)[0] for segment in group),
+							min(seg_bbox(segment)[1] for segment in group),
+							max(seg_bbox(segment)[2] for segment in group),
+							max(seg_bbox(segment)[3] for segment in group),
+						),
+					)
+					for group in self._control_path_groups(page)
+				):
+					continue
+				table_lines = [
+					line
+					for line in self.lines_by_page.get(page, ())
+					if any(
+						char.text.strip()
+						and xs[0] - 2.0 <= (char.x0 + char.x1) / 2.0 <= xs[-1] + 2.0
+						and ys[0] - 2.0 <= (char.y0 + char.y1) / 2.0 <= ys[-1] + 2.0
+						for char in line.chars
+					)
+				]
+				visible_chars = [
+					char
+					for line in table_lines
+					for char in line.chars
+					if char.text.strip()
+					and xs[0] - 2.0 <= (char.x0 + char.x1) / 2.0 <= xs[-1] + 2.0
+					and ys[0] - 2.0 <= (char.y0 + char.y1) / 2.0 <= ys[-1] + 2.0
+				]
+				if not visible_chars:
+					continue
+				authored_ratio = (
+					sum(not char.artifact for char in visible_chars)
+					/ len(visible_chars)
+				)
+				if authored_ratio < 0.90:
+					continue
+				occupancy = self._partial_grid_occupancy(table_lines, xs, ys)
+				if occupancy != [set(range(columns)), set(range(columns))]:
+					continue
+				if self._artifact_lattice_header_rows(table_lines, xs, ys) != 1:
+					continue
+				header_chars = [
+					char
+					for line in table_lines
+					for char in line.chars
+					if char.text.strip()
+					and xs[0] - 2.0 <= (char.x0 + char.x1) / 2.0 <= xs[-1] + 2.0
+					and ys[0] - 2.0 <= (char.y0 + char.y1) / 2.0 <= ys[1] + 2.0
+				]
+				if not header_chars or sum(
+					char.bold
+					or self._marked_cell_identity(char, {"TH"}) is not None
+					for char in header_chars
+				) < math.ceil(len(header_chars) * 0.70):
+					continue
+				if self._artifact_lattice_words_cross_boundaries(
+					table_lines,
+					xs,
+					ys,
+				):
+					continue
+				if self._artifact_fragment_has_intervening_text(
+					page,
+					ys,
+					boundary_side,
+					table_lines,
+				):
+					continue
+				header_signature = self._artifact_lattice_header_signature(
+					table_lines,
+					xs,
+					ys,
+				)
+				if (
+					len(header_signature) != columns
+					or any(
+						not label or not any(character.isalpha() for character in label)
+						for label in header_signature
+					)
+				):
+					continue
+				peer = self._artifact_boundary_strong_peer(
+					peer_page,
+					boundary_side,
+					page_width,
+					xs,
+					header_signature,
+					strong_candidates,
+				)
+				if peer is None:
+					continue
+				peer_model, peer_rows, boundary_drift = peer
+				html = self._render_partial_grid_html(
+					page,
+					xs,
+					ys,
+					table_lines,
+					"",
+					header_rows_override=1,
+				)
+				model = {
+					"model_kind": "artifact_boundary_continuation_lattice",
+					"xs": list(xs),
+					"ys": list(ys),
+					"header_rows": 1,
+					"evidence": {
+						"artifact_geometry_only": True,
+						"artifact_rule_rectangles": len(component),
+						"complete_edge_coverage": True,
+						"boundary_side": boundary_side,
+						"adjacent_peer_page": peer_page,
+						"peer_model_kind": peer_model,
+						"strong_peer_rows": peer_rows,
+						"repeated_header_match": True,
+						"normalized_boundary_match": True,
+						"maximum_normalized_boundary_drift": boundary_drift,
+						"authored_glyph_ratio": authored_ratio,
+						"no_crossing_words": True,
+					},
+				}
+				additions.append(
+					(page, (float(ys[0]), html, table_lines, box), model)
+				)
+
+		for page, candidate, model in additions:
+			self._table_cache.setdefault(page, []).append(candidate)
+			self._table_cache[page].sort(key=lambda item: (item[0], item[3][0]))
+			self._partial_table_models[(page, candidate[3])] = model
+
+	def _artifact_boundary_strong_peer(
+		self,
+		peer_page: int,
+		fragment_side: str,
+		fragment_page_width: float,
+		xs: Sequence[float],
+		header_signature: Tuple[str, ...],
+		strong_candidates: Dict[
+			int,
+			Sequence[
+				Tuple[float, str, List[Line], Tuple[float, float, float, float]]
+			],
+		],
+	) -> Optional[Tuple[str, int, float]]:
+		peer_width, peer_height = self.conv.page_sizes.get(
+			peer_page,
+			(612.0, 792.0),
+		)
+		if abs(fragment_page_width - peer_width) > max(
+			2.0,
+			fragment_page_width * 0.02,
+		):
+			return None
+		matches: List[Tuple[str, int, float]] = []
+		for candidate in strong_candidates.get(peer_page, ()):
+			model = self._partial_table_models.get((peer_page, candidate[3]))
+			if not isinstance(model, dict):
+				continue
+			model_kind = str(model.get("model_kind") or "")
+			if model_kind not in {
+				"artifact_filled_lattice",
+				"artifact_fragmented_lattice",
+			}:
+				continue
+			try:
+				peer_xs = [float(value) for value in model.get("xs", ())]
+				peer_ys = [float(value) for value in model.get("ys", ())]
+			except (TypeError, ValueError, OverflowError):
+				continue
+			peer_rows = len(peer_ys) - 1
+			if (
+				len(peer_xs) != len(xs)
+				or peer_rows < 3
+				or len(peer_ys) < 4
+				or int(model.get("header_rows", 0)) != 1
+			):
+				continue
+			if fragment_side == "top":
+				if peer_ys[-1] < peer_height * 0.65:
+					continue
+			elif peer_ys[0] > peer_height * 0.35:
+				continue
+			drift = max(
+				abs(left / fragment_page_width - right / peer_width)
+				for left, right in zip(xs, peer_xs)
+			)
+			if drift > 0.008:
+				continue
+			peer_lines = candidate[2]
+			peer_occupancy = self._partial_grid_occupancy(
+				peer_lines,
+				peer_xs,
+				peer_ys,
+			)
+			columns = len(xs) - 1
+			if (
+				not peer_occupancy
+				or peer_occupancy[0] != set(range(columns))
+				or sum(
+					len(row) >= max(2, math.ceil(columns * 0.50))
+					for row in peer_occupancy[1:]
+				) < 2
+			):
+				continue
+			if self._artifact_lattice_header_signature(
+				peer_lines,
+				peer_xs,
+				peer_ys,
+			) != header_signature:
+				continue
+			matches.append((model_kind, peer_rows, drift))
+		return matches[0] if len(matches) == 1 else None
+
+	@staticmethod
+	def _artifact_lattice_header_signature(
+		lines: Sequence[Line],
+		xs: Sequence[float],
+		ys: Sequence[float],
+	) -> Tuple[str, ...]:
+		labels: List[str] = []
+		for left, right in zip(xs, xs[1:]):
+			words: List[str] = []
+			for line in sorted(lines, key=lambda item: (item.y0, item.x0, item.seq)):
+				for text, x0, y0, x1, y1 in word_boxes(line):
+					cx = (x0 + x1) / 2.0
+					cy = (y0 + y1) / 2.0
+					if left - 2.0 <= cx <= right + 2.0 and ys[0] - 2.0 <= cy <= ys[1] + 2.0:
+						words.append(text)
+			labels.append(cleanup_spaces(" ".join(words)).casefold())
+		return tuple(labels)
+
+	@staticmethod
+	def _artifact_lattice_words_cross_boundaries(
+		lines: Sequence[Line],
+		xs: Sequence[float],
+		ys: Sequence[float],
+	) -> bool:
+		return any(
+			x0 < boundary - 1.0 and x1 > boundary + 1.0
+			for line in lines
+			for _text, x0, y0, x1, y1 in word_boxes(line)
+			if ys[0] - 2.0 <= (y0 + y1) / 2.0 <= ys[-1] + 2.0
+			for boundary in xs[1:-1]
+		)
+
+	def _artifact_fragment_has_intervening_text(
+		self,
+		page: int,
+		ys: Sequence[float],
+		boundary_side: str,
+		table_lines: Sequence[Line],
+	) -> bool:
+		owned = {id(line) for line in table_lines}
+		for line in self.lines_by_page.get(page, ()):
+			if id(line) in owned or not plain_text(line_text_tokens(line)).strip():
+				continue
+			center = (line.y0 + line.y1) / 2.0
+			if boundary_side == "top" and center < ys[0] - 2.0:
+				return True
+			if boundary_side == "bottom" and center > ys[-1] + 2.0:
+				return True
+		return False
+
+	@staticmethod
+	def _boxes_intersect(
+		left: Tuple[float, float, float, float],
+		right: Tuple[float, float, float, float],
+	) -> bool:
+		return (
+			min(left[2], right[2]) - max(left[0], right[0]) > 1.0
+			and min(left[3], right[3]) - max(left[1], right[1]) > 1.0
+		)
 
 	def _materialize_formula_figures(self) -> None:
 		from .assets.formula_svg import detect_formula_figures
@@ -6995,9 +7390,16 @@ class MarkdownRenderer:
 		for y, form_html, form_lines in self._form_appearances(page):
 			blocks.append(self._event(page, self._rank_for_y(lines, y) - 0.225, "form_appearance", form_html, form_lines))
 			consumed.update(id(line) for line in form_lines)
-		for y, callout_md, callout_lines in self._callouts(page):
+		for y, callout_md, callout_lines, callout_attrs in self._callouts(page):
 			kind = "equation" if "<math" in callout_md else "callout"
-			blocks.append(self._event(page, self._rank_for_y(lines, y) - 0.2, kind, callout_md, callout_lines))
+			blocks.append(self._event(
+				page,
+				self._rank_for_y(lines, y) - 0.2,
+				kind,
+				callout_md,
+				callout_lines,
+				callout_attrs,
+			))
 			consumed.update(id(l) for l in callout_lines)
 		for y, table_md, table_lines, table_box in self._table_candidates(page):
 			if self._box_is_inside_vector_artwork(page, table_box):
@@ -7103,6 +7505,15 @@ class MarkdownRenderer:
 				rank = i
 				code_items: List[Optional[Line]] = []
 				while i < len(lines) and self._is_code_line(lines[i], body_size) and id(lines[i]) not in consumed:
+					if code_items:
+						previous_panel = self._tiled_code_panel_for_line(lines[i - 1])
+						current_panel = self._tiled_code_panel_for_line(lines[i])
+						if (
+							previous_panel is not None
+							and current_panel is not None
+							and previous_panel["bbox"] != current_panel["bbox"]
+						):
+							break
 					if code_items and (lines[i].y0 - lines[i - 1].y0) > max(lines[i - 1].size * 2.3, 22):
 						if (
 							(
@@ -7124,7 +7535,31 @@ class MarkdownRenderer:
 				body = "\n".join(code_lines)
 				while fence in body:
 					fence += "`"
-				blocks.append(self._event(page, rank, "code_block", fence + "\n" + body.rstrip("\n") + "\n" + fence, [item for item in code_items if item is not None], {"code": body.rstrip("\n")}))
+				code_source_lines = [item for item in code_items if item is not None]
+				panel = next(
+					(
+						self._tiled_code_panel_for_line(item)
+						for item in code_source_lines
+						if self._tiled_code_panel_for_line(item) is not None
+					),
+					None,
+				)
+				code_attrs = {"code": body.rstrip("\n")}
+				code_attrs.update(self._tiled_code_event_attrs(panel))
+				if panel is not None and panel["style_outlier_count"]:
+					self.conv.doc.warn(
+						"CODE_PANEL_STYLE_OUTLIER_RECOVERED",
+						"one style outlier retained inside a paint-order-verified code panel",
+						page,
+					)
+				blocks.append(self._event(
+					page,
+					rank,
+					"code_block",
+					fence + "\n" + body.rstrip("\n") + "\n" + fence,
+					code_source_lines,
+					code_attrs,
+				))
 				continue
 			marker = list_marker(text)
 			if marker:
@@ -8890,6 +9325,12 @@ class MarkdownRenderer:
 		return 6
 
 	def _is_code_line(self, line: Line, body_size: float) -> bool:
+		# Some producers paint one visual code panel as a sequence of adjacent
+		# per-line background strips.  A validated cohort is stronger evidence
+		# than one misreported font face (or a whitespace-only source line), so
+		# consult it before the ordinary monospace admission gate.
+		if self._tiled_code_panel_for_line(line) is not None:
+			return True
 		if line.mono_ratio < 0.85:
 			return False
 		if self._code_region_key(line) is not None:
@@ -9139,7 +9580,368 @@ class MarkdownRenderer:
 			and abs(previous.x0 - current.x0) <= max(previous.size * 5.0, 40.0)
 		)
 
+	def _tiled_code_panels(self, page: int) -> Tuple[Dict[str, Any], ...]:
+		"""Return code panels encoded as contiguous per-line background fills.
+
+		The fills remain geometry-only evidence.  Admission requires a stable,
+		paint-order-backed one-fill/one-line cohort whose authored glyphs are
+		overwhelmingly monospace.  This is deliberately stricter than ordinary
+		code-fill handling so striped prose, key/value cards, and table rows do
+		not become code merely because they share a background colour.
+		"""
+		cached = self._tiled_code_panels_cache.get(page)
+		if cached is not None:
+			return cached
+
+		page_width, page_height = self.conv.page_sizes.get(page, (612.0, 792.0))
+		page_area = max(page_width * page_height, 1.0)
+		eligible: List[Fill] = []
+		for fill in self.conv.fills:
+			if fill.page != page:
+				continue
+			width = fill.x1 - fill.x0
+			height = fill.y1 - fill.y0
+			if (
+				width <= 100.0
+				or width >= page_width * 0.95
+				or height < 2.0
+				or height > max(40.0, page_height * 0.08)
+				or width * height >= page_area * 0.35
+			):
+				continue
+			eligible.append(fill)
+
+		# Exact row strips from a producer normally share coordinates.  Rounding
+		# only absorbs harmless PDF-number noise; the later geometric checks still
+		# use the unrounded boxes.
+		cohorts: Dict[
+			Tuple[float, float, Tuple[float, float, float]],
+			List[Fill],
+		] = {}
+		for fill in eligible:
+			cohort_key = (
+				round(fill.x0, 1),
+				round(fill.x1, 1),
+				tuple(round(channel, 2) for channel in fill.color),
+			)
+			cohorts.setdefault(cohort_key, []).append(fill)
+
+		page_lines = self.lines_by_page.get(page, [])
+		panels: List[Dict[str, Any]] = []
+		for cohort_fills in cohorts.values():
+			ordered = sorted(cohort_fills, key=lambda fill: (fill.y0, fill.y1, fill.seq))
+			connected: List[List[Fill]] = []
+			for fill in ordered:
+				if not connected:
+					connected.append([fill])
+					continue
+				previous = connected[-1][-1]
+				previous_height = previous.y1 - previous.y0
+				current_height = fill.y1 - fill.y0
+				gap = fill.y0 - previous.y1
+				allowed_gap = max(2.0, min(previous_height, current_height) * 0.25)
+				if -2.0 <= gap <= allowed_gap:
+					connected[-1].append(fill)
+				else:
+					connected.append([fill])
+
+			for strips in connected:
+				if len(strips) < 3:
+					continue
+				heights = [fill.y1 - fill.y0 for fill in strips]
+				strip_height = median(heights)
+				if any(
+					abs(height - strip_height) > max(2.0, strip_height * 0.25)
+					for height in heights
+				):
+					continue
+
+				matched_lines: List[Line] = []
+				valid = True
+				for fill in strips:
+					matches = [
+						line
+						for line in page_lines
+						if fill.x0 <= line.x0 + 2.0
+						and fill.x1 >= line.x1 - 2.0
+						and fill.y0 <= line.y0 + 2.0
+						and fill.y1 >= line.y1 - 2.0
+					]
+					if len(matches) != 1 or id(matches[0]) in {id(line) for line in matched_lines}:
+						valid = False
+						break
+					line = matches[0]
+					painted_chars = [
+						char
+						for char in line.chars
+						if char.text and not char.invisible
+					]
+					if (
+						not painted_chars
+						or fill.paint_order <= 0
+						or any(char.paint_order <= 0 for char in painted_chars)
+						or fill.paint_order >= min(char.paint_order for char in painted_chars)
+					):
+						valid = False
+						break
+					matched_lines.append(line)
+				if not valid:
+					continue
+
+				visible_by_line = [
+					[
+						char
+						for char in line.chars
+						if char.text.strip() and not char.invisible and not char.artifact
+					]
+					for line in matched_lines
+				]
+				nonempty_indexes = [
+					index
+					for index, chars in enumerate(visible_by_line)
+					if chars
+				]
+				if len(nonempty_indexes) < 3:
+					continue
+				visible_chars = [
+					char
+					for chars in visible_by_line
+					for char in chars
+				]
+				mono_char_ratio = sum(char.mono for char in visible_chars) / len(visible_chars)
+				if mono_char_ratio < 0.85:
+					continue
+				if sum(char.bold for char in visible_chars) / len(visible_chars) >= 0.50:
+					continue
+
+				sizes = [line.size for line in matched_lines if line.size > 0]
+				if not sizes:
+					continue
+				panel_size = median(sizes)
+				if any(
+					abs(size - panel_size) > max(1.0, panel_size * 0.15)
+					for size in sizes
+				):
+					continue
+
+				line_mono = {
+					index: sum(char.mono for char in visible_by_line[index])
+					/ len(visible_by_line[index])
+					for index in nonempty_indexes
+				}
+				style_outliers = [
+					index
+					for index in nonempty_indexes
+					if line_mono[index] < 0.85
+				]
+				if len(style_outliers) > 1:
+					continue
+				if style_outliers:
+					outlier = style_outliers[0]
+					previous_nonempty = max(
+						(index for index in nonempty_indexes if index < outlier),
+						default=-1,
+					)
+					next_nonempty = min(
+						(index for index in nonempty_indexes if index > outlier),
+						default=-1,
+					)
+					mono_lines = [
+						matched_lines[index]
+						for index in nonempty_indexes
+						if index != outlier and line_mono[index] >= 0.85
+					]
+					if (
+						previous_nonempty < 0
+						or next_nonempty < 0
+						or line_mono.get(previous_nonempty, 0.0) < 0.85
+						or line_mono.get(next_nonempty, 0.0) < 0.85
+						or not mono_lines
+						or matched_lines[outlier].x0
+							< min(line.x0 for line in mono_lines) - panel_size
+						or matched_lines[outlier].x0
+							> max(line.x0 for line in mono_lines) + panel_size * 2.0
+					):
+						continue
+
+				bbox = (
+					min(fill.x0 for fill in strips),
+					min(fill.y0 for fill in strips),
+					max(fill.x1 for fill in strips),
+					max(fill.y1 for fill in strips),
+				)
+				unruled_record_grid = self._tiled_panel_has_unruled_record_grid(
+						matched_lines,
+						bbox,
+						panel_size,
+					)
+				if unruled_record_grid:
+					self._tiled_noncode_line_ids.update(
+						id(line) for line in matched_lines
+					)
+				if self._tiled_panel_has_ruled_grid(page, bbox) or unruled_record_grid:
+					continue
+				panels.append({
+					"bbox": bbox,
+					"fill_seqs": tuple(fill.seq for fill in strips),
+					"strip_count": len(strips),
+					"mono_char_ratio": mono_char_ratio,
+					"style_outlier_count": len(style_outliers),
+					"paint_order_backed": True,
+					"_line_ids": frozenset(id(line) for line in matched_lines),
+				})
+
+		panels.sort(key=lambda panel: (panel["bbox"][1], panel["bbox"][0]))
+		result = tuple(panels)
+		self._tiled_code_panels_cache[page] = result
+		for panel in result:
+			for line_id in panel["_line_ids"]:
+				self._tiled_code_panel_by_line[line_id] = panel
+		return result
+
+	def _tiled_panel_has_ruled_grid(
+		self,
+		page: int,
+		bbox: Tuple[float, float, float, float],
+	) -> bool:
+		"""Veto row-strip cohorts that are independently owned by a lattice.
+
+		A bordered table can paint one background rectangle per row and use a
+		monospace face in every cell, which otherwise resembles a tiled code
+		panel.  Two persistent vertical boundaries plus three repeated horizontal
+		boundaries are unambiguous grid evidence.  Requiring both orientations
+		keeps ordinary bordered or underlined code panels eligible.
+		"""
+		x0, y0, x1, y1 = bbox
+		width = max(x1 - x0, 1.0)
+		height = max(y1 - y0, 1.0)
+		verticals: List[float] = []
+		horizontals: List[float] = []
+		for segment in self.conv.segments:
+			if segment.page != page:
+				continue
+			if segment.vertical:
+				x = (segment.x0 + segment.x1) / 2.0
+				segment_y0 = min(segment.y0, segment.y1)
+				segment_y1 = max(segment.y0, segment.y1)
+				overlap = max(0.0, min(segment_y1, y1) - max(segment_y0, y0))
+				if x0 - 2.0 <= x <= x1 + 2.0 and overlap >= height * 0.75:
+					verticals.append(x)
+			elif segment.horizontal:
+				y = (segment.y0 + segment.y1) / 2.0
+				segment_x0 = min(segment.x0, segment.x1)
+				segment_x1 = max(segment.x0, segment.x1)
+				overlap = max(0.0, min(segment_x1, x1) - max(segment_x0, x0))
+				if y0 - 2.0 <= y <= y1 + 2.0 and overlap >= width * 0.75:
+					horizontals.append(y)
+		if len(verticals) < 2 or len(horizontals) < 3:
+			return False
+		vertical_cohorts = {round(value, 1) for value in verticals}
+		horizontal_cohorts = {round(value, 1) for value in horizontals}
+		return len(vertical_cohorts) >= 2 and len(horizontal_cohorts) >= 3
+
+	@staticmethod
+	def _tiled_panel_has_unruled_record_grid(
+		lines: Sequence[Line],
+		bbox: Tuple[float, float, float, float],
+		panel_size: float,
+	) -> bool:
+		"""Veto stable two-field record rows that merely share strip fills.
+
+		Some producer templates paint each unruled table/card row separately and
+		use a monospace face for both fields.  A repeated large internal gutter,
+		stable left/right anchors, and an absence of code syntax are independent
+		layout evidence for records rather than source code.  Ordinary aligned
+		code remains eligible because assignments, delimiters, comments, or an
+		unstable continuation gutter break this deliberately narrow cohort.
+		"""
+		x0, _y0, x1, _y1 = bbox
+		minimum_gap = max(24.0, panel_size * 3.5)
+		records: List[Tuple[float, float, float]] = []
+		nonempty = 0
+		code_syntax = re.compile(r"[=()\[\]{};:+*/<>#`\\\"']")
+		for line in lines:
+			chars = sorted(
+				[
+					char
+					for char in line.chars
+					if char.text.strip() and not char.invisible and not char.artifact
+				],
+				key=lambda char: (char.x0, char.seq),
+			)
+			if not chars:
+				continue
+			nonempty += 1
+			gaps = [
+				(
+					next_char.x0 - previous.x1,
+					(previous.x1 + next_char.x0) / 2.0,
+					index,
+				)
+				for index, (previous, next_char) in enumerate(zip(chars, chars[1:]))
+				if next_char.x0 - previous.x1 >= minimum_gap
+			]
+			if not gaps:
+				continue
+			_gap, midpoint, index = max(gaps)
+			left = "".join(char.text for char in chars[: index + 1]).strip()
+			right = "".join(char.text for char in chars[index + 1 :]).strip()
+			if (
+				not left
+				or not right
+				or code_syntax.search(left)
+				or code_syntax.search(right)
+				or len(left.split()) > 6
+				or len(right.split()) > 6
+			):
+				continue
+			records.append((midpoint, chars[0].x0, chars[index + 1].x0))
+		minimum_records = max(3, math.ceil(nonempty * 0.80))
+		if len(records) < minimum_records:
+			return False
+		midpoints = [record[0] for record in records]
+		left_anchors = [record[1] for record in records]
+		right_anchors = [record[2] for record in records]
+		anchor_tolerance = max(4.0, panel_size * 0.65)
+		return (
+			max(midpoints) - min(midpoints) <= anchor_tolerance
+			and max(left_anchors) - min(left_anchors) <= anchor_tolerance
+			and max(right_anchors) - min(right_anchors) <= anchor_tolerance
+			and x0 + panel_size < median(midpoints) < x1 - panel_size
+		)
+
+	def _tiled_code_panel_for_line(self, line: Line) -> Optional[Dict[str, Any]]:
+		line_id = id(line)
+		if line_id in self._tiled_code_panel_by_line:
+			return self._tiled_code_panel_by_line[line_id]
+		self._tiled_code_panels(line.page)
+		panel = self._tiled_code_panel_by_line.get(line_id)
+		self._tiled_code_panel_by_line[line_id] = panel
+		return panel
+
+	def _tiled_code_event_attrs(self, panel: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+		if panel is None:
+			return {}
+		return {
+			"tiled_fill_code_panel": True,
+			"tiled_fill_bbox": panel["bbox"],
+			"tiled_fill_sequences": panel["fill_seqs"],
+			"tiled_fill_strip_count": panel["strip_count"],
+			"tiled_fill_mono_char_ratio": panel["mono_char_ratio"],
+			"tiled_fill_style_outlier_count": panel["style_outlier_count"],
+			"tiled_fill_paint_order_backed": panel["paint_order_backed"],
+		}
+
 	def _code_fill_key(self, line: Line) -> Optional[Tuple[float, float, float, float]]:
+		if id(line) in self._tiled_noncode_line_ids:
+			return None
+		panel = self._tiled_code_panel_for_line(line)
+		# Discovery can classify an unruled record cohort on this first call.
+		# Honor that newly populated veto before inspecting the row's own fill.
+		if id(line) in self._tiled_noncode_line_ids:
+			return None
+		if panel is not None:
+			return panel["bbox"]
 		matches: List[Tuple[float, float, float, float]] = []
 		page_width, page_height = self.conv.page_sizes.get(line.page, (612.0, 792.0))
 		page_area = max(page_width * page_height, 1.0)
@@ -10259,14 +11061,44 @@ class MarkdownRenderer:
 				groups.append([segment])
 		return [group for group in groups if len(group) >= 2]
 
-	def _callouts(self, page: int) -> List[Tuple[float, str, List[Line]]]:
+	def _callouts(
+		self,
+		page: int,
+	) -> List[Tuple[float, str, List[Line], Dict[str, Any]]]:
 		lines = self.lines_by_page.get(page, [])
-		out: List[Tuple[float, str, List[Line]]] = []
+		out: List[Tuple[float, str, List[Line], Dict[str, Any]]] = []
 		seen: set = set()
 		page_width, page_height = self.conv.page_sizes.get(page, (612.0, 792.0))
 		page_area = max(page_width * page_height, 1.0)
 		table_boxes = [candidate[3] for candidate in self._table_candidates(page)]
-		for fill in self.conv.fills:
+		fill_candidates = [
+			(fill, False)
+			for fill in self.conv.fills
+		] + [
+			(fill, True)
+			for fill in self.conv._artifact_local_backgrounds
+		]
+		# Repeated same-size paint is commonly a card grid rather than a series of
+		# callouts.  Build the cohort cardinalities once: scanning the complete
+		# artifact-fill list for every candidate makes adversarial content
+		# quadratic.  Colour participates in the key so differently purposed
+		# warning/info/success boxes are not conflated merely because their
+		# dimensions happen to match.
+		artifact_fill_cohorts: Dict[
+			Tuple[int, float, float, Tuple[float, float, float]],
+			int,
+		] = {}
+		for candidate in self.conv._artifact_local_backgrounds:
+			if max(candidate.color) - min(candidate.color) < 0.08:
+				continue
+			key = (
+				candidate.page,
+				round(candidate.x1 - candidate.x0, 1),
+				round(candidate.y1 - candidate.y0, 1),
+				tuple(round(channel, 2) for channel in candidate.color),
+			)
+			artifact_fill_cohorts[key] = artifact_fill_cohorts.get(key, 0) + 1
+		for fill, artifact_geometry in fill_candidates:
 			if fill.page != page:
 				continue
 			fill_width = fill.x1 - fill.x0
@@ -10292,9 +11124,123 @@ class MarkdownRenderer:
 			]
 			if not callout_lines:
 				continue
-			math_html = self._display_math_html(fill, callout_lines)
+			artifact_reasons: List[str] = []
+			if artifact_geometry:
+				if max(fill.color) - min(fill.color) < 0.08:
+					continue
+				if len(callout_lines) < 2:
+					continue
+				authored_chars = [
+					char
+					for line in callout_lines
+					for char in line.chars
+					if char.text.strip() and not char.artifact
+				]
+				all_visible_chars = [
+					char
+					for line in callout_lines
+					for char in line.chars
+					if char.text.strip()
+				]
+				if (
+					len(authored_chars) < 8
+					or len(authored_chars) < len(all_visible_chars) * 0.90
+					or sum(line.mono_ratio >= 0.70 for line in callout_lines)
+						>= math.ceil(len(callout_lines) * 0.50)
+				):
+					continue
+				# A background must be painted before the authored text it supports.
+				# Post-text overlays/highlights can share identical geometry but must
+				# never be promoted to a semantic container.
+				text_paint_orders = [
+					char.paint_order
+					for char in authored_chars
+					if char.paint_order > 0
+				]
+				if (
+					fill.paint_order <= 0
+					or len(text_paint_orders) != len(authored_chars)
+					or fill.paint_order >= min(text_paint_orders)
+				):
+					continue
+				if (
+					min(line.x0 for line in callout_lines) < fill.x0 + 2.0
+					or max(line.x1 for line in callout_lines) > fill.x1 - 2.0
+					or min(line.y0 for line in callout_lines) < fill.y0 + 2.0
+					or max(line.y1 for line in callout_lines) > fill.y1 - 2.0
+				):
+					continue
+				if any(
+					image.page == page
+					and not (
+						image.x1 <= fill.x0
+						or image.x0 >= fill.x1
+						or image.y1 <= fill.y0
+						or image.y0 >= fill.y1
+					)
+					for image in self.conv.images
+				):
+					continue
+				internal_rules = []
+				for segment in [
+					*self.conv.segments,
+					*self.conv._artifact_rule_segments,
+				]:
+					if segment.page != page:
+						continue
+					segment_x0, segment_x1 = sorted((segment.x0, segment.x1))
+					segment_y0, segment_y1 = sorted((segment.y0, segment.y1))
+					x_overlap = max(
+						0.0,
+						min(segment_x1, fill.x1) - max(segment_x0, fill.x0),
+					)
+					y_overlap = max(
+						0.0,
+						min(segment_y1, fill.y1) - max(segment_y0, fill.y0),
+					)
+					if (
+						segment.horizontal
+						and segment.length >= fill_width * 0.35
+						and x_overlap >= fill_width * 0.35
+						and fill.y0 + 4.0
+						< (segment.y0 + segment.y1) / 2.0
+						< fill.y1 - 4.0
+					) or (
+						segment.vertical
+						and segment.length >= fill_height * 0.40
+						and y_overlap >= fill_height * 0.40
+						and fill.x0 + 4.0
+						< (segment.x0 + segment.x1) / 2.0
+						< fill.x1 - 4.0
+					):
+						internal_rules.append(segment)
+				if internal_rules:
+					continue
+				cohort_key = (
+					fill.page,
+					round(fill_width, 1),
+					round(fill_height, 1),
+					tuple(round(channel, 2) for channel in fill.color),
+				)
+				if artifact_fill_cohorts.get(cohort_key, 0) >= 3:
+					continue
+				if self._artifact_callout_is_page_title_banner(
+					fill,
+					callout_lines,
+					lines,
+					page_width,
+					page_height,
+				):
+					continue
+				artifact_reasons = [
+					"chromatic_local_artifact_fill",
+					"multiple_authored_inset_lines",
+					"background_painted_before_authored_text",
+					"no_table_grid_image_or_vector_overlap",
+				]
+			math_html = None if artifact_geometry else self._display_math_html(fill, callout_lines)
 			if math_html is not None:
-				out.append((min(line.y0 for line in callout_lines), math_html, callout_lines))
+				out.append((min(line.y0 for line in callout_lines), math_html, callout_lines, {}))
 				seen.update(id(line) for line in callout_lines)
 				self.conv.doc.warn(
 					"DISPLAY_MATH_GEOMETRY",
@@ -10323,10 +11269,57 @@ class MarkdownRenderer:
 				body = escape_html(plain_body)
 			bg = color_to_hex(fill.color)
 			html = '<div style="border: 1px solid #9bb7d3; background: %s; padding: 12px;">%s</div>' % (bg, body)
-			out.append((min(line.y0 for line in callout_lines), html, callout_lines))
+			attrs: Dict[str, Any] = {}
+			if artifact_geometry:
+				attrs = {
+					"artifact_background_geometry": True,
+					"artifact_background_bbox": fill_box,
+					"artifact_background_color": fill.color,
+					"artifact_background_paint_order": fill.paint_order,
+					"artifact_background_sequence": fill.seq,
+					"artifact_callout_reasons": artifact_reasons,
+				}
+				self.conv.doc.warn(
+					"ARTIFACT_CALLOUT_BACKGROUND_RECOVERED",
+					"local Artifact paint used only as callout geometry",
+					page,
+				)
+			out.append((min(line.y0 for line in callout_lines), html, callout_lines, attrs))
 			seen.update(id(line) for line in callout_lines)
 		out.sort(key=lambda item: item[0])
 		return out
+
+	def _artifact_callout_is_page_title_banner(
+		self,
+		fill: Fill,
+		callout_lines: Sequence[Line],
+		page_lines: Sequence[Line],
+		page_width: float,
+		page_height: float,
+	) -> bool:
+		"""Keep a unique chromatic title strip in the document heading stream."""
+		ordered = sorted(callout_lines, key=lambda line: (line.y0, line.x0, line.seq))
+		if len(ordered) < 2:
+			return False
+		first_text = plain_text(line_text_tokens(ordered[0])).strip()
+		if re.match(r"^[^:\n]{1,80}:(?:\s+|$)", first_text):
+			return False
+		fill_width = fill.x1 - fill.x0
+		fill_height = fill.y1 - fill.y0
+		if (
+			fill.y0 > page_height * 0.20
+			or fill_width < page_width * 0.45
+			or fill_height > max(110.0, page_height * 0.18)
+		):
+			return False
+		body_size = self._body_font_size(list(page_lines))
+		companion_sizes = [line.size for line in ordered[1:] if line.size > 0]
+		if not companion_sizes:
+			return False
+		return (
+			ordered[0].size >= body_size * 1.35
+			and ordered[0].size >= median(companion_sizes) * 1.20
+		)
 
 	def _display_math_html(self, fill: Fill, lines: List[Line]) -> Optional[str]:
 		chars = sorted(
@@ -11427,11 +12420,37 @@ class MarkdownRenderer:
 				[column in row for column in range(columns)]
 				for row in occupancy
 			]
-			spans: Dict[Tuple[int, int], Tuple[int, int]] = {}
-			covered_cells: set[Tuple[int, int]] = set()
+			header_rows = self._artifact_lattice_header_rows(
+				table_lines,
+				xs,
+				ys,
+			)
+			continuous_header_colspans = (
+				self._artifact_continuous_header_colspans(
+					table_lines,
+					xs,
+					ys,
+					vertical,
+					eligible_horizontal,
+					header_rows,
+				)
+			)
+			spans: Dict[Tuple[int, int], Tuple[int, int]] = {
+				(row, 0): (1, columns)
+				for row in continuous_header_colspans
+			}
+			covered_cells: set[Tuple[int, int]] = {
+				(row, column)
+				for row in continuous_header_colspans
+				for column in range(1, columns)
+			}
 			for row in range(rows):
 				for column in range(columns):
-					if (row, column) in covered_cells or not cell_occupancy[row][column]:
+					if (
+						(row, column) in covered_cells
+						or (row, column) in spans
+						or not cell_occupancy[row][column]
+					):
 						continue
 					colspan = 1
 					while column + colspan < columns:
@@ -11490,20 +12509,28 @@ class MarkdownRenderer:
 				ys,
 				table_lines,
 				"",
-				header_rows_override=0,
+				header_rows_override=header_rows,
 				explicit_spans=spans,
 			)
 			self._partial_table_models[(page, box)] = {
 				"model_kind": "artifact_fragmented_lattice",
 				"xs": list(xs),
 				"ys": list(ys),
-				"header_rows": 0,
+				"header_rows": header_rows,
 				"spans": [
 					{
 						"row": row,
 						"col": column,
 						"rowspan": rowspan,
 						"colspan": colspan,
+						**(
+							{
+								"evidence_kind": "artifact_continuous_text_colspan",
+								"confidence": 0.97,
+							}
+							if row in continuous_header_colspans and column == 0
+							else {}
+						),
 					}
 					for (row, column), (rowspan, colspan) in sorted(spans.items())
 				],
@@ -11516,6 +12543,10 @@ class MarkdownRenderer:
 						len(xs) - len(persistent)
 					),
 					"physical_spans": len(spans),
+					"continuous_text_colspans": [
+						continuous_header_colspans[row]
+						for row in sorted(continuous_header_colspans)
+					],
 					"authored_glyph_ratio": (
 						sum(not char.artifact for char in visible_chars)
 						/ len(visible_chars)
@@ -11631,9 +12662,6 @@ class MarkdownRenderer:
 		xs: Sequence[float],
 		ys: Sequence[float],
 	) -> int:
-		detected = self._table_header_rows(list(lines), list(ys))
-		if detected:
-			return detected
 		first_band = [
 			char
 			for line in lines
@@ -11642,11 +12670,26 @@ class MarkdownRenderer:
 			and xs[0] - 2.0 <= (char.x0 + char.x1) / 2.0 <= xs[-1] + 2.0
 			and ys[0] - 2.0 <= (char.y0 + char.y1) / 2.0 <= ys[1] + 2.0
 		]
-		if first_band and sum(
-			self._marked_cell_identity(char, {"TH"}) is not None
-			for char in first_band
-		) >= math.ceil(len(first_band) * 0.80):
-			return 1
+		if first_band:
+			th_count = sum(
+				self._marked_cell_identity(char, {"TH"}) is not None
+				for char in first_band
+			)
+			td_count = sum(
+				self._marked_cell_identity(char, {"TD"}) is not None
+				for char in first_band
+			)
+			threshold = math.ceil(len(first_band) * 0.80)
+			if th_count >= threshold:
+				return 1
+			# Explicit data-cell ownership is stronger than a boldness-only
+			# fallback.  This prevents the first bold data row of a headerless
+			# worksheet from being promoted to a semantic header.
+			if td_count >= threshold:
+				return 0
+		detected = self._table_header_rows(list(lines), list(ys))
+		if detected:
+			return detected
 		columns = len(xs) - 1
 		rows = len(ys) - 1
 		if columns >= 3 and rows >= 3:
@@ -11686,6 +12729,227 @@ class MarkdownRenderer:
 			):
 				return 1
 		return 0
+
+	@staticmethod
+	def _artifact_header_has_stable_column_labels(
+		row_lines: Sequence[Line],
+		xs: Sequence[float],
+		local_size: float,
+		minimum_lines: int,
+	) -> bool:
+		"""Recognize repeated per-column anchors inside a false header grid.
+
+		A producer can put three independent labels in one marked-content span.
+		Small gaps alone must not launder those labels into one colspan.  Stable
+		left anchors in every inherited column distinguish that pattern from a
+		wrapped paragraph whose word positions drift between baselines.
+		"""
+		anchors: List[List[float]] = [[] for _ in range(len(xs) - 1)]
+		for line in row_lines:
+			words = word_boxes(line)
+			for column, (left, right) in enumerate(zip(xs, xs[1:])):
+				owned = [
+					word for word in words
+					if left <= (word[1] + word[3]) / 2.0 <= right
+				]
+				if owned:
+					anchors[column].append(min(word[1] for word in owned))
+		tolerance = max(2.0, local_size * 0.25)
+		return all(
+			len(column_anchors) >= minimum_lines
+			and max(column_anchors) - min(column_anchors) <= tolerance
+			for column_anchors in anchors
+		)
+
+	def _artifact_continuous_header_colspans(
+		self,
+		lines: Sequence[Line],
+		xs: Sequence[float],
+		ys: Sequence[float],
+		vertical: Sequence[Segment],
+		horizontal_groups: Sequence[Dict[str, Any]],
+		header_rows: int,
+	) -> Dict[int, Dict[str, Any]]:
+		"""Find a populated full-width header that a false grid partitions.
+
+		A missing divider is ordinarily interpreted as a span only when covered
+		neighbours are empty.  One valid exception is a wrapped header paragraph
+		that continuously crosses every absent internal divider while one verified
+		marked-content identity owns the complete row.  Stable dividers in the
+		remaining rows establish the inherited grid; the marked identity and small
+		cross-boundary word gaps distinguish continuous prose from separate labels.
+		"""
+		columns = len(xs) - 1
+		rows = len(ys) - 1
+		if header_rows <= 0 or columns < 2 or rows < 3:
+			return {}
+		out: Dict[int, Dict[str, Any]] = {}
+		for row in range(min(header_rows, rows)):
+			top, bottom = ys[row], ys[row + 1]
+			boundary_coverages = {
+				boundary: self._artifact_vertical_edge_coverage(
+					vertical,
+					boundary,
+					top,
+					bottom,
+				)
+				for boundary in xs[1:-1]
+			}
+			if not boundary_coverages or any(
+				coverage >= 0.15 for coverage in boundary_coverages.values()
+			):
+				continue
+
+			peer_support: Dict[float, int] = {}
+			peer_required = max(2, math.ceil((rows - 1) * 0.75))
+			for boundary in xs[1:-1]:
+				peer_coverages = [
+					self._artifact_vertical_edge_coverage(
+						vertical,
+						boundary,
+						ys[peer],
+						ys[peer + 1],
+					)
+					for peer in range(rows)
+					if peer != row
+				]
+				peer_support[boundary] = sum(
+					coverage >= 0.80 for coverage in peer_coverages
+				)
+				if peer_support[boundary] < peer_required:
+					break
+			else:
+				if (
+					self._artifact_horizontal_edge_coverage(
+						horizontal_groups,
+						top,
+						xs[0],
+						xs[-1],
+					) < 0.82
+					or self._artifact_horizontal_edge_coverage(
+						horizontal_groups,
+						bottom,
+						xs[0],
+						xs[-1],
+					) < 0.82
+				):
+					continue
+
+				row_lines = []
+				row_chars: List[Char] = []
+				for line in lines:
+					chars = [
+						char
+						for char in line.chars
+						if char.text.strip()
+						and xs[0] - 2.0
+							<= (char.x0 + char.x1) / 2.0
+							<= xs[-1] + 2.0
+						and top - 2.0
+							<= (char.y0 + char.y1) / 2.0
+							<= bottom + 2.0
+					]
+					if chars:
+						row_lines.append(line)
+						row_chars.extend(chars)
+				if len(row_lines) < 2 or not row_chars or any(
+					char.artifact for char in row_chars
+				):
+					continue
+				identities = {
+					self._marked_cell_identity(char)
+					for char in row_chars
+				}
+				if None in identities or len(identities) != 1:
+					continue
+				identity = next(iter(identities))
+				assert identity is not None
+				if any(
+					char.text.strip()
+					and not char.artifact
+					and self._marked_cell_identity(char) == identity
+					and not (
+						top - 2.0
+						<= (char.y0 + char.y1) / 2.0
+						<= bottom + 2.0
+					)
+					for line in lines
+					for char in line.chars
+				):
+					continue
+
+				local_size = median([
+					char.size for char in row_chars if char.size > 0
+				])
+				maximum_word_gap = max(4.0, local_size * 0.65)
+				required_crossings = max(2, math.ceil(len(row_lines) * 0.60))
+				if self._artifact_header_has_stable_column_labels(
+					row_lines,
+					xs,
+					local_size,
+					required_crossings,
+				):
+					continue
+				crossing_counts: Dict[float, int] = {}
+				crossing_gaps: Dict[float, Tuple[float, ...]] = {}
+				for boundary in xs[1:-1]:
+					accepted_gaps: List[float] = []
+					for line in row_lines:
+						words = [
+							word
+							for word in word_boxes(line)
+							if word[3] >= xs[0] - 2.0
+							and word[1] <= xs[-1] + 2.0
+						]
+						if not words:
+							continue
+						if any(word[1] < boundary < word[3] for word in words):
+							gap = 0.0
+						else:
+							left_edges = [
+								word[3] for word in words if word[3] <= boundary
+							]
+							right_edges = [
+								word[1] for word in words if word[1] >= boundary
+							]
+							if not left_edges or not right_edges:
+								continue
+							gap = min(right_edges) - max(left_edges)
+						if 0.0 <= gap <= maximum_word_gap:
+							accepted_gaps.append(gap)
+					crossing_counts[boundary] = len(accepted_gaps)
+					crossing_gaps[boundary] = tuple(accepted_gaps)
+					if len(accepted_gaps) < required_crossings:
+						break
+				else:
+					out[row] = {
+						"row": row,
+						"evidence_kind": "artifact_continuous_text_colspan",
+						"confidence": 0.97,
+						"boundary_coverages": {
+							str(round(boundary, 3)): coverage
+							for boundary, coverage in boundary_coverages.items()
+						},
+						"stable_peer_rows": {
+							str(round(boundary, 3)): count
+							for boundary, count in peer_support.items()
+						},
+						"shared_marked_identity": {
+							"tag": identity[0],
+							"mcid": identity[1],
+						},
+						"wrapped_line_count": len(row_lines),
+						"required_crossing_lines": required_crossings,
+						"crossing_line_counts": {
+							str(round(boundary, 3)): count
+							for boundary, count in crossing_counts.items()
+						},
+						"crossing_word_gaps": {
+							str(round(boundary, 3)): gaps
+							for boundary, gaps in crossing_gaps.items()
+						},
+					}
+		return out
 
 	def _dense_fragmented_grid_candidates(
 		self,

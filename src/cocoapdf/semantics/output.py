@@ -71,6 +71,21 @@ def render_reconciled_outputs(
 def _overlay_changed_blocks(markdown: str, document: SemanticDocument) -> str:
     rendered = markdown
     for node in document.walk():
+        fragments = node.attrs.get("_merged_layout_markdown_fragments")
+        if (
+            node.kind == "table"
+            and _node_needs_overlay(node)
+            and isinstance(fragments, list)
+            and len(fragments) >= 2
+            and all(isinstance(fragment, str) and fragment for fragment in fragments)
+        ):
+            replacement = _render_markdown_nodes([node], document).strip()
+            rendered = _replace_merged_layout_fragments(
+                rendered,
+                fragments,
+                replacement,
+            )
+            continue
         original = node.attrs.get("_layout_markdown")
         if not isinstance(original, str) or not original or not _node_needs_overlay(node):
             continue
@@ -78,6 +93,32 @@ def _overlay_changed_blocks(markdown: str, document: SemanticDocument) -> str:
         if original in rendered:
             rendered = rendered.replace(original, replacement, 1)
     return rendered
+
+
+def _replace_merged_layout_fragments(
+    markdown: str,
+    fragments: List[str],
+    replacement: str,
+) -> str:
+    """Transactionally replace ordered physical fragments with one table."""
+    spans: List[Tuple[int, int]] = []
+    cursor = 0
+    for fragment in fragments:
+        start = markdown.find(fragment, cursor)
+        if start < 0:
+            return markdown
+        end = start + len(fragment)
+        spans.append((start, end))
+        cursor = end
+    parts: List[str] = []
+    cursor = 0
+    for index, (start, end) in enumerate(spans):
+        parts.append(markdown[cursor:start])
+        if index == 0:
+            parts.append(replacement)
+        cursor = end
+    parts.append(markdown[cursor:])
+    return "".join(parts)
 
 
 def _remove_reconciled_footnote_anchors(markdown: str, document: SemanticDocument) -> str:
@@ -105,6 +146,11 @@ def _node_needs_overlay(node: SemanticNode) -> bool:
     if node.kind == "heading" and node.kind != original_kind:
         return True
     if node.kind in {"footnote", "reference"}:
+        return True
+    if node.kind == "table" and any(
+        item.kind == "multi_page_table_continuation"
+        for item in node.evidence
+    ):
         return True
     if node.kind == "table" and any(
         int(candidate.attrs.get("rotation", 0) or 0) % 360
@@ -163,6 +209,7 @@ def _render_markdown_nodes(nodes: Iterable[SemanticNode], source: SemanticDocume
 def _strip_layout_hints(document: SemanticDocument) -> None:
     for node in document.walk():
         node.attrs.pop("_layout_markdown", None)
+        node.attrs.pop("_merged_layout_markdown_fragments", None)
         node.attrs.pop("_layout_kind", None)
         node.attrs.pop("_layout_html", None)
         node.attrs.pop("_html_suppressed", None)

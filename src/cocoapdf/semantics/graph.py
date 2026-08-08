@@ -178,7 +178,16 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
         # objects directly. Production events always carry semantic records.
         generated_html = event.legacy_markdown
     lossless_html = _lossless_html_for_event(event.kind, generated_html)
-    if lossless_html:
+    # Once a recovered Artifact-backed callout has typed children, sanitized
+    # appearance attrs, evidence, and provenance, the legacy generated fragment
+    # would bypass that graph and make the returned JSON unable to reproduce
+    # the conversion HTML. Other closed lossless fallbacks remain unchanged.
+    artifact_callout_background = bool(
+        attrs.get("artifact_background_geometry")
+    )
+    if lossless_html and not (
+        event.kind == "callout" and artifact_callout_background
+    ):
         attrs["_layout_html"] = lossless_html
     writing_modes = [getattr(line, "writing_mode", "horizontal") for line in event.lines]
     if writing_modes:
@@ -188,6 +197,10 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
         attrs["direction"] = "rtl" if _rtl_dominant(plain_event_text) else "auto"
     page_height = converter.page_sizes.get(event.page, (612.0, 792.0))[1]
     attrs["bottom_zone"] = bool(bbox and bbox[1] >= page_height * 0.72)
+    if event.kind == "heading":
+        attrs["upper_page_zone"] = bool(
+            bbox and page_height > 0 and bbox[1] <= page_height * 0.30
+        )
     confidence = _event_confidence(event.kind, region_kinds)
     evidence = [Evidence("geometric_semantic_detector", confidence, detail=event.kind, page=event.page, data={"region_ids": region_ids})]
     if attrs.get("panel_local"):
@@ -232,6 +245,69 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
                 ),
             },
         ))
+    if artifact_callout_background:
+        reasons = attrs.get("artifact_callout_reasons")
+        if not isinstance(reasons, (list, tuple)):
+            reasons = []
+        confidence = min(confidence, 0.88)
+        evidence.append(Evidence(
+            "artifact_callout_background",
+            confidence,
+            detail="Artifact paint retained as geometry-only evidence around authored callout text",
+            page=event.page,
+            data={
+                "source_marked_artifact": True,
+                "background_bbox": attrs.get("artifact_background_bbox"),
+                "background_color": attrs.get("artifact_background_color"),
+                "paint_order": attrs.get("artifact_background_paint_order"),
+                "paint_sequence": attrs.get("artifact_background_sequence"),
+                "admission_reasons": [str(reason) for reason in reasons],
+            },
+        ))
+    tiled_fill_code_panel = bool(attrs.get("tiled_fill_code_panel"))
+    if tiled_fill_code_panel:
+        confidence = min(confidence, 0.94)
+        evidence.append(Evidence(
+            "tiled_fill_code_panel",
+            confidence,
+            detail="contiguous per-line fills and authored monospace glyphs identify one code panel",
+            page=event.page,
+            data={
+                "background_bbox": attrs.get("tiled_fill_bbox"),
+                "fill_sequences": attrs.get("tiled_fill_sequences"),
+                "strip_count": attrs.get("tiled_fill_strip_count"),
+                "mono_char_ratio": attrs.get("tiled_fill_mono_char_ratio"),
+                "style_outlier_count": attrs.get("tiled_fill_style_outlier_count"),
+                "paint_order_backed": attrs.get("tiled_fill_paint_order_backed"),
+            },
+        ))
+    tagged_block_boundary = bool(attrs.get("tagged_block_boundary_recovered"))
+    if tagged_block_boundary:
+        confidence = min(confidence, 0.97)
+        boundary_action = attrs.get("tagged_block_boundary_action")
+        evidence.append(Evidence(
+            "tagged_block_boundary_geometry",
+            confidence,
+            detail=(
+                "ParentTree-validated paragraph ownership repairs a colon-to-formula style split"
+                if boundary_action in {"merge", "split_and_merge"}
+                else "ParentTree-validated sibling paragraph ownership agrees with line geometry"
+            ),
+            page=event.page,
+            data={
+                "action": boundary_action,
+                "actions": attrs.get("tagged_block_boundary_actions"),
+                "owner_id": attrs.get("tagged_block_owner_id"),
+                "parent_id": attrs.get("tagged_block_parent_id"),
+                "mcids": attrs.get("tagged_block_mcids"),
+                "mcid_keys": attrs.get("tagged_block_mcids"),
+                "original_line_count": attrs.get("tagged_block_original_line_count"),
+                "group_count": attrs.get("tagged_block_group_count"),
+                "group_index": attrs.get("tagged_block_group_index"),
+                "lineage": attrs.get("tagged_block_lineage"),
+                "geometry": attrs.get("tagged_block_geometry"),
+            },
+        ))
     kind = event.kind
     if kind == "anchor":
         return factory.make("anchor", attrs={"name": attrs.get("anchor"), "page": event.page, "y": attrs.get("y")}, confidence=1.0)
@@ -247,7 +323,10 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
             node.warnings.append("ARTIFACT_TEXT_RECOVERED")
         return node
     if kind == "paragraph":
-        return factory.make("paragraph", children=_paragraph_inlines(factory, renderer, event.lines), attrs=attrs, confidence=confidence, evidence=evidence, sources=sources)
+        node = factory.make("paragraph", children=_paragraph_inlines(factory, renderer, event.lines), attrs=attrs, confidence=confidence, evidence=evidence, sources=sources)
+        if tagged_block_boundary:
+            node.warnings.append("TAGGED_BLOCK_BOUNDARY_RECOVERED")
+        return node
     if kind == "list":
         return _list_node(factory, renderer, event, attrs, sources, evidence, confidence)
     if kind == "quote":
@@ -264,7 +343,10 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
     if kind == "code_block":
         from ..core import line_text_tokens, plain_text
         text = str(event.attrs.get("code") or "\n".join(plain_text(line_text_tokens(line)) for line in event.lines))
-        return factory.make("code_block", text=text, attrs=attrs, confidence=confidence, evidence=evidence, sources=sources)
+        node = factory.make("code_block", text=text, attrs=attrs, confidence=confidence, evidence=evidence, sources=sources)
+        if tiled_fill_code_panel and attrs.get("tiled_fill_style_outlier_count"):
+            node.warnings.append("CODE_PANEL_STYLE_OUTLIER_RECOVERED")
+        return node
     if kind == "thematic_break":
         return factory.make("thematic_break", attrs=attrs, confidence=confidence, evidence=evidence, sources=sources or [SourceRef(page=event.page)])
     if kind == "table":
@@ -310,7 +392,10 @@ def _event_node(factory: NodeFactory, converter: Any, renderer: Any, event: Any,
         return _figure_node(factory, converter, event, attrs, sources, evidence, confidence, regions_by_line)
     if kind in {"callout", "equation"}:
         children = [factory.make("paragraph", children=_paragraph_inlines(factory, renderer, event.lines), confidence=confidence, sources=sources)] if event.lines else []
-        return factory.make(kind, children=children, text="" if children else _strip_generated_html(generated_html), attrs=attrs, confidence=confidence, evidence=evidence, sources=sources or [SourceRef(page=event.page)])
+        node = factory.make(kind, children=children, text="" if children else _strip_generated_html(generated_html), attrs=attrs, confidence=confidence, evidence=evidence, sources=sources or [SourceRef(page=event.page)])
+        if artifact_callout_background:
+            node.warnings.append("ARTIFACT_CALLOUT_BACKGROUND_RECOVERED")
+        return node
     if kind == "columns":
         children = [factory.make("paragraph", children=_paragraph_inlines(factory, renderer, [line]), attrs={"writing_mode": line.writing_mode}, confidence=0.90, sources=sources_from_lines([line], regions_by_line)) for line in event.lines]
         return factory.make("section", children=children, attrs=dict(attrs, layout="columns"), confidence=0.90, evidence=evidence, sources=sources)

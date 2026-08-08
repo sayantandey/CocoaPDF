@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import html
+import math
 import re
 from contextvars import ContextVar
-from typing import List
+from typing import Any, List
 
-from ..html.sanitize import safe_asset_href, safe_href
+from ..html.sanitize import safe_embedded_image_href, safe_href
 from ..ir.semantic import SemanticDocument, SemanticNode
 
 # The image markup policy belongs to the conversion request, not to a node, and
@@ -34,7 +35,9 @@ def _render_block(node: SemanticNode) -> str:
     kind = node.kind
     if kind in {"document", "section", "table_head", "table_body", "form"}:
         if kind == "section" and node.attrs.get("layout") == "columns":
-            body = "\n\n".join(filter(None, (_render_block(child) for child in node.children)))
+            body = "\n".join(
+                filter(None, (_render_html_block(child) for child in node.children))
+            )
             return '<div class="cocoapdf-columns">\n%s\n</div>' % body
         return "\n\n".join(filter(None, (_render_block(child) for child in node.children)))
     if kind == "anchor":
@@ -50,9 +53,15 @@ def _render_block(node: SemanticNode) -> str:
         alignment = node.attrs.get("alignment")
         writing = node.attrs.get("writing_mode")
         if writing and writing != "horizontal":
-            return '<p style="writing-mode: vertical-rl; text-orientation: mixed;">%s</p>' % body
+            return (
+                '<p style="writing-mode: vertical-rl; text-orientation: mixed;">'
+                "%s</p>" % _render_html_inlines(node)
+            )
         if alignment in {"center", "right"}:
-            return '<p align="%s">%s</p>' % (alignment, body)
+            return '<p align="%s">%s</p>' % (
+                alignment,
+                _render_html_inlines(node),
+            )
         return body
     if kind == "list":
         return _render_list(node)
@@ -93,10 +102,14 @@ def _render_block(node: SemanticNode) -> str:
     if kind == "toc_item":
         return _render_toc_item(node)
     if kind in {"callout", "sidebar"}:
-        body = _render_inlines(node) or "\n\n".join(_render_block(child) for child in node.children)
-        return '<aside class="cocoapdf-%s">%s</aside>' % (kind, body)
+        body = _render_html_mixed_content(node)
+        return '<aside class="cocoapdf-%s"%s>%s</aside>' % (
+            kind,
+            _artifact_callout_style(node),
+            body,
+        )
     if kind == "equation":
-        body = _render_inlines(node) or _escape(node.text)
+        body = _render_html_mixed_content(node)
         return '<div class="cocoapdf-equation">%s</div>' % body
     if kind == "form_field":
         return _render_form_field(node)
@@ -120,11 +133,11 @@ def _render_inline(node: SemanticNode) -> str:
     if node.kind == "text":
         return body
     if node.kind == "strong":
-        return "**%s**" % body
+        return _wrap_inline_delimiter("**", body)
     if node.kind == "emphasis":
-        return "*%s*" % body
+        return _wrap_inline_delimiter("*", body)
     if node.kind == "strikethrough":
-        return "~~%s~~" % body
+        return _wrap_inline_delimiter("~~", body)
     if node.kind == "underline":
         return "<u>%s</u>" % body
     if node.kind == "superscript":
@@ -134,8 +147,8 @@ def _render_inline(node: SemanticNode) -> str:
     if node.kind == "mark":
         return "<mark>%s</mark>" % body
     if node.kind == "code":
-        fence = "`" * max(1, _longest_run(node.text or body, "`") + 1)
-        content = node.text or body
+        content = _raw_inline_text(node)
+        fence = "`" * max(1, _longest_run(content, "`") + 1)
         if content.startswith("`") or content.endswith("`"):
             content = " " + content + " "
         return fence + content + fence
@@ -165,7 +178,7 @@ def _render_inline(node: SemanticNode) -> str:
 
 
 def _render_image(node: SemanticNode) -> str:
-    source = safe_asset_href(str(node.attrs.get("src", "")))
+    source = safe_embedded_image_href(str(node.attrs.get("src", "")))
     if not source:
         return ""
     if _IMAGE_MARKUP.get() != "markdown":
@@ -173,8 +186,8 @@ def _render_image(node: SemanticNode) -> str:
         if fragment:
             return fragment
     alt = _escape(str(node.attrs.get("alt", node.text)))
-    width = float(node.attrs.get("display_width_pt", 0.0) or 0.0)
-    height = float(node.attrs.get("display_height_pt", 0.0) or 0.0)
+    width = _safe_dimension(node.attrs.get("display_width_pt"))
+    height = _safe_dimension(node.attrs.get("display_height_pt"))
     alignment = str(node.attrs.get("alignment", "left"))
     link = safe_href(str(node.attrs.get("link", ""))) if node.attrs.get("link") else None
     if width > 0 or height > 0 or alignment != "left":
@@ -261,7 +274,7 @@ def _render_table_html(node: SemanticNode) -> str:
     notes = [child for child in node.children if child.kind == "table_note"]
     out = ["<table>"]
     if caption:
-        out.append("<caption>%s</caption>" % _render_inlines(caption))
+        out.append("<caption>%s</caption>" % _render_html_inlines(caption))
     if header_rows:
         out.append("<thead>")
     for row_index, row in enumerate(rows):
@@ -282,13 +295,17 @@ def _render_table_html(node: SemanticNode) -> str:
                 attrs.append('colspan="%d"' % colspan)
             if rotation:
                 attrs.append('style="writing-mode: vertical-rl; text-orientation: mixed;"')
-            body = "".join(_render_block(child) if child.kind in {"paragraph", "list", "code_block", "figure"} else _render_inline(child) for child in cell.children)
+            body = _render_html_cell_content(cell)
             out.append("<%s%s>%s</%s>" % (tag, (" " + " ".join(attrs)) if attrs else "", body, tag))
         out.append("</tr>")
     if header_rows:
         out.append("</tbody>" if len(rows) > header_rows else "</thead>")
     out.append("</table>")
-    out.extend('<p class="cocoapdf-table-note">%s</p>' % _render_inlines(note) for note in notes)
+    out.extend(
+        '<p class="cocoapdf-table-note">%s</p>'
+        % _render_html_inlines(note)
+        for note in notes
+    )
     return "\n".join(out)
 
 
@@ -340,35 +357,79 @@ def _render_figure(node: SemanticNode) -> str:
 
 
 def _render_html_figure(node: SemanticNode) -> str:
-    """Project one image figure as the generated <figure> fragment.
+    """Project every child of one semantic figure as safe graph-native HTML.
 
     Markdown cannot carry an image's intrinsic dimensions, alignment, or a
-    caption bound to the image, so an explicit HTML request renders the same
-    closed fragment the layout projection emits and the sanitizer admits.
+    caption bound to the image.  An explicit HTML request therefore renders a
+    closed fragment directly from typed nodes, preserving compound figures and
+    inline caption semantics without reparsing Markdown.
     """
-    image = next((child for child in node.children if child.kind == "image"), None)
-    if image is None:
+    images = [child for child in node.children if child.kind == "image"]
+    rendered_images = [
+        (image, _html_image_element(image))
+        for image in images
+    ]
+    rendered_images = [item for item in rendered_images if item[1]]
+    if not rendered_images:
         return ""
-    if any(child.kind not in {"image", "caption"} for child in node.children):
-        return ""
-    caption = next((child for child in node.children if child.kind == "caption"), None)
-    caption_text = _render_inlines(caption).strip() if caption is not None else ""
-    return _html_image_fragment(image, caption_text)
+    first_image = rendered_images[0][0]
+    alignment = _safe_alignment(first_image.attrs.get("alignment"))
+    image_markup = {id(image): fragment for image, fragment in rendered_images}
+    parts = ['<figure class="cocoapdf-figure cocoapdf-align-%s">' % alignment]
+    caption_seen = False
+    for child in node.children:
+        if child.kind == "image":
+            fragment = image_markup.get(id(child), "")
+            if fragment:
+                parts.append(fragment)
+        elif child.kind == "caption":
+            caption = _render_html_inlines(child).strip()
+            if not caption:
+                continue
+            if not caption_seen:
+                parts.append("<figcaption>%s</figcaption>" % caption)
+                caption_seen = True
+            else:
+                parts.append(
+                    '<p class="cocoapdf-caption">%s</p>' % caption
+                )
+        else:
+            fragment = _render_html_block(child)
+            if fragment:
+                parts.append(fragment)
+    parts.append("</figure>")
+    return "\n".join(parts)
 
 
-def _html_image_fragment(image: SemanticNode, caption_text: str) -> str:
-    source = safe_asset_href(str(image.attrs.get("src", "")))
+def _html_image_fragment(image: SemanticNode, caption_html: str) -> str:
+    image_html = _html_image_element(image)
+    if not image_html:
+        return ""
+    alignment = _safe_alignment(image.attrs.get("alignment"))
+    parts = [
+        '<figure class="cocoapdf-figure cocoapdf-align-%s">' % alignment,
+        image_html,
+    ]
+    if caption_html:
+        parts.append("<figcaption>%s</figcaption>" % caption_html)
+    parts.append("</figure>")
+    return "\n".join(parts)
+
+
+def _html_image_element(image: SemanticNode) -> str:
+    source = safe_embedded_image_href(str(image.attrs.get("src", "")))
     if not source:
         return ""
-    alignment = str(image.attrs.get("alignment", "left"))
-    if alignment not in {"left", "center", "right"}:
-        alignment = "left"
     alt = str(image.attrs.get("alt", image.text) or "")
-    width = float(image.attrs.get("display_width_pt", 0.0) or 0.0)
-    height = float(image.attrs.get("display_height_pt", 0.0) or 0.0)
-    style = "max-width: 100%; object-fit: contain;"
-    if width > 0 and height > 0:
-        style = "width: %.3fpt; height: %.3fpt; max-width: 100%%; object-fit: contain;" % (width, height)
+    width = _safe_dimension(image.attrs.get("display_width_pt"))
+    height = _safe_dimension(image.attrs.get("display_height_pt"))
+    style_parts: List[str] = []
+    if width > 0:
+        style_parts.append("width: %.3fpt" % width)
+    if height > 0:
+        style_parts.append("height: %.3fpt" % height)
+    style_parts.extend(["max-width: 100%", "object-fit: contain"])
+    style = "; ".join(style_parts) + ";"
     image_html = '<img src="%s" alt="%s" style="%s" />' % (
         html.escape(source, quote=True),
         html.escape(alt, quote=True),
@@ -380,14 +441,306 @@ def _html_image_fragment(image: SemanticNode, caption_text: str) -> str:
             html.escape(link, quote=True),
             image_html,
         )
-    parts = [
-        '<figure class="cocoapdf-figure cocoapdf-align-%s">' % alignment,
-        image_html,
-    ]
-    if caption_text:
-        parts.append("<figcaption>%s</figcaption>" % html.escape(caption_text))
-    parts.append("</figure>")
-    return "\n".join(parts)
+    return image_html
+
+
+_HTML_BLOCK_KINDS = {
+    "document",
+    "section",
+    "paragraph",
+    "heading",
+    "list",
+    "item",
+    "quote",
+    "code_block",
+    "thematic_break",
+    "table",
+    "figure",
+    "caption",
+    "table_note",
+    "callout",
+    "sidebar",
+    "equation",
+    "page_break",
+}
+
+
+def _render_html_inlines(node: SemanticNode) -> str:
+    """Render typed inline semantics for a Markdown raw-HTML container."""
+    if node.attrs.get("actual_text") and node.text:
+        body = html.escape(node.text)
+    elif node.children:
+        body = "".join(_render_html_inline(child) for child in node.children)
+    else:
+        body = html.escape(node.text)
+    expanded = str(node.attrs.get("expanded_text") or "").strip()
+    if expanded and body:
+        return '<abbr title="%s">%s</abbr>' % (
+            html.escape(expanded, quote=True),
+            body,
+        )
+    return body
+
+
+def _render_html_inline(node: SemanticNode) -> str:
+    body = _render_html_inlines(node)
+    if node.kind == "text":
+        return "<br />\n" if node.attrs.get("hard_break") else body
+    if node.kind == "strong":
+        return "<strong>%s</strong>" % body
+    if node.kind == "emphasis":
+        return "<em>%s</em>" % body
+    if node.kind == "strikethrough":
+        return "<del>%s</del>" % body
+    if node.kind == "underline":
+        return "<u>%s</u>" % body
+    if node.kind == "superscript":
+        return "<sup>%s</sup>" % body
+    if node.kind == "subscript":
+        return "<sub>%s</sub>" % body
+    if node.kind == "mark":
+        return "<mark>%s</mark>" % body
+    if node.kind == "code":
+        return "<code>%s</code>" % html.escape(_raw_inline_text(node))
+    if node.kind == "link":
+        href = safe_href(str(node.attrs.get("href", "")))
+        return (
+            '<a href="%s">%s</a>' % (html.escape(href, quote=True), body)
+            if href
+            else body
+        )
+    if node.kind == "cross_reference":
+        target = re.sub(
+            r"[^A-Za-z0-9_.:-]",
+            "-",
+            str(
+                node.attrs.get("target_anchor")
+                or node.attrs.get("target_id")
+                or ""
+            ),
+        )
+        return (
+            '<a class="cocoapdf-cross-reference" href="#%s">%s</a>'
+            % (html.escape(target, quote=True), body)
+            if target
+            else body
+        )
+    if node.kind == "footnote_ref":
+        label = _safe_label(str(node.attrs.get("label", node.id)))
+        return '<sup><a href="#fn-%s" role="doc-noteref">%s</a></sup>' % (
+            html.escape(label, quote=True),
+            html.escape(label),
+        )
+    if node.kind == "image":
+        return _html_image_element(node)
+    return body
+
+
+def _render_html_mixed_content(node: SemanticNode) -> str:
+    if not node.children:
+        return html.escape(node.text)
+    if not any(child.kind in _HTML_BLOCK_KINDS for child in node.children):
+        return _render_html_inlines(node)
+    return "".join(
+        _render_html_block(child)
+        if child.kind in _HTML_BLOCK_KINDS
+        else _render_html_inline(child)
+        for child in node.children
+    )
+
+
+def _render_html_block(node: SemanticNode) -> str:
+    kind = node.kind
+    if kind in {"document", "section"}:
+        return "".join(
+            _render_html_block(child)
+            if child.kind in _HTML_BLOCK_KINDS
+            else _render_html_inline(child)
+            for child in node.children
+        ) or html.escape(node.text)
+    if kind == "paragraph":
+        attrs = ""
+        writing = str(node.attrs.get("writing_mode") or "")
+        alignment = str(node.attrs.get("alignment") or "")
+        if writing and writing != "horizontal":
+            attrs = (
+                ' style="writing-mode: vertical-rl; '
+                'text-orientation: mixed;"'
+            )
+        elif alignment in {"center", "right"}:
+            attrs = ' align="%s"' % alignment
+        return "<p%s>%s</p>" % (attrs, _render_html_inlines(node))
+    if kind == "heading":
+        level = _safe_integer(node.attrs.get("level"), 2, 1, 6)
+        return "<h%d>%s</h%d>" % (level, _render_html_inlines(node), level)
+    if kind == "list":
+        return _render_html_list(node)
+    if kind == "item":
+        return _render_html_list_item(node, ordered=False, marker_style="")
+    if kind == "quote":
+        return "<blockquote>%s</blockquote>" % _render_html_mixed_content(node)
+    if kind == "code_block":
+        info = re.sub(r"[^A-Za-z0-9_+.-]", "", str(node.attrs.get("info", "")))
+        class_attr = ' class="language-%s"' % info if info else ""
+        return "<pre><code%s>%s</code></pre>" % (
+            class_attr,
+            html.escape(node.text),
+        )
+    if kind == "thematic_break":
+        return "<hr />"
+    if kind == "table":
+        return _render_table_html(node)
+    if kind == "figure":
+        return _render_html_figure(node)
+    if kind == "image":
+        return _html_image_fragment(node, "")
+    if kind == "caption":
+        return '<p class="cocoapdf-caption">%s</p>' % _render_html_inlines(node)
+    if kind == "table_note":
+        return '<p class="cocoapdf-table-note">%s</p>' % _render_html_inlines(node)
+    if kind in {"callout", "sidebar"}:
+        return '<aside class="cocoapdf-%s"%s>%s</aside>' % (
+            kind,
+            _artifact_callout_style(node),
+            _render_html_mixed_content(node),
+        )
+    if kind == "equation":
+        return '<div class="cocoapdf-equation">%s</div>' % _render_html_mixed_content(node)
+    if kind == "page_break":
+        return '<hr class="cocoapdf-page-break" data-page="%s" />' % html.escape(
+            str(node.attrs.get("page", "")),
+            quote=True,
+        )
+    return _render_html_inlines(node)
+
+
+def _render_html_cell_content(cell: SemanticNode) -> str:
+    parts: List[str] = []
+    for child in cell.children:
+        # Preserve the historical compact cell shape for simple paragraphs,
+        # while projecting genuinely nested structures as HTML rather than
+        # inert Markdown inside a raw <td>/<th> block.
+        if child.kind == "paragraph":
+            parts.append(_render_html_inlines(child))
+        elif child.kind in _HTML_BLOCK_KINDS:
+            parts.append(_render_html_block(child))
+        else:
+            parts.append(_render_html_inline(child))
+    if not parts and cell.text:
+        parts.append(html.escape(cell.text))
+    return "".join(parts)
+
+
+def _render_html_list(node: SemanticNode) -> str:
+    ordered = bool(node.attrs.get("ordered"))
+    tag = "ol" if ordered else "ul"
+    marker_style = str(node.attrs.get("marker_style") or "").lower()
+    attrs: List[str] = []
+    if ordered:
+        start = _safe_integer(node.attrs.get("start"), 1, -(10**9), 10**9)
+        if start != 1:
+            attrs.append('start="%d"' % start)
+        list_type = {
+            "upper-alpha": "A",
+            "lower-alpha": "a",
+            "upper-roman": "I",
+            "lower-roman": "i",
+        }.get(marker_style)
+        if list_type:
+            attrs.append('type="%s"' % list_type)
+    elif marker_style in {"disc", "circle", "square", "none"}:
+        attrs.append('style="list-style-type: %s"' % marker_style)
+    body = "".join(
+        _render_html_list_item(
+            child,
+            ordered=ordered,
+            marker_style=marker_style,
+        )
+        if child.kind == "item"
+        else _render_html_block(child)
+        for child in node.children
+    )
+    explicit = " " + " ".join(attrs) if attrs else ""
+    return "<%s%s>%s</%s>" % (tag, explicit, body, tag)
+
+
+def _render_html_list_item(
+    node: SemanticNode,
+    *,
+    ordered: bool,
+    marker_style: str,
+) -> str:
+    parts: List[str] = []
+    for child in node.children:
+        if child.kind == "paragraph":
+            parts.append(_render_html_inlines(child))
+        elif child.kind in _HTML_BLOCK_KINDS:
+            parts.append(_render_html_block(child))
+        else:
+            parts.append(_render_html_inline(child))
+    if not parts and node.text:
+        parts.append(html.escape(node.text))
+    body = "".join(parts)
+    is_task = bool(node.attrs.get("task"))
+    if is_task:
+        checked = " checked" if node.attrs.get("checked") else ""
+        task_text = _html_task_text(node)
+        state = "Checked" if node.attrs.get("checked") else "Unchecked"
+        label = "%s task%s" % (
+            state,
+            ": " + task_text if task_text else "",
+        )
+        body = '<input type="checkbox" disabled%s aria-label="%s" /> %s' % (
+            checked,
+            html.escape(label, quote=True),
+            body,
+        )
+    attrs: List[str] = []
+    if ordered:
+        marker = node.attrs.get("marker")
+        if isinstance(marker, int) and not isinstance(marker, bool):
+            attrs.append('value="%d"' % marker)
+    if is_task:
+        attrs.append('class="cocoapdf-task-item"')
+    explicit = " " + " ".join(attrs) if attrs else ""
+    return "<li%s>%s</li>" % (explicit, body)
+
+
+def _html_task_text(node: SemanticNode) -> str:
+    text = " ".join(
+        _raw_node_text(child)
+        for child in node.children
+        if child.kind != "list"
+    ) or node.text
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _raw_node_text(node: SemanticNode) -> str:
+    return node.text or "".join(_raw_node_text(child) for child in node.children)
+
+
+def _safe_alignment(raw: Any) -> str:
+    value = str(raw or "left").lower()
+    return value if value in {"left", "center", "right"} else "left"
+
+
+def _safe_dimension(raw: Any) -> float:
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return 0.0
+    value = float(raw)
+    if not math.isfinite(value) or value <= 0:
+        return 0.0
+    return min(value, 100_000.0)
+
+
+def _safe_integer(raw: Any, default: int, minimum: int, maximum: int) -> int:
+    if isinstance(raw, bool):
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return min(maximum, max(minimum, value))
 
 
 def _render_toc(node: SemanticNode) -> str:
@@ -424,9 +777,52 @@ def _render_form_field(node: SemanticNode) -> str:
 
 def _escape(text: str) -> str:
     value = str(text).replace("\\", "\\\\")
-    for character in ("`", "*", "_", "~", "[", "]", "<", ">"):
+    for character in ("`", "*", "~", "[", "]", "<", ">"):
         value = value.replace(character, "\\" + character)
+    # Intraword underscores cannot open or close CommonMark emphasis.  Keep
+    # identifiers readable while escaping delimiter-capable boundary forms.
+    value = re.sub(r"(?<![\w])_|_(?![\w])", r"\\_", value, flags=re.UNICODE)
     return value
+
+
+def _wrap_inline_delimiter(delimiter: str, body: str) -> str:
+    """Keep whitespace outside Markdown emphasis delimiters."""
+    leading = body[: len(body) - len(body.lstrip())]
+    trailing = body[len(body.rstrip()) :]
+    core = body.strip()
+    return leading + delimiter + core + delimiter + trailing if core else body
+
+
+def _raw_inline_text(node: SemanticNode) -> str:
+    """Read authored code-span text before Markdown escaping."""
+    if node.text:
+        return node.text
+    return "".join(_raw_inline_text(child) for child in node.children)
+
+
+def _artifact_callout_style(node: SemanticNode) -> str:
+    """Return fixed, sanitized styling for a verified artifact background."""
+    if not node.attrs.get("artifact_background_geometry"):
+        return ""
+    raw: Any = node.attrs.get("artifact_background_color")
+    if not isinstance(raw, (list, tuple)) or len(raw) != 3:
+        return ""
+    channels: List[int] = []
+    for value in raw:
+        if isinstance(value, bool):
+            return ""
+        try:
+            number = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return ""
+        if not math.isfinite(number) or not 0.0 <= number <= 1.0:
+            return ""
+        channels.append(round(number * 255.0))
+    color = "#%02x%02x%02x" % tuple(channels)
+    return (
+        ' style="background-color: %s; border-left: 0.25rem solid #6b8fb3; '
+        'padding: 0.75rem"' % color
+    )
 
 
 def _escape_destination(value: object) -> str:

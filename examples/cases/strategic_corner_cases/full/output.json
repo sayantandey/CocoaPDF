@@ -3296,6 +3296,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "cocoapdf-strategic-corner-cases-v1-v4"
       },
       "children": [
@@ -5147,6 +5148,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "1-plain-text-paragraphs-spacing-and-line-joining"
       },
       "children": [
@@ -8653,6 +8655,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "2-unicode-encodings-symbols-and-normalization"
       },
       "children": [
@@ -13795,6 +13798,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": true,
+        "upper_page_zone": false,
         "anchor": "3-markdown-escaping-and-literal-characters"
       },
       "children": [
@@ -15960,6 +15964,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "4-heading-hierarchy-and-anchors"
       },
       "children": [
@@ -16267,6 +16272,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "h1-duplicate-title-sentinel"
       },
       "children": [
@@ -16554,6 +16560,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "h2-numbered-and-plain"
       },
       "children": [
@@ -16817,6 +16824,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "h3-1-2-3-numbered-heading"
       },
       "children": [
@@ -17041,6 +17049,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "h4-with-bold-and-italic-inline-source"
       },
       "children": [
@@ -17097,54 +17106,7 @@
                 2
               ],
               "warnings": []
-            }
-          ],
-          "confidence": 0.99,
-          "evidence": [],
-          "sources": [
-            {
-              "page": 2,
-              "glyph_ids": [
-                3903,
-                3904,
-                3905,
-                3906,
-                3907,
-                3908,
-                3909,
-                3910,
-                3911,
-                3912,
-                3913,
-                3914,
-                3915,
-                3916,
-                3917,
-                3918,
-                3919
-              ],
-              "region_ids": [],
-              "mcids": [],
-              "object_refs": [],
-              "bbox": [
-                96.25,
-                160.891,
-                204.263,
-                174.297
-              ]
-            }
-          ],
-          "source_pages": [
-            2
-          ],
-          "warnings": []
-        },
-        {
-          "id": "node-153",
-          "kind": "strong",
-          "text": "",
-          "attrs": {},
-          "children": [
+            },
             {
               "id": "node-152",
               "kind": "emphasis",
@@ -17217,43 +17179,7 @@
                 2
               ],
               "warnings": []
-            }
-          ],
-          "confidence": 0.99,
-          "evidence": [],
-          "sources": [
-            {
-              "page": 2,
-              "glyph_ids": [
-                3920,
-                3921,
-                3922,
-                3923,
-                3924,
-                3925
-              ],
-              "region_ids": [],
-              "mcids": [],
-              "object_refs": [],
-              "bbox": [
-                204.273,
-                160.891,
-                233.558,
-                174.297
-              ]
-            }
-          ],
-          "source_pages": [
-            2
-          ],
-          "warnings": []
-        },
-        {
-          "id": "node-155",
-          "kind": "strong",
-          "text": "",
-          "attrs": {},
-          "children": [
+            },
             {
               "id": "node-154",
               "kind": "text",
@@ -17306,6 +17232,29 @@
             {
               "page": 2,
               "glyph_ids": [
+                3903,
+                3904,
+                3905,
+                3906,
+                3907,
+                3908,
+                3909,
+                3910,
+                3911,
+                3912,
+                3913,
+                3914,
+                3915,
+                3916,
+                3917,
+                3918,
+                3919,
+                3920,
+                3921,
+                3922,
+                3923,
+                3924,
+                3925,
                 3926,
                 3927,
                 3928,
@@ -17325,7 +17274,7 @@
               "mcids": [],
               "object_refs": [],
               "bbox": [
-                233.559,
+                96.25,
                 160.891,
                 315.854,
                 174.297
@@ -17459,6 +17408,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "h5-all-caps-heading"
       },
       "children": [
@@ -17665,6 +17615,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "h6-small-heading"
       },
       "children": [
@@ -17862,6 +17813,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "h2-duplicate-title-sentinel"
       },
       "children": [
@@ -18149,6 +18101,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "h2-duplicate-title-sentinel-2"
       },
       "children": [
@@ -18878,6 +18831,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "5-inline-formatting"
       },
       "children": [
@@ -20706,43 +20660,7 @@
                 2
               ],
               "warnings": []
-            }
-          ],
-          "confidence": 0.99,
-          "evidence": [],
-          "sources": [
-            {
-              "page": 2,
-              "glyph_ids": [
-                4418,
-                4419,
-                4420,
-                4421,
-                4422,
-                4423
-              ],
-              "region_ids": [],
-              "mcids": [],
-              "object_refs": [],
-              "bbox": [
-                381.016,
-                425.462,
-                411.618,
-                436.187
-              ]
-            }
-          ],
-          "source_pages": [
-            2
-          ],
-          "warnings": []
-        },
-        {
-          "id": "node-224",
-          "kind": "strong",
-          "text": "",
-          "attrs": {},
-          "children": [
+            },
             {
               "id": "node-223",
               "kind": "emphasis",
@@ -20817,44 +20735,7 @@
                 2
               ],
               "warnings": []
-            }
-          ],
-          "confidence": 0.99,
-          "evidence": [],
-          "sources": [
-            {
-              "page": 2,
-              "glyph_ids": [
-                4424,
-                4425,
-                4426,
-                4427,
-                4428,
-                4429,
-                4430
-              ],
-              "region_ids": [],
-              "mcids": [],
-              "object_refs": [],
-              "bbox": [
-                411.625,
-                425.462,
-                443.341,
-                436.187
-              ]
-            }
-          ],
-          "source_pages": [
-            2
-          ],
-          "warnings": []
-        },
-        {
-          "id": "node-226",
-          "kind": "strong",
-          "text": "",
-          "attrs": {},
-          "children": [
+            },
             {
               "id": "node-225",
               "kind": "text",
@@ -20899,6 +20780,19 @@
             {
               "page": 2,
               "glyph_ids": [
+                4418,
+                4419,
+                4420,
+                4421,
+                4422,
+                4423,
+                4424,
+                4425,
+                4426,
+                4427,
+                4428,
+                4429,
+                4430,
                 4431,
                 4432,
                 4433,
@@ -20910,7 +20804,7 @@
               "mcids": [],
               "object_refs": [],
               "bbox": [
-                443.348,
+                381.016,
                 425.462,
                 470.908,
                 436.187
@@ -23439,6 +23333,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "6-links-destinations-and-security"
       },
       "children": [
@@ -27107,6 +27002,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "7-lists-and-nesting"
       },
       "children": [
@@ -34402,6 +34298,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "8-blockquotes"
       },
       "children": [
@@ -37110,6 +37007,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "9-code-blocks"
       },
       "children": [
@@ -39033,6 +38931,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "10-horizontal-rules-and-decorative-lines"
       },
       "children": [
@@ -39853,6 +39752,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "heading-underline-adversarial-case"
       },
       "children": [
@@ -40650,6 +40550,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "11-tables-gfm-alignment-escapes-and-borderless-like-patterns"
       },
       "children": [
@@ -51399,6 +51300,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": true,
+        "upper_page_zone": false,
         "anchor": "12-complex-html-tables-requiring-html-fallback"
       },
       "children": [
@@ -57670,6 +57572,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "13-figures-images-captions-floats-and-svg"
       },
       "children": [
@@ -60551,6 +60454,7 @@
         "region_kinds": [],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "14-raster-image-preservation-fixture"
       },
       "children": [
@@ -62233,6 +62137,7 @@
         "region_kinds": [],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "15-footnotes-and-endnotes"
       },
       "children": [
@@ -63288,6 +63193,7 @@
         "region_kinds": [],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "endnotes"
       },
       "children": [
@@ -63833,6 +63739,7 @@
         "region_kinds": [],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "16-table-of-contents-cross-references-and-bibliography"
       },
       "children": [
@@ -64232,6 +64139,7 @@
         "region_kinds": [],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "contents"
       },
       "children": [
@@ -65923,6 +65831,7 @@
         "region_kinds": [],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "references"
       },
       "children": [
@@ -66132,7 +66041,18 @@
           "attrs": {
             "label": "1",
             "anchor": "ref-1",
-            "style": "numeric"
+            "style": "numeric",
+            "page": 6,
+            "bbox": [
+              96.25000163758311,
+              654.962246755506,
+              621.9502091782188,
+              665.6872469950309
+            ],
+            "region_ids": [],
+            "region_kinds": [],
+            "writing_mode": "horizontal",
+            "bottom_zone": false
           },
           "children": [
             {
@@ -66286,6 +66206,15 @@
               "detail": "",
               "page": 6,
               "data": {}
+            },
+            {
+              "kind": "geometric_semantic_detector",
+              "confidence": 0.96,
+              "detail": "paragraph",
+              "page": 6,
+              "data": {
+                "region_ids": []
+              }
             }
           ],
           "sources": [
@@ -66429,7 +66358,18 @@
           "attrs": {
             "label": "2",
             "anchor": "ref-2",
-            "style": "numeric"
+            "style": "numeric",
+            "page": 6,
+            "bbox": [
+              96.25000163758311,
+              678.2122472747557,
+              593.3172772187506,
+              688.9372475142806
+            ],
+            "region_ids": [],
+            "region_kinds": [],
+            "writing_mode": "horizontal",
+            "bottom_zone": false
           },
           "children": [
             {
@@ -66883,6 +66823,15 @@
               "detail": "",
               "page": 6,
               "data": {}
+            },
+            {
+              "kind": "geometric_semantic_detector",
+              "confidence": 0.96,
+              "detail": "paragraph",
+              "page": 6,
+              "data": {
+                "region_ids": []
+              }
             }
           ],
           "sources": [
@@ -67022,7 +66971,18 @@
           "attrs": {
             "label": null,
             "anchor": null,
-            "style": "author_year"
+            "style": "author_year",
+            "page": 6,
+            "bbox": [
+              96.25000163758311,
+              701.4622477940062,
+              597.7180310245335,
+              712.1872480335312
+            ],
+            "region_ids": [],
+            "region_kinds": [],
+            "writing_mode": "horizontal",
+            "bottom_zone": false
           },
           "children": [
             {
@@ -67177,6 +67137,15 @@
               "detail": "",
               "page": 6,
               "data": {}
+            },
+            {
+              "kind": "geometric_semantic_detector",
+              "confidence": 0.96,
+              "detail": "paragraph",
+              "page": 6,
+              "data": {
+                "region_ids": []
+              }
             }
           ],
           "sources": [
@@ -67320,7 +67289,9 @@
           "confidence": 0.98,
           "detail": "",
           "page": null,
-          "data": {}
+          "data": {
+            "continuation_index": 0
+          }
         }
       ],
       "sources": [
@@ -67679,6 +67650,45 @@
       "warnings": []
     },
     {
+      "id": "node-920",
+      "kind": "thematic_break",
+      "text": "",
+      "attrs": {
+        "y": 726.9997483643433,
+        "page": 6,
+        "bbox": null,
+        "region_ids": [],
+        "region_kinds": [],
+        "bottom_zone": false
+      },
+      "children": [],
+      "confidence": 0.9,
+      "evidence": [
+        {
+          "kind": "geometric_semantic_detector",
+          "confidence": 0.9,
+          "detail": "thematic_break",
+          "page": 6,
+          "data": {
+            "region_ids": []
+          }
+        }
+      ],
+      "sources": [
+        {
+          "page": 6,
+          "glyph_ids": [],
+          "region_ids": [],
+          "mcids": [],
+          "object_refs": []
+        }
+      ],
+      "source_pages": [
+        6
+      ],
+      "warnings": []
+    },
+    {
       "id": "node-925",
       "kind": "heading",
       "text": "",
@@ -67695,6 +67705,7 @@
         "region_kinds": [],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "17-math-and-formula-fallback"
       },
       "children": [
@@ -70350,6 +70361,7 @@
         "region_kinds": [],
         "writing_mode": "horizontal",
         "bottom_zone": true,
+        "upper_page_zone": false,
         "anchor": "18-multi-column-sidebars-callouts-and-floats-via-html-css"
       },
       "children": [
@@ -73275,6 +73287,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "19-forms-and-annotations-future-fixture"
       },
       "children": [
@@ -75072,6 +75085,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "20-active-content-and-security-future-fixture"
       },
       "children": [
@@ -77066,6 +77080,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "21-page-breaks-furniture-headers-footers"
       },
       "children": [
@@ -78607,6 +78622,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": true,
         "anchor": "22-damaged-encrypted-and-hard-pdf-v3-matrix-labels"
       },
       "children": [
@@ -81194,6 +81210,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "23-final-kitchen-sink-paragraph"
       },
       "children": [
@@ -82794,6 +82811,7 @@
         ],
         "writing_mode": "horizontal",
         "bottom_zone": false,
+        "upper_page_zone": false,
         "anchor": "appendix-a-expected-comparison-notes"
       },
       "children": [
@@ -84753,7 +84771,22 @@
         "source_backlinks": [
           "ref-footnote-1",
           "ref-footnote-1-1"
-        ]
+        ],
+        "page": 8,
+        "bbox": [
+          96.25000163758311,
+          635.6986456382755,
+          463.0053605221743,
+          643.206146135943
+        ],
+        "region_ids": [
+          "p8-body-23"
+        ],
+        "region_kinds": [
+          "body"
+        ],
+        "writing_mode": "horizontal",
+        "bottom_zone": false
       },
       "children": [
         {
@@ -85181,7 +85214,22 @@
         ],
         "source_backlinks": [
           "ref-footnote-2"
-        ]
+        ],
+        "page": 8,
+        "bbox": [
+          96.25000163758311,
+          651.4486459900262,
+          266.4116061315811,
+          658.9561464876937
+        ],
+        "region_ids": [
+          "p8-body-23"
+        ],
+        "region_kinds": [
+          "body"
+        ],
+        "writing_mode": "horizontal",
+        "bottom_zone": false
       },
       "children": [
         {

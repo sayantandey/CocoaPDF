@@ -57,6 +57,21 @@ def safe_asset_href(uri: str) -> Optional[str]:
 	return href.replace("\\", "/")
 
 
+def safe_embedded_image_href(uri: str) -> Optional[str]:
+	"""Allow only packaged/local image sources that cannot fetch a network URI.
+
+	Clickable image links use :func:`safe_href` and may intentionally be
+	external.  The image ``src`` itself has a stricter contract: a generated
+	document must not initiate a request merely because a PDF or reconstructed
+	semantic graph supplied an HTTP URL.
+	"""
+	source = safe_asset_href(uri)
+	if source is None:
+		return None
+	scheme = urlsplit(source).scheme.lower()
+	return source if scheme in {"", "data"} else None
+
+
 def is_safe_generated_html(block: str) -> bool:
 	"""Recognize CocoaPDF's closed set of internally generated HTML fragments.
 
@@ -806,10 +821,8 @@ def _valid_generated_image_style(style: str) -> bool:
 
 
 def _is_safe_generated_asset_source(source: str) -> bool:
-	safe_source = safe_asset_href(source)
-	if safe_source is not None:
-		scheme = urlsplit(safe_source).scheme.lower()
-		return scheme in {"", "data"}
+	if safe_embedded_image_href(source) is not None:
+		return True
 	if not re.fullmatch(
 		r"[A-Za-z]:[/\\][^\x00-\x1f\x7f<>\"|?*]+\."
 		r"(?:png|jpe?g|gif|webp|svg)",

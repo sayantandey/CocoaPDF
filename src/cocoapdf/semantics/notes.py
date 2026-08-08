@@ -8,11 +8,39 @@ from ..ir.semantic import NodeFactory, SemanticDocument, SemanticNode, merge_sou
 
 
 _REFERENCE_HEADING = re.compile(r"^(?:references|bibliography|works\s+cited|sources|literatur|références)$", re.I)
+_REFERENCE_HEADING_SUFFIX = re.compile(
+    r"(?:^|[\s:;,/\-–—])"
+    r"(?:references|bibliography|works\s+cited|sources|literatur|références)\s*$",
+    re.I,
+)
+_NAVIGATIONAL_REFERENCE_HEADING = re.compile(
+    r"\b(?:cross|fig(?:ure)?s?\.?|sections?|tables?|equations?)"
+    r"\s*(?:[-–—]\s*)?references?\b",
+    re.I,
+)
 _ENDNOTE_HEADING = re.compile(r"^(?:endnotes?|notes?)$", re.I)
 _REFERENCE_ENTRY = re.compile(r"^(?:\[(\d+)\]|(\d+)[.)])\s*(.+)$", re.S)
 _NOTE_ENTRY = re.compile(r"^(?:\[(\d+)\]|(\d+)[.)]|([*†‡§¶]))\s*(.+)$", re.S)
 _CROSSREF = re.compile(r"\b(Figure|Fig\.|Table|Section|Sec\.|Equation|Eq\.|Appendix)\s+([A-Za-z0-9IVXLC.-]+)\b", re.I)
 _CITATION = re.compile(r"(?<!\w)\[(\d+(?:\s*[,;]\s*\d+)*)\](?!\w)")
+_REFERENCE_YEAR = re.compile(r"\b(?:1[6-9]|20)\d{2}[a-z]?\b", re.I)
+_REFERENCE_IDENTIFIER = re.compile(
+    r"(?:\b(?:doi|isbn|issn)\s*:|\b10\.\d{4,9}/|https?://|\bwww\.)",
+    re.I,
+)
+_REFERENCE_AUTHOR = re.compile(
+    r"(?:^|[.;]\s*)[A-ZÀ-ÖØ-Þ][\w'’\-À-ÖØ-öø-ÿ]+,\s*"
+    r"(?:[A-ZÀ-ÖØ-Þ](?:\.|\b)|[A-ZÀ-ÖØ-Þ][\w'’\-À-ÖØ-öø-ÿ]+)",
+)
+_REFERENCE_PUBLICATION = re.compile(
+    r"\b(?:journal|proceedings|publisher|press|publication|edition|"
+    r"vol(?:ume)?\.?|issue|pages?|pp\.?|et\s+al\.?|thesis|dissertation)\b",
+    re.I,
+)
+_REFERENCE_ENTRY_CUE = re.compile(
+    r"\b(?:source|reference|citation)\s+(?:entry|record|item)\b",
+    re.I,
+)
 
 
 def enrich_notes_references_crossrefs(document: SemanticDocument, factory: NodeFactory) -> None:
@@ -28,16 +56,25 @@ def _extract_reference_sections(document: SemanticDocument, factory: NodeFactory
     while index < len(nodes):
         heading = nodes[index]
         heading_text = _node_text(heading).strip()
+        canonical_heading = _REFERENCE_HEADING.fullmatch(heading_text) is not None
         lexical_heading = (
             heading.kind == "paragraph"
             and len(heading_text) <= 64
-            and _REFERENCE_HEADING.fullmatch(heading_text) is not None
+            and canonical_heading
             and index + 1 < len(nodes)
+        )
+        structural_heading = (
+            not canonical_heading
+            and heading.kind == "heading"
+            and len(heading_text) <= 160
+            and _REFERENCE_HEADING_SUFFIX.search(heading_text) is not None
+            and _NAVIGATIONAL_REFERENCE_HEADING.search(heading_text) is None
+            and _numbered_reference_run(nodes, index + 1)
         )
         if heading.kind != "heading" and not lexical_heading:
             index += 1
             continue
-        if _REFERENCE_HEADING.fullmatch(heading_text) is None:
+        if not canonical_heading and not structural_heading:
             index += 1
             continue
         if lexical_heading:
@@ -48,20 +85,43 @@ def _extract_reference_sections(document: SemanticDocument, factory: NodeFactory
         level = int(heading.attrs.get("level", 6))
         end = index + 1
         entries: List[SemanticNode] = []
+        collected: List[Tuple[int, SemanticNode]] = []
+        last_reference_end: Optional[int] = None
+        last_structural_label: Optional[int] = None
         while end < len(nodes):
             candidate = nodes[end]
             if candidate.kind == "heading" and int(candidate.attrs.get("level", 6)) <= level:
                 break
+            if candidate.kind in {"page_break", "anchor"}:
+                collected.append((end, candidate))
+                end += 1
+                continue
             if candidate.kind in {"paragraph", "list", "item"}:
                 text = _node_text(candidate).strip()
                 match = _REFERENCE_ENTRY.match(text)
                 label = match.group(1) or match.group(2) if match else None
-                body = match.group(3).strip() if match else text
+                if structural_heading:
+                    if label is None:
+                        break
+                    numeric_label = int(label)
+                    if (
+                        last_structural_label is not None
+                        and numeric_label != last_structural_label + 1
+                    ):
+                        break
+                    body = match.group(3).strip()
+                    if not _citation_like_reference_entry(candidate, body):
+                        break
+                    last_structural_label = numeric_label
+                else:
+                    body = match.group(3).strip() if match else text
                 if body:
-                    entries.append(factory.make(
+                    reference = factory.make(
                         "reference",
                         children=(
                             list(candidate.children)
+                            if not match and candidate.children
+                            else [factory.make("text", text=body, confidence=candidate.confidence, sources=list(candidate.sources))]
                             if not match
                             else _children_after_prefix(candidate, match.start(3), factory)
                             or [factory.make("text", text=body, confidence=candidate.confidence, sources=list(candidate.sources))]
@@ -73,23 +133,136 @@ def _extract_reference_sections(document: SemanticDocument, factory: NodeFactory
                             **_layout_attrs(candidate),
                         },
                         confidence=0.95 if label else 0.86,
-                        evidence=[Evidence("reference_entry", 0.95 if label else 0.86, page=candidate.source_pages()[0] if candidate.source_pages() else None)],
+                        evidence=[
+                            Evidence("reference_entry", 0.95 if label else 0.86, page=candidate.source_pages()[0] if candidate.source_pages() else None),
+                            *candidate.evidence,
+                        ],
                         sources=list(candidate.sources),
-                    ))
+                        warnings=list(candidate.warnings),
+                    )
+                    entries.append(reference)
+                    collected.append((end, reference))
+                    last_reference_end = end + 1
+            elif structural_heading:
+                break
             end += 1
-        if entries:
-            section = factory.make(
-                "reference_section",
-                children=entries,
-                attrs={"heading_id": heading.id},
-                confidence=min(entry.confidence for entry in entries),
-                evidence=[Evidence("reference_section_heading", 0.98)],
-                sources=merge_sources(source for entry in entries for source in entry.sources),
+        if entries and last_reference_end is not None:
+            end = last_reference_end
+            replacement = _reference_section_replacement(
+                [node for position, node in collected if position < end],
+                heading,
+                factory,
             )
-            nodes[index + 1 : end] = [section]
-            index += 2
+            nodes[index + 1 : end] = replacement
+            index += len(replacement) + 1
         else:
             index += 1
+
+
+def _numbered_reference_run(nodes: Sequence[SemanticNode], start: int) -> bool:
+    """Require consecutive visible entries before accepting a titled suffix.
+
+    A generic heading ending in "references" is ambiguous.  Two immediately
+    following numbered entries make the bibliography interpretation structural
+    rather than vocabulary-only and prevent headings such as "cross references"
+    from capturing ordinary prose.
+    """
+    labels: List[int] = []
+    for candidate in nodes[start : start + 10]:
+        if candidate.kind == "heading":
+            break
+        if candidate.kind in {"page_break", "anchor"}:
+            continue
+        if candidate.kind not in {"paragraph", "list", "item"}:
+            break
+        match = _REFERENCE_ENTRY.match(_node_text(candidate).strip())
+        if match is None:
+            break
+        raw_label = match.group(1) or match.group(2)
+        if raw_label is None:
+            break
+        label = int(raw_label)
+        if labels and label != labels[-1] + 1:
+            return False
+        body = match.group(3).strip()
+        if not _citation_like_reference_entry(candidate, body):
+            return False
+        labels.append(label)
+        if len(labels) >= 2:
+            return True
+    return False
+
+
+def _citation_like_reference_entry(candidate: SemanticNode, body: str) -> bool:
+    """Return whether a numbered body carries independent citation evidence."""
+    text = " ".join(str(body).split())
+    if len(text) < 8:
+        return False
+    if (
+        _REFERENCE_IDENTIFIER.search(text)
+        or _REFERENCE_AUTHOR.search(text)
+        or _REFERENCE_PUBLICATION.search(text)
+        or _REFERENCE_ENTRY_CUE.search(text)
+        or _contains_kind(candidate, "link")
+        or _contains_kind(candidate, "emphasis")
+    ):
+        return True
+    year = _REFERENCE_YEAR.search(text)
+    punctuation = sum(text.count(character) for character in (".", ",", ";", ":"))
+    return bool(
+        year
+        and (
+            punctuation >= 2
+            or re.search(r"\b(?:source|reference|citation)\b", text, re.I)
+        )
+    )
+
+
+def _reference_section_replacement(
+    ordered: Sequence[SemanticNode],
+    heading: SemanticNode,
+    factory: NodeFactory,
+) -> List[SemanticNode]:
+    """Keep page/anchor sentinels top-level while grouping reference runs."""
+    replacement: List[SemanticNode] = []
+    run: List[SemanticNode] = []
+    continuation_index = 0
+
+    def flush() -> None:
+        nonlocal continuation_index
+        if not run:
+            return
+        attrs: Dict[str, object] = {"heading_id": heading.id}
+        if continuation_index:
+            attrs.update({
+                "continuation": True,
+                "continuation_index": continuation_index,
+            })
+        replacement.append(factory.make(
+            "reference_section",
+            children=list(run),
+            attrs=attrs,
+            confidence=min(entry.confidence for entry in run),
+            evidence=[Evidence(
+                "reference_section_heading",
+                0.98,
+                data={"continuation_index": continuation_index},
+            )],
+            sources=merge_sources(
+                source for entry in run for source in entry.sources
+            ),
+        ))
+        run.clear()
+        continuation_index += 1
+
+    for node in ordered:
+        if node.kind == "reference":
+            run.append(node)
+            continue
+        flush()
+        replacement.append(node)
+    flush()
+    return replacement
 
 
 def _extract_endnotes(document: SemanticDocument, factory: NodeFactory) -> None:
@@ -469,7 +642,27 @@ def _node_text(node: SemanticNode) -> str:
 def _layout_attrs(node: SemanticNode) -> Dict[str, object]:
     return {
         key: node.attrs[key]
-        for key in ("_layout_markdown", "_layout_kind")
+        for key in (
+            "_layout_markdown",
+            "_layout_kind",
+            "page",
+            "bbox",
+            "region_ids",
+            "region_kinds",
+            "writing_mode",
+            "bottom_zone",
+            "tagged_block_boundary_recovered",
+            "tagged_block_boundary_action",
+            "tagged_block_boundary_actions",
+            "tagged_block_owner_id",
+            "tagged_block_parent_id",
+            "tagged_block_mcids",
+            "tagged_block_original_line_count",
+            "tagged_block_group_count",
+            "tagged_block_group_index",
+            "tagged_block_lineage",
+            "tagged_block_geometry",
+        )
         if key in node.attrs
     }
 

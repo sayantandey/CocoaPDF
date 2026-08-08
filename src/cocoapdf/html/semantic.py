@@ -5,10 +5,13 @@ import html
 import math
 import re
 from typing import Any, List, Optional, Tuple
-from urllib.parse import urlsplit
 
 from .css import DEFAULT_CSS
-from .sanitize import is_safe_generated_html, safe_asset_href, safe_href
+from .sanitize import (
+    is_safe_generated_html,
+    safe_embedded_image_href,
+    safe_href,
+)
 from ..ir.semantic import SemanticDocument, SemanticNode
 
 
@@ -377,7 +380,8 @@ def _render_node(node: SemanticNode) -> str:
         )
     if kind == "reference":
         label = node.attrs.get("label")
-        raw_anchor = str(node.attrs.get("anchor", ""))
+        anchor_value = node.attrs.get("anchor")
+        raw_anchor = str(anchor_value) if anchor_value not in (None, "") else ""
         anchor = _safe_html_id(raw_anchor) if raw_anchor else ""
         anchor_attr = ' id="%s"' % anchor if anchor else ""
         return '<p role="doc-biblioentry"%s%s%s%s>%s%s</p>' % (
@@ -1054,11 +1058,7 @@ def _safe_embedded_image_source(raw: Any) -> Optional[str]:
     Clickable links may remain external, but an image must never trigger an
     automatic network request merely because the source PDF contained a URI.
     """
-    source = safe_asset_href(str(raw or ""))
-    if not source:
-        return None
-    scheme = urlsplit(source).scheme.lower()
-    return source if scheme in {"", "data"} else None
+    return safe_embedded_image_href(str(raw or ""))
 
 
 def _form_value_appearance_attributes(
@@ -1192,6 +1192,13 @@ def _block_style_attr(node: SemanticNode) -> str:
 
 def _block_style_declarations(node: SemanticNode) -> List[str]:
     styles: List[str] = []
+    # Artifact paint is never authored content, but a narrowly verified local
+    # background remains graph-native appearance evidence for a callout. Reuse
+    # the existing RGB sanitizer so JSON round-trips cannot inject CSS.
+    if node.kind == "callout" and node.attrs.get("artifact_background_geometry"):
+        background = _css_rgb(node.attrs.get("artifact_background_color"))
+        if background:
+            styles.append("background-color: %s" % background)
     alignment = str(node.attrs.get("alignment") or "").lower()
     if alignment in {
         "left",
