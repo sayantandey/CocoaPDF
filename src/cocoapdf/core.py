@@ -30,9 +30,23 @@ _FONT_DEMI_SEMIBOLD_NAME = re.compile(
 	r"(?:^|[-_])(?:demi(?:bold)?|semi[-_]?bold)(?:$|[-_])",
 	re.I,
 )
-_FONT_ITALIC_NAME = re.compile(r"italic|oblique", re.I)
-_FONT_MONO_NAME = re.compile(r"courier|mono|consolas|console|menlo|code", re.I)
+_FONT_ITALIC_NAME = re.compile(
+	r"italic|oblique|(?:^|[-_])(?:regu|medi|demi)?ital(?:$|[-_])",
+	re.I,
+)
+_FONT_MONO_NAME = re.compile(
+	r"courier|mono|consolas|console|menlo|code|inconsolata",
+	re.I,
+)
 _TAGGED_HEADING_NAME = re.compile(r"H([1-6])")
+_REFERENCE_URI_ONLY = re.compile(r"(?:https?|ftp)://\S+|www\.\S+|\S+@\S+\.\S+", re.I)
+_REFERENCE_CODE_SECTION = re.compile(r"(?:usage|examples?|syntax|synopsis|code)", re.I)
+_REFERENCE_IDENTIFIER = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]*")
+_REFERENCE_ARGUMENTS_HEADING = re.compile(
+	r"(?:arguments?|parameters?|options?|fields?)",
+	re.I,
+)
+_REFERENCE_COLUMN_INDEX = re.compile(r"\[\s*,\s*(\d+)\s*\]")
 
 
 class PdfName(str):
@@ -7440,6 +7454,7 @@ class MarkdownRenderer:
 					continue
 				kept.append(line)
 			self.lines_by_page[page] = kept
+		_remove_dynamic_physical_page_furniture(self)
 
 	def _render_page(self, page: int) -> List[str]:
 		lines = self.lines_by_page.get(page, [])
@@ -8288,12 +8303,16 @@ class MarkdownRenderer:
 	def _is_heading(self, line: Line, body_size: float, prev: Optional[Line], nxt: Optional[Line]) -> bool:
 		if self._tagged_heading_level(line) is not None:
 			return True
+		if _rule_bracketed_reference_heading(self, line, body_size):
+			return True
 		panel_context = self._panel_line_context(line)
 		if panel_context is not None:
 			if panel_context["role"] == "label":
 				return True
 			if panel_context["role"] == "payload":
 				return False
+		if _dense_styled_field_row(self, line, body_size):
+			return False
 		text = plain_text(line_text_tokens(line)).strip()
 		if not text or len(text) > 140:
 			return False
@@ -9368,6 +9387,10 @@ class MarkdownRenderer:
 		tagged_level = self._tagged_heading_level(line)
 		if tagged_level is not None:
 			return tagged_level
+		if _rule_bracketed_reference_heading(self, line, body_size):
+			return 2
+		if _reference_manual_subheading(self, line, body_size):
+			return 3
 		text = plain_text(line_text_tokens(line)).strip()
 		ratio = line.size / max(body_size, 1.0)
 		if ratio >= 1.9:
@@ -9430,6 +9453,17 @@ class MarkdownRenderer:
 		if line.mono_ratio < 0.85:
 			return False
 		if self._code_region_key(line) is not None:
+			return True
+		text = _reference_line_plain(line)
+		if _REFERENCE_URI_ONLY.fullmatch(text):
+			return False
+		previous = _previous_nonempty_line(self, line)
+		if (
+			previous is not None
+			and _REFERENCE_CODE_SECTION.fullmatch(_reference_line_plain(previous))
+			and previous.bold_ratio >= 0.65
+			and line.x0 >= previous.x0 + max(6.0, body_size * 0.55)
+		):
 			return True
 		all_lines = [l for ls in self.lines_by_page.values() for l in ls]
 		if len(all_lines) > 0 and sum(1 for l in all_lines if l.mono_ratio > 0.85) / len(all_lines) > 0.8:
@@ -10811,6 +10845,13 @@ class MarkdownRenderer:
 		return frame
 
 	def _paragraph_separator(self, prev: Line, cur: Line, lines: List[Line]) -> str:
+		body_size = self._body_font_size(lines)
+		if (
+			cur.page == prev.page
+			and _dense_styled_field_row(self, cur, body_size)
+			and abs(cur.x0 - prev.x0) <= max(4.0, body_size * 0.45)
+		):
+			return "  \n"
 		if self._hard_line_break(prev, cur, lines):
 			# A bare newline is only a CommonMark soft break. Preserve a verified
 			# document line break with Markdown's two-space hard-break syntax.
@@ -16653,6 +16694,10 @@ class MarkdownRenderer:
 		stable modal cell count, gutters that no row crosses, a regular vertical
 		pitch, and body text that does not read as sentences.
 		"""
+		reference_candidates = [
+			*_reference_definition_table_candidates(self, page),
+			*_reference_schema_table_candidates(self, page),
+		]
 		lines = [
 			line
 			for line in self.lines_by_page.get(page, [])
@@ -16661,7 +16706,7 @@ class MarkdownRenderer:
 			and plain_text(line_text_tokens(line)).strip()
 		]
 		if len(lines) < 3:
-			return []
+			return reference_candidates
 		lines.sort(key=lambda line: (line.y0, line.x0, line.seq))
 
 		rows = [(line, self._aligned_column_cells(line)) for line in lines]
@@ -16689,7 +16734,7 @@ class MarkdownRenderer:
 				continue
 			out.append(candidate)
 			start = end
-		return out
+		return [*reference_candidates, *out]
 
 	def _aligned_column_table(
 		self,
@@ -17986,6 +18031,697 @@ class MarkdownRenderer:
 		return interval_covered(intervals, x0, x1, tolerance=3.0)
 
 
+def _reference_line_plain(line: Line) -> str:
+	return cleanup_spaces(plain_text(line_text_tokens(line))).strip()
+
+
+def _physical_folio_components(
+	renderer: MarkdownRenderer,
+	line: Line,
+	page: int,
+) -> Optional[Dict[str, Any]]:
+	page_width, page_height = renderer.conv.page_sizes.get(page, (612.0, 792.0))
+	cy = (line.y0 + line.y1) / 2.0
+	if not (cy <= page_height * 0.12 or cy >= page_height * 0.88):
+		return None
+	page_lines = renderer.lines_by_page.get(page, [])
+	body_size = renderer._body_font_size(page_lines) if page_lines else line.size
+	if line.size > max(body_size * 1.12, body_size + 1.5):
+		return None
+	text = _reference_line_plain(line)
+	if not text:
+		return None
+	page_label = str(page)
+	visible = [char for char in ordered_line_chars(line) if char.text.strip()]
+	if text == page_label:
+		if not visible:
+			return None
+		return {
+			"components": [visible],
+			"remove_indices": (0,),
+			"regions": [(min(char.x0 for char in visible), max(char.x1 for char in visible))],
+		}
+	words = text.split()
+	if len(words) < 2 or len(words) > 12 or len(text) > 120:
+		return None
+	if words[0] != page_label and words[-1] != page_label:
+		return None
+	remainder = " ".join(words[1:] if words[0] == page_label else words[:-1]).strip()
+	if (
+		not remainder
+		or not any(char.isalpha() for char in remainder)
+		or remainder[-1:] in ".!?"
+	):
+		return None
+	if len(visible) < 2:
+		return None
+	gap_threshold = max(line.size * 4.0, page_width * 0.14)
+	components: List[List[Char]] = [[visible[0]]]
+	for left, right in zip(visible, visible[1:]):
+		if right.x0 - left.x1 >= gap_threshold:
+			components.append([])
+		components[-1].append(right)
+	if len(components) < 2:
+		return None
+
+	def component_text(chars: Sequence[Char]) -> str:
+		return cleanup_spaces("".join(char.text for char in chars)).strip()
+
+	folio_components = [
+		index
+		for index, component in enumerate(components)
+		if component_text(component) == page_label
+	]
+	if len(folio_components) != 1:
+		return None
+	folio_index = folio_components[0]
+	if folio_index not in {0, len(components) - 1}:
+		return None
+	header_index = len(components) - 1 if folio_index == 0 else 0
+	header_text = component_text(components[header_index])
+	if (
+		not header_text
+		or not any(char.isalpha() for char in header_text)
+		or header_text[-1:] in ".!?"
+	):
+		return None
+	folio = components[folio_index]
+	header = components[header_index]
+	# Both furniture pieces must occupy opposing outer regions.  Any additional
+	# component between them is independent authored content accidentally grouped
+	# onto the same baseline and must survive.
+	if folio_index == 0:
+		if folio[0].x0 > page_width * 0.20 or header[-1].x1 < page_width * 0.75:
+			return None
+	else:
+		if header[0].x0 > page_width * 0.25 or folio[-1].x1 < page_width * 0.80:
+			return None
+
+	component_regions: List[Tuple[float, float]] = []
+	for index, component in enumerate(components):
+		left = (
+			0.0
+			if index == 0
+			else (components[index - 1][-1].x1 + component[0].x0) / 2.0
+		)
+		right = (
+			page_width
+			if index == len(components) - 1
+			else (component[-1].x1 + components[index + 1][0].x0) / 2.0
+		)
+		component_regions.append((left, right))
+	return {
+		"components": components,
+		"remove_indices": (folio_index, header_index),
+		"regions": component_regions,
+	}
+
+
+def _physical_folio_candidate(
+	renderer: MarkdownRenderer,
+	line: Line,
+	page: int,
+) -> bool:
+	return _physical_folio_components(renderer, line, page) is not None
+
+
+def _remove_dynamic_physical_page_furniture(renderer: MarkdownRenderer) -> None:
+	candidates: Dict[int, List[Tuple[Line, Dict[str, Any]]]] = {}
+	for page, lines in renderer.lines_by_page.items():
+		matches = [
+			(line, evidence)
+			for line in lines
+			if (evidence := _physical_folio_components(renderer, line, page)) is not None
+		]
+		if matches:
+			candidates[page] = matches
+	required = max(3, math.ceil(len(renderer.lines_by_page) * 0.50))
+	if len(candidates) < required:
+		return
+	candidate_by_id = {
+		id(line): (page, evidence)
+		for page, lines in candidates.items()
+		for line, evidence in lines
+	}
+	for page, lines in list(renderer.lines_by_page.items()):
+		kept_lines: List[Line] = []
+		for line in lines:
+			candidate = candidate_by_id.get(id(line))
+			if candidate is None:
+				kept_lines.append(line)
+				continue
+			_candidate_page, evidence = candidate
+			remove_indices = set(evidence["remove_indices"])
+			remove_regions = [
+				evidence["regions"][index]
+				for index in sorted(remove_indices)
+			]
+			removed_chars = [
+				char
+				for char in line.chars
+				if any(
+					x0 <= (char.x0 + char.x1) / 2.0 <= x1
+					for x0, x1 in remove_regions
+				)
+			]
+			removed_ids = {id(char) for char in removed_chars}
+			remaining = [char for char in line.chars if id(char) not in removed_ids]
+			if any(char.text.strip() for char in remaining):
+				line.chars = remaining
+				line.invalidate_caches()
+				kept_lines.append(line)
+			component_bboxes = []
+			for index in sorted(remove_indices):
+				component = evidence["components"][index]
+				component_bboxes.append(
+					(
+						min(char.x0 for char in component),
+						min(char.y0 for char in component),
+						max(char.x1 for char in component),
+						max(char.y1 for char in component),
+					)
+				)
+			glyph_ids = ",".join(str(char.seq) for char in sorted(removed_chars, key=lambda char: char.seq))
+			bbox_detail = "|".join(
+				"[%.2f,%.2f,%.2f,%.2f]" % bbox
+				for bbox in component_bboxes
+			)
+			renderer.conv.doc.warn(
+				"PHYSICAL_PAGE_FURNITURE_REMOVED",
+				(
+					"evidence=outer_margin+physical_folio+wide_gutter+document_cohort; "
+					"source_glyph_ids=%s; removed_component_bboxes=%s; "
+					"retained_components=%d"
+				) % (
+					glyph_ids,
+					bbox_detail,
+					max(0, len(evidence["components"]) - len(remove_indices)),
+				),
+				page,
+			)
+		renderer.lines_by_page[page] = kept_lines
+
+
+def _chars_in_xrange(line: Line, x0: float, x1: float) -> List[Char]:
+	return [
+		char
+		for char in ordered_line_chars(line)
+		if char.text.strip()
+		and (char.x0 + char.x1) / 2.0 >= x0 - 0.5
+		and (char.x0 + char.x1) / 2.0 <= x1 + 0.5
+	]
+
+
+def _rule_bracketed_reference_heading(
+	self: MarkdownRenderer,
+	line: Line,
+	body_size: float,
+) -> bool:
+	if line.writing_mode != "horizontal" or body_size <= 0:
+		return False
+	if not body_size * 0.84 <= line.size <= body_size * 1.18:
+		return False
+	text = _reference_line_plain(line)
+	if not text or len(text) > 130 or text[-1:] in ".!?":
+		return False
+	cells = self._aligned_column_cells(line)
+	if len(cells) != 2:
+		return False
+	(identifier, left_x0, left_x1), (title, right_x0, right_x1) = cells
+	if right_x0 - left_x1 < max(24.0, line.size * 2.25):
+		return False
+	if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.:-]*(?:\(\))?", identifier):
+		return False
+	if not (2 <= len(title.split()) <= 16) or sum(ch.isalpha() for ch in title) < 6:
+		return False
+	identifier_chars = _chars_in_xrange(line, left_x0, left_x1)
+	title_chars = _chars_in_xrange(line, right_x0, right_x1)
+	if not identifier_chars or not title_chars:
+		return False
+	mono_ratio = sum(char.font.mono for char in identifier_chars) / len(identifier_chars)
+	italic_ratio = sum(char.italic for char in title_chars) / len(title_chars)
+	if mono_ratio < 0.75 or italic_ratio < 0.65:
+		return False
+
+	page_width, _page_height = self.conv.page_sizes.get(line.page, (612.0, 792.0))
+	above = False
+	below = False
+	max_distance = max(16.0, line.size * 1.65)
+	for segment in list(self.conv.segments) + list(self.conv._artifact_rule_segments):
+		if (
+			segment.page != line.page
+			or not segment.horizontal
+			or segment.width > 3.0
+			or segment.length < max(page_width * 0.55, line.x1 - line.x0)
+		):
+			continue
+		sx0, sx1 = sorted((segment.x0, segment.x1))
+		if sx0 > line.x0 + line.size or sx1 < line.x1 - line.size:
+			continue
+		y = (segment.y0 + segment.y1) / 2.0
+		if 0 <= line.y0 - y <= max_distance:
+			above = True
+		if 0 <= y - line.y1 <= max_distance:
+			below = True
+	return above and below
+
+
+def _has_preceding_reference_heading(
+	self: MarkdownRenderer,
+	line: Line,
+	body_size: float,
+) -> bool:
+	for page in sorted(self.lines_by_page):
+		if page > line.page:
+			break
+		for candidate in self.lines_by_page[page]:
+			if page == line.page and (candidate.y0, candidate.seq) >= (line.y0, line.seq):
+				break
+			if _rule_bracketed_reference_heading(self, candidate, body_size):
+				return True
+	return False
+
+
+def _reference_manual_subheading(
+	self: MarkdownRenderer,
+	line: Line,
+	body_size: float,
+) -> bool:
+	text = _reference_line_plain(line)
+	if (
+		not text
+		or len(text) > 64
+		or len(text.split()) > 8
+		or text[-1:] in ".!?"
+		or line.bold_ratio < 0.72
+		or line.mono_ratio > 0.35
+		or not body_size * 0.86 <= line.size <= body_size * 1.14
+	):
+		return False
+	if not _has_preceding_reference_heading(self, line, body_size):
+		return False
+	page_lines = self.lines_by_page.get(line.page, [])
+	try:
+		index = next(i for i, candidate in enumerate(page_lines) if candidate is line)
+	except StopIteration:
+		return False
+	following = next(
+		(candidate for candidate in page_lines[index + 1 :] if _reference_line_plain(candidate)),
+		None,
+	)
+	if following is None:
+		return False
+	return bool(
+		0 < line_flow_gap(line, following) <= max(body_size * 3.4, 38.0)
+		and following.x0 >= line.x0 + max(body_size * 0.8, 7.0)
+	)
+
+
+def _styled_field_row(line: Line) -> Optional[Tuple[str, str]]:
+	tokens = line_text_tokens(line)
+	key_parts: List[str] = []
+	value_parts: List[str] = []
+	seen_value = False
+	for token in tokens:
+		text = str(token.get("text", ""))
+		style = tuple(token.get("style", (False,) * 8))
+		if not seen_value and len(style) >= 3 and style[0] and not style[2]:
+			key_parts.append(text)
+			continue
+		if key_parts:
+			seen_value = True
+			value_parts.append(text)
+	key = cleanup_spaces("".join(key_parts)).strip()
+	value = cleanup_spaces("".join(value_parts)).strip()
+	if (
+		not key
+		or not value
+		or len(key) > 64
+		or len(key.split()) > 6
+		or key[-1:] in ".!?"
+	):
+		return None
+	return key, value
+
+
+def _dense_styled_field_row(
+	self: MarkdownRenderer,
+	line: Line,
+	body_size: float,
+) -> bool:
+	if body_size <= 0 or line.size > body_size * 1.08:
+		return False
+	if _styled_field_row(line) is None:
+		return False
+	page_lines = self.lines_by_page.get(line.page, [])
+	aligned = 0
+	y_window = max(150.0, body_size * 16.0)
+	x_tolerance = max(4.0, body_size * 0.45)
+	for candidate in page_lines:
+		if abs(candidate.y0 - line.y0) > y_window:
+			continue
+		if abs(candidate.x0 - line.x0) > x_tolerance:
+			continue
+		if candidate.size > body_size * 1.08:
+			continue
+		if _styled_field_row(candidate) is not None:
+			aligned += 1
+			if aligned >= 3:
+				return True
+	return False
+
+
+def _previous_nonempty_line(
+	self: MarkdownRenderer,
+	line: Line,
+) -> Optional[Line]:
+	page_lines = self.lines_by_page.get(line.page, [])
+	try:
+		index = next(i for i, candidate in enumerate(page_lines) if candidate is line)
+	except StopIteration:
+		return None
+	return next(
+		(candidate for candidate in reversed(page_lines[:index]) if _reference_line_plain(candidate)),
+		None,
+	)
+
+
+def _mono_first_word_row(line: Line) -> Optional[Tuple[str, float, float, float]]:
+	boxes = word_boxes(line)
+	if len(boxes) < 2:
+		return None
+	term = cleanup_spaces(boxes[0][0]).strip()
+	if not _REFERENCE_IDENTIFIER.fullmatch(term):
+		return None
+	term_chars = _chars_in_xrange(line, boxes[0][1], boxes[0][3])
+	if not term_chars or sum(char.font.mono for char in term_chars) / len(term_chars) < 0.75:
+		return None
+	desc_x = boxes[1][1]
+	if desc_x - boxes[0][3] < max(3.0, line.size * 0.28):
+		return None
+	description = cleanup_spaces(" ".join(box[0] for box in boxes[1:])).strip()
+	if sum(ch.isalpha() for ch in description) < 3:
+		return None
+	return term, boxes[0][1], boxes[0][3], desc_x
+
+
+def _row_boundaries(row_lines: Sequence[Sequence[Line]]) -> List[float]:
+	top = min(line.y0 for line in row_lines[0]) - max(2.0, row_lines[0][0].size * 0.25)
+	boundaries = [top]
+	for left, right in zip(row_lines, row_lines[1:]):
+		boundaries.append((max(line.y1 for line in left) + min(line.y0 for line in right)) / 2.0)
+	boundaries.append(
+		max(line.y1 for line in row_lines[-1]) + max(2.0, row_lines[-1][0].size * 0.25)
+	)
+	return boundaries
+
+
+def _table_inline_html(tokens: Sequence[Dict[str, Any]]) -> str:
+	out: List[str] = []
+	for token in tokens:
+		raw = str(token.get("text", ""))
+		if not raw:
+			continue
+		style = tuple(token.get("style", (False,) * 8))
+		style = style + (False,) * max(0, 8 - len(style))
+		rendered = escape_html(raw)
+		if raw.strip():
+			if style[2]:
+				rendered = "<code>%s</code>" % rendered
+			if style[5]:
+				rendered = "<sup>%s</sup>" % rendered
+			elif style[6]:
+				rendered = "<sub>%s</sub>" % rendered
+			if style[0]:
+				rendered = "<strong>%s</strong>" % rendered
+			if style[1]:
+				rendered = "<em>%s</em>" % rendered
+			if style[3]:
+				rendered = "<del>%s</del>" % rendered
+			if style[4] and not token.get("link"):
+				rendered = "<u>%s</u>" % rendered
+			if style[7]:
+				rendered = "<mark>%s</mark>" % rendered
+			link = token.get("link")
+			if link:
+				href = safe_href(str(link))
+				if href:
+					rendered = '<a href="%s">%s</a>' % (
+						escape_attr(href),
+						rendered,
+					)
+		out.append(rendered)
+	return "".join(out).strip()
+
+
+def _delete_trailing_hyphen_from_html(fragment: str) -> str:
+	match = re.search(r"-(?P<closing>(?:</[^>]+>)*)$", fragment)
+	if match is None:
+		return fragment
+	return fragment[: match.start()] + match.group("closing")
+
+
+def _reference_table_cell_html(
+	lines: Sequence[Line],
+	bbox: Tuple[float, float, float, float],
+	collapse_wrapped_lines: bool,
+) -> str:
+	x0, y0, x1, y1 = bbox
+	parts: List[Tuple[str, str]] = []
+	for line in sorted(lines, key=lambda item: (item.y0, item.x0, item.seq)):
+		chars = [
+			char
+			for char in line.chars
+			if x0 - 2 <= (char.x0 + char.x1) / 2 <= x1 + 2
+			and y0 - 2 <= (char.y0 + char.y1) / 2 <= y1 + 2
+		]
+		if not chars:
+			continue
+		fragment = Line(
+			chars,
+			line.page,
+			line.seq,
+			source_order=line.source_order,
+			writing_mode=line.writing_mode,
+		)
+		tokens = line_text_tokens(fragment)
+		plain = cleanup_spaces(plain_text(tokens)).strip()
+		rendered = _table_inline_html(tokens)
+		if rendered:
+			parts.append((plain, rendered))
+	if not parts:
+		return ""
+	rendered = parts[0][1]
+	previous_plain = parts[0][0]
+	for current_plain, current_html in parts[1:]:
+		mode = hyphen_join_mode(previous_plain, current_plain)
+		if mode == "delete":
+			rendered = _delete_trailing_hyphen_from_html(rendered) + current_html
+		elif mode == "keep":
+			rendered += current_html
+		else:
+			rendered += (" " if collapse_wrapped_lines else "<br />") + current_html
+		previous_plain = current_plain
+	return rendered
+
+
+def _render_reference_table_html(
+	lines: Sequence[Line],
+	xs: Sequence[float],
+	ys: Sequence[float],
+	row_header_columns: Sequence[int],
+	collapse_wrapped_lines: bool,
+) -> str:
+	row_headers = set(row_header_columns)
+	out = ["<table>"]
+	for row in range(len(ys) - 1):
+		cells = []
+		for column in range(len(xs) - 1):
+			body = _reference_table_cell_html(
+				lines,
+				(xs[column], ys[row], xs[column + 1], ys[row + 1]),
+				collapse_wrapped_lines,
+			)
+			if column in row_headers:
+				cells.append('<th scope="row">%s</th>' % body)
+			else:
+				cells.append("<td>%s</td>" % body)
+		out.append("<tr>%s</tr>" % "".join(cells))
+	out.append("</table>")
+	return "\n".join(out)
+
+
+def _reference_definition_table_candidates(
+	self: MarkdownRenderer,
+	page: int,
+) -> List[Tuple[float, str, List[Line], Tuple[float, float, float, float]]]:
+	lines = self.lines_by_page.get(page, [])
+	out = []
+	for heading_index, heading in enumerate(lines):
+		if not _REFERENCE_ARGUMENTS_HEADING.fullmatch(_reference_line_plain(heading)) or heading.bold_ratio < 0.65:
+			continue
+		section: List[Line] = []
+		terminated_by_section_heading = False
+		for line in lines[heading_index + 1 :]:
+			text = _reference_line_plain(line)
+			if not text:
+				continue
+			if line.bold_ratio >= 0.65 and len(text.split()) <= 8 and line.x0 <= heading.x0 + 5.0:
+				terminated_by_section_heading = True
+				break
+			if _rule_bracketed_reference_heading(self, line, self._body_font_size(lines)):
+				break
+			if section and line_flow_gap(section[-1], line) > max(40.0, line.size * 4.0):
+				break
+			section.append(line)
+		starts: List[Tuple[int, Tuple[str, float, float, float]]] = []
+		for index, line in enumerate(section):
+			parsed = _mono_first_word_row(line)
+			if parsed is not None:
+				starts.append((index, parsed))
+		if not starts or starts[0][0] != 0:
+			continue
+		if len(starts) == 1:
+			first_line = section[0]
+			if (
+				not terminated_by_section_heading
+				or len(section) > 3
+				or first_line.x0 < heading.x0 + max(7.0, first_line.size * 0.8)
+			):
+				continue
+		term_lefts = [parsed[1] for _idx, parsed in starts]
+		desc_lefts = [parsed[3] for _idx, parsed in starts]
+		if max(term_lefts) - min(term_lefts) > max(4.0, heading.size * 0.45):
+			continue
+		if max(desc_lefts) - min(desc_lefts) > max(5.0, heading.size * 0.55):
+			continue
+		row_groups: List[List[Line]] = []
+		terms: List[str] = []
+		for position, (start, parsed) in enumerate(starts):
+			stop = starts[position + 1][0] if position + 1 < len(starts) else len(section)
+			group = section[start:stop]
+			if any(line.x0 < parsed[3] - max(6.0, line.size * 0.7) for line in group[1:]):
+				break
+			row_groups.append(group)
+			terms.append(parsed[0])
+		if len(row_groups) != len(starts):
+			continue
+		table_lines = [line for group in row_groups for line in group]
+		term_right = max(parsed[2] for _idx, parsed in starts)
+		desc_left = min(desc_lefts)
+		x0 = min(term_lefts) - 2.0
+		x1 = max(line.x1 for line in table_lines) + 2.0
+		separator = (term_right + desc_left) / 2.0
+		xs = [float(x0), float(separator), float(x1)]
+		ys = _row_boundaries(row_groups)
+		box = (xs[0], ys[0], xs[-1], ys[-1])
+		html = _render_reference_table_html(
+			table_lines,
+			xs,
+			ys,
+			row_header_columns=[0],
+			collapse_wrapped_lines=True,
+		)
+		self._partial_table_models[(page, box)] = {
+			"model_kind": "reference_definition_table",
+			"xs": list(xs),
+			"ys": list(ys),
+			"header_rows": 0,
+			"row_header_columns": [0],
+			"evidence": {
+				"section_heading": _reference_line_plain(heading),
+				"rows": len(row_groups),
+				"monospace_terms": len(terms),
+				"stable_term_anchor": max(term_lefts) - min(term_lefts),
+				"stable_description_anchor": max(desc_lefts) - min(desc_lefts),
+			},
+		}
+		out.append((table_lines[0].y0, html, table_lines, box))
+	return out
+
+
+def _reference_schema_table_candidates(
+	self: MarkdownRenderer,
+	page: int,
+) -> List[Tuple[float, str, List[Line], Tuple[float, float, float, float]]]:
+	lines = self.lines_by_page.get(page, [])
+	out = []
+	index = 0
+	while index < len(lines):
+		cells = self._aligned_column_cells(lines[index])
+		if len(cells) != 3:
+			index += 1
+			continue
+		match = _REFERENCE_COLUMN_INDEX.fullmatch(cells[0][0])
+		if match is None:
+			index += 1
+			continue
+		run: List[Tuple[Line, List[Tuple[str, float, float]], int]] = []
+		expected = int(match.group(1))
+		cursor = index
+		while cursor < len(lines):
+			current_cells = self._aligned_column_cells(lines[cursor])
+			if len(current_cells) != 3:
+				break
+			current_match = _REFERENCE_COLUMN_INDEX.fullmatch(current_cells[0][0])
+			if current_match is None or int(current_match.group(1)) != expected:
+				break
+			if not _REFERENCE_IDENTIFIER.fullmatch(current_cells[1][0]):
+				break
+			run.append((lines[cursor], current_cells, expected))
+			expected += 1
+			cursor += 1
+		if len(run) < 5:
+			index += 1
+			continue
+		previous = next(
+			(candidate for candidate in reversed(lines[:index]) if _reference_line_plain(candidate)),
+			None,
+		)
+		if previous is None or not re.search(r"\b(?:columns?|fields?)\b", _reference_line_plain(previous), re.I):
+			index += 1
+			continue
+		anchors = [[cells[column][1] for _line, cells, _n in run] for column in range(3)]
+		if any(max(values) - min(values) > max(7.0, run[0][0].size * 0.8) for values in anchors):
+			index += 1
+			continue
+		row_lines = [[line] for line, _cells, _n in run]
+		lefts = [min(values) for values in anchors]
+		rights = [max(cells[col][2] for _line, cells, _n in run) for col in range(3)]
+		separators = [(rights[col] + lefts[col + 1]) / 2.0 for col in range(2)]
+		xs = [
+			min(line.x0 for line, _cells, _n in run) - 2.0,
+			*separators,
+			max(line.x1 for line, _cells, _n in run) + 2.0,
+		]
+		ys = _row_boundaries(row_lines)
+		table_lines = [line for line, _cells, _n in run]
+		box = (float(xs[0]), float(ys[0]), float(xs[-1]), float(ys[-1]))
+		html = _render_reference_table_html(
+			table_lines,
+			xs,
+			ys,
+			row_header_columns=[1],
+			collapse_wrapped_lines=False,
+		)
+		self._partial_table_models[(page, box)] = {
+			"model_kind": "indexed_schema_table",
+			"xs": list(xs),
+			"ys": list(ys),
+			"header_rows": 0,
+			"row_header_columns": [1],
+			"evidence": {
+				"consecutive_indices": len(run),
+				"first_index": run[0][2],
+				"last_index": run[-1][2],
+				"schema_lead": _reference_line_plain(previous),
+			},
+		}
+		out.append((table_lines[0].y0, html, table_lines, box))
+		index = cursor
+	return out
+
+
 def adaptive_subnominal_word_gap_pairs(
 	chars: Sequence[Char],
 	base_size: float,
@@ -18025,8 +18761,11 @@ def adaptive_subnominal_word_gap_pairs(
 				* 0.8,
 			),
 		)
+		# TeX justification can contract a repeated word-space cohort well
+		# beyond metric-rounding noise. The existing sparse-cohort, density,
+		# compact-join, and formula gates still prevent tracked-text splitting.
 		if (
-			max(1.2, threshold * 0.94) <= gap < threshold * 0.99
+			max(1.2, threshold * 0.84) <= gap < threshold * 0.99
 			and not suppress_geometric_space(previous, current, gap)
 		):
 			candidates.append((gap, previous, current))
@@ -18565,6 +19304,13 @@ def hyphen_join_mode(prev_text: str, cur_text: str) -> Optional[str]:
 	if stem.isupper() and len(stem) >= 2:
 		return "keep"
 	last_segment = stem.rsplit("-", 1)[-1].lower()
+	if (
+		last_segment == "pro"
+		and re.match(r"^vid(?:e(?:d|r(?:s)?|s)?|ing)\b", cur_text, re.I)
+	):
+		# ``pro-vided`` is a physical line wrap, unlike lexical compounds
+		# such as ``pro-active``. Keep the exception intentionally narrow.
+		return "delete"
 	if "-" in stem or last_segment in HARD_HYPHEN_PREFIXES:
 		return "keep"
 	return "delete"

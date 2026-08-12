@@ -287,7 +287,7 @@
           "warnings": []
         }
       ],
-      "confidence": 0.9,
+      "confidence": 0.92,
       "evidence": [
         {
           "kind": "geometric_semantic_detector",
@@ -299,13 +299,6 @@
               "p2-body-3"
             ]
           }
-        },
-        {
-          "kind": "pdf_outline_unique_page_heading",
-          "confidence": 0.9,
-          "detail": "Selected Evidence",
-          "page": 2,
-          "data": {}
         }
       ],
       "sources": [

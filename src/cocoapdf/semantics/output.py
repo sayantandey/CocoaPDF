@@ -142,6 +142,12 @@ def _remove_reconciled_footnote_anchors(markdown: str, document: SemanticDocumen
 
 
 def _node_needs_overlay(node: SemanticNode) -> bool:
+    if (
+        node.kind == "toc"
+        and node.attrs.get("source") == "visible_toc"
+        and isinstance(node.attrs.get("_layout_markdown"), str)
+    ):
+        return True
     original_kind = str(node.attrs.get("_layout_kind", node.kind))
     if node.kind == "heading" and node.kind != original_kind:
         return True
@@ -157,6 +163,16 @@ def _node_needs_overlay(node: SemanticNode) -> bool:
         for candidate in node.walk()
         if candidate.kind == "table_cell"
     ):
+        return True
+    if node.kind == "table" and any(
+        str(candidate.attrs.get("scope") or "").strip().lower()
+        in {"row", "rowgroup"}
+        for candidate in node.walk()
+        if candidate.kind == "table_cell"
+    ):
+        # The geometry renderer may have emitted a valid-looking GFM table,
+        # but pipe syntax cannot carry row-header semantics. Replace only this
+        # enriched block with the graph-native raw-HTML projection.
         return True
     if node.kind not in {"paragraph", "heading", "item"}:
         return False
