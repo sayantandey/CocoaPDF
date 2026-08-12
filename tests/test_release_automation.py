@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import base64
+import email.parser
+import email.policy
 import hashlib
 import json
+import os
 import re
+import shutil
 import struct
 import tarfile
 import tempfile
@@ -71,6 +75,109 @@ class ReleaseVersionTests(unittest.TestCase):
 
 
 class BuildAutomationTests(unittest.TestCase):
+	def test_source_distributions_have_no_runtime_dependencies_and_carry_notices(self):
+		root = Path(__file__).resolve().parents[1]
+		required_legal_files = (
+			"LICENSE",
+			"NOTICE",
+			"THIRD_PARTY_NOTICES.txt",
+		)
+		with tempfile.TemporaryDirectory() as directory:
+			build_root = Path(directory)
+			source = build_root / "source"
+			artifacts = build_root / "artifacts"
+			source.mkdir()
+			artifacts.mkdir()
+			for name in (
+				"CODE_OF_CONDUCT.md",
+				"CONTRIBUTING.md",
+				"MANIFEST.in",
+				"README.md",
+				"SECURITY.md",
+				"pyproject.toml",
+				*required_legal_files,
+			):
+				shutil.copy2(root / name, source / name)
+			shutil.copytree(root / "licenses", source / "licenses")
+			shutil.copytree(
+				root / "src" / "cocoapdf",
+				source / "src" / "cocoapdf",
+				ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+			)
+			for relative in (
+				Path("docs/assets/brand/logo/cocoapdf-mark.svg"),
+				Path("docs/assets/brand/icons/app/cocoapdf-app-icon.ico"),
+				Path("docs/assets/brand/source/cocoapdf-brand-tokens.json"),
+				Path("docs/assets/brand/source/cocoapdf-logo-construction.svg"),
+			):
+				target = source / relative
+				target.parent.mkdir(parents=True, exist_ok=True)
+				shutil.copy2(root / relative, target)
+
+			from setuptools import build_meta
+
+			previous = Path.cwd()
+			try:
+				os.chdir(source)
+				wheel_name = build_meta.build_wheel(str(artifacts))
+				sdist_name = build_meta.build_sdist(str(artifacts))
+			finally:
+				os.chdir(previous)
+
+			expected_legal_bytes = {
+				name: (root / name).read_bytes()
+				for name in required_legal_files
+			}
+			with zipfile.ZipFile(artifacts / wheel_name) as wheel:
+				wheel_legal_files = {
+					Path(name).name: name
+					for name in wheel.namelist()
+					if ".dist-info/" in name
+					and Path(name).name in expected_legal_bytes
+				}
+				self.assertEqual(
+					set(wheel_legal_files),
+					set(required_legal_files),
+				)
+				for name, expected in expected_legal_bytes.items():
+					self.assertEqual(wheel.read(wheel_legal_files[name]), expected)
+				metadata_names = [
+					name
+					for name in wheel.namelist()
+					if name.endswith(".dist-info/METADATA")
+				]
+				self.assertEqual(len(metadata_names), 1)
+				metadata = email.parser.BytesParser(
+					policy=email.policy.compat32
+				).parsebytes(wheel.read(metadata_names[0]))
+				self.assertEqual(metadata["License-Expression"], "MIT")
+				self.assertEqual(
+					set(metadata.get_all("License-File", [])),
+					set(required_legal_files),
+				)
+				requirements = metadata.get_all("Requires-Dist", [])
+				self.assertTrue(requirements)
+				for requirement in requirements:
+					self.assertRegex(
+						requirement,
+						r";\s*extra\s*==\s*['\"]build['\"]\s*$",
+					)
+
+			with tarfile.open(artifacts / sdist_name, "r:gz") as sdist:
+				sdist_legal_files = {
+					Path(name).name: name
+					for name in sdist.getnames()
+					if Path(name).name in expected_legal_bytes
+				}
+				self.assertEqual(
+					set(sdist_legal_files),
+					set(required_legal_files),
+				)
+				for name, expected in expected_legal_bytes.items():
+					member = sdist.extractfile(sdist_legal_files[name])
+					self.assertIsNotNone(member)
+					self.assertEqual(member.read(), expected)
+
 	def test_strategic_raster_fixture_is_reproducible_and_source_matched(self):
 		committed_pdf = PDF_PATH.read_bytes()
 		rebuilt_pdf, rebuilt_png = build_pdf(_legacy_pdf(committed_pdf))

@@ -38,14 +38,18 @@ The complete conversion/evaluation command ran twice against the same locked
 git installation. All 200 Markdown files matched by name, size, and SHA-256;
 all aggregate and per-document scores also matched.
 
-| Run | Total conversion time | Per document | Prediction digest |
+| Run | Total conversion time | Average seconds/page | Prediction digest |
 | --- | ---: | ---: | --- |
-| 1 | `172.0491046906 s` | `0.8602455235 s` | `baf27effd492430710ba4ef67d6dc483cef6f4e0562bf6881dc8e0e1eccf4971` |
-| 2 | `204.0852847099 s` | `1.0204264235 s` | `baf27effd492430710ba4ef67d6dc483cef6f4e0562bf6881dc8e0e1eccf4971` |
+| 1 | `172.0491046906 s` | `0.8602455235 s/page` | `baf27effd492430710ba4ef67d6dc483cef6f4e0562bf6881dc8e0e1eccf4971` |
+| 2 | `204.0852847099 s` | `1.0204264235 s/page` | `baf27effd492430710ba4ef67d6dc483cef6f4e0562bf6881dc8e0e1eccf4971` |
 
 Host: Intel Core i5-10300H, 25,592,647,680 physical bytes. Timing is
 hardware-bound and includes CocoaPDF's semantic HTML generation even though the
-accuracy evaluator scores Markdown only.
+accuracy evaluator scores Markdown only. The pinned corpus has 200 one-page
+PDFs, so each value is the total conversion time divided by 200 audited pages
+bound to the pinned corpus inventory. Run 1 is the canonical speed observation;
+run 2 exists to verify
+determinism and is not combined with it into a range.
 
 ## Target status and remaining limits
 

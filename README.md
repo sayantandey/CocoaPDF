@@ -14,7 +14,7 @@ CocoaPDF recovers the text, layout, tables, links, notes, forms, and images alre
 <br>
 
 [![Verified OpenDataLoader score](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fsayantandey%2FCocoaPDF%2Fodl-badge%2Fbadges%2Fopendataloader.json&style=for-the-badge)](https://raw.githubusercontent.com/sayantandey/CocoaPDF/odl-badge/badges/opendataloader.provenance.json)
-[![Pinned ODL conversion time](https://img.shields.io/badge/ODL%20time%20%28pinned%29-0.860%E2%80%931.020%20s%2FPDF-2F80C9?style=for-the-badge)](validation/benchmarks/opendataloader_bench/RESULTS.md#determinism-and-timing)
+[![Verified OpenDataLoader conversion time](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fsayantandey%2FCocoaPDF%2Fodl-badge%2Fbadges%2Fopendataloader-speed.json&style=for-the-badge)](https://raw.githubusercontent.com/sayantandey/CocoaPDF/odl-badge/badges/opendataloader.provenance.json)
 [![ODL verification workflow](https://img.shields.io/github/actions/workflow/status/sayantandey/CocoaPDF/opendataloader-report.yml?branch=main&event=workflow_run&style=for-the-badge&label=ODL%20verification)](https://github.com/sayantandey/CocoaPDF/actions/workflows/opendataloader-report.yml)
 <br>
 
@@ -146,7 +146,10 @@ mean of each document's available metrics, not the mean of the three aggregates.
 Overall, NID, TEDS, and MHS clear the enforced `0.80` floors, and the
 document-macro score clears `0.90`. Two full runs
 produced byte-identical Markdown for all 200 documents and identical aggregate
-and per-document scores; conversion timings were `172.0491 s` and `204.0853 s`.
+and per-document scores. The live speed badge is recomputed by trusted CI as
+total timed conversion seconds divided by the audited 200-page denominator
+bound to the hash-verified corpus; it is one page-weighted `s/page` observation,
+not a per-file range.
 See
 [`validation/benchmarks/opendataloader_bench/RESULTS.md`](validation/benchmarks/opendataloader_bench/RESULTS.md)
 for exact deltas, determinism evidence, and remaining no-OCR limitations.
@@ -857,7 +860,12 @@ Until platform signing and notarization are available, users should verify publi
 
 CocoaPDF is released under the [MIT License](LICENSE).
 
-Project attribution is available in [`NOTICE`](NOTICE). Incorporated data and
-standalone-runtime licenses are recorded in
-[`THIRD_PARTY_NOTICES.txt`](THIRD_PARTY_NOTICES.txt); release archives carry
-the pinned CPython and PyInstaller license texts verified by each native build.
+The installable package declares no runtime dependencies: conversion uses only
+Python's standard library and CocoaPDF code. Optional standalone builds use a
+pinned PyInstaller release; its Bootloader Exception allows bundling without
+requiring CocoaPDF source to be relicensed. Distributions remain multi-license
+artifacts and carry their notices. Project attribution is available in
+[`NOTICE`](NOTICE); incorporated data and standalone-runtime licenses are
+recorded in [`THIRD_PARTY_NOTICES.txt`](THIRD_PARTY_NOTICES.txt), and release
+archives carry the exact CPython and PyInstaller license texts verified by each
+native build.

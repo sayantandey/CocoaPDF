@@ -1,5 +1,8 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = [
+    "setuptools==82.0.1; python_version < '3.10'",
+    "setuptools==84.0.0; python_version >= '3.10'",
+]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +11,8 @@ version = "0.1.0"
 description = "CocoaPDF: deterministic PDF-to-Markdown/HTML conversion for structured text-layer PDFs. No OCR. No AI."
 readme = "README.md"
 authors = [{ name = "Sayantan Dey" }]
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"]
 requires-python = ">=3.9"
 dependencies = []
 keywords = [
@@ -30,7 +34,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",

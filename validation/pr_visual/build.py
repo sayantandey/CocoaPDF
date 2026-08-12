@@ -1130,17 +1130,16 @@ def _write_review_files(
 					int(completeness["conversion_failures"]),
 				),
 				"",
-				"Two clean full runs took **%.6f** and **%.6f seconds total** "
-				"(**%.6f** and **%.6f seconds/document**) "
+				"The canonical full run took **%.6f seconds total** across 200 hash-pinned "
+				"one-page PDFs (**%.6f seconds/page**) "
 				"on `%s`, Windows 10 build 19045, CPython 3.13.14, uv 0.12.0, and %.2f GB "
 				"physical memory. This hardware-bound time covers CocoaPDF's complete default "
 				"conversion, including semantic HTML generation, although this benchmark scores "
-				"Markdown only."
+				"Markdown only. A second full run verified identical outputs and scores; its "
+				"separate timing remains in the determinism evidence."
 				% (
 					float(determinism["runs"][0]["speed"]["total_elapsed"]),
-					float(determinism["runs"][1]["speed"]["total_elapsed"]),
 					float(determinism["runs"][0]["speed"]["elapsed_per_doc"]),
-					float(determinism["runs"][1]["speed"]["elapsed_per_doc"]),
 					str(speed["processor"]),
 					memory_gb,
 				),
@@ -1169,8 +1168,7 @@ def _write_review_files(
 				"MHS implementation flattens heading levels, so it measures heading boundaries/text "
 				"rather than true hierarchy depth. `overall_mean` is the mean of per-document "
 				"available metrics, not the mean of the three aggregate metric means. These numbers "
-				"do not measure CocoaPDF's HTML fidelity. The upstream chart is not included because "
-				"it relabels seconds/document as seconds/page and hardcodes different hardware.",
+				"do not measure CocoaPDF's HTML fidelity.",
 			]
 		)
 	write_utf8_lf(output_root / index_name, "\n".join(lines) + "\n")

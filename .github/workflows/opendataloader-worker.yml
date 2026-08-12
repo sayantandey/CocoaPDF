@@ -118,6 +118,7 @@ jobs:
             python /harness/validation/benchmarks/opendataloader_bench/ci_runner.py verify-pdf-corpus \
               --corpus-root /corpus \
               --policy /harness/validation/benchmarks/opendataloader_bench/policy.json
+          conversion_started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
           docker run --rm --platform linux/amd64 \
             --network none \
             --read-only \
@@ -143,6 +144,8 @@ jobs:
               --output-root /output \
               --adapter /harness/validation/benchmarks/opendataloader_bench/adapter.py \
               --policy /harness/validation/benchmarks/opendataloader_bench/policy.json
+          conversion_finished_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          conversion_elapsed_ns="$((conversion_finished_ns - conversion_started_ns))"
           docker run --rm --platform linux/amd64 \
             --network none \
             --read-only \
@@ -162,6 +165,7 @@ jobs:
               --corpus-root /corpus \
               --candidate-output /raw/cocoapdf \
               --artifact-root /artifact \
+              --elapsed-nanoseconds "${conversion_elapsed_ns}" \
               --policy /harness/validation/benchmarks/opendataloader_bench/policy.json
 
       - name: Upload bounded predictions only

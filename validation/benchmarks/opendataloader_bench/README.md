@@ -80,6 +80,22 @@ each document, so `nid_count`, `teds_count`, and `mhs_count` are part of the
 result, not footnotes. Record the CocoaPDF commit SHA, the benchmark commit SHA,
 the failure count, and the runtime with any published number.
 
+Speed is reported as one page-weighted value in seconds per page:
+
+```text
+seconds_per_page = total_timed_conversion_seconds / total_validated_pdf_pages
+```
+
+The pinned corpus contains 200 one-page PDFs. CI uses its audited total page
+count, bound to the exact hash-verified PDF inventory, rather than deriving the
+denominator from the number of files. The trusted worker measures one complete
+canonical-adapter batch outside candidate code; corpus setup,
+dependency setup, cache work, evaluation, and badge publication are excluded.
+The badge rounds the result to three decimals, following OpenDataLoader's public
+comparison, while linked provenance retains the exact duration, denominator,
+commits, runner, and container limits. Timing is hardware-bound, so it is not an
+accuracy or cross-machine performance guarantee.
+
 ## Pull-request and main-branch gate
 
 `.github/workflows/opendataloader-benchmark.yml` delegates to
@@ -116,9 +132,9 @@ The `workflow_run.requested` event changes the current-main badge to red
 evaluation cannot leave the previous green score looking current. The retained
 evidence contains only scores, hashes, and provenance—not PDFs, ground truth,
 or predicted Markdown.
-The Shields endpoint remains a minimal custom-endpoint document; tested SHA,
-UTC publication time, trigger/reporter run identities, benchmark identity, and
-full scores are published separately at
+The score and speed Shields endpoints remain minimal custom-endpoint documents;
+tested SHA, UTC publication time, trigger/reporter run identities, benchmark
+identity, full scores, and exact timing evidence are published separately at
 [`badges/opendataloader.provenance.json`](https://raw.githubusercontent.com/sayantandey/CocoaPDF/odl-badge/badges/opendataloader.provenance.json)
 on the fixed `odl-badge` branch.
 
