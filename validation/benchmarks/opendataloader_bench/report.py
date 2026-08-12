@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import os
 import re
 import subprocess
@@ -41,8 +42,10 @@ CHECK_NAME = "ODL 200 / trusted gate"
 PR_MARKER = "cocoapdf-odl"
 BADGE_BRANCH = "odl-badge"
 BADGE_PATH = "badges/opendataloader.json"
+SPEED_BADGE_PATH = "badges/opendataloader-speed.json"
 BADGE_PROVENANCE_PATH = "badges/opendataloader.provenance.json"
 BADGE_LABEL = "ODL Markdown (200)"
+SPEED_BADGE_LABEL = "ODL time (200)"
 REPOSITORY_NAME = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
@@ -356,6 +359,15 @@ def _report_markdown(state: Mapping[str, Any], run: Mapping[str, Any], repositor
 					for name, floor in component_floors.items()
 				)
 			)
+		performance = result["performance"]
+		lines.append(
+			"Trusted conversion time: `%.3f s/page` (`%.6f s` / %d pages)."
+			% (
+				performance["seconds_per_page"],
+				performance["total_seconds"],
+				performance["page_count"],
+			)
+		)
 	artifact = state.get("artifact")
 	if isinstance(artifact, dict):
 		trusted_run_id = state.get("trusted_run_id")
@@ -514,6 +526,34 @@ def badge_document(state: str, result: Optional[Mapping[str, Any]] = None) -> Di
 	return {"cacheSeconds": 300, "color": color, "label": BADGE_LABEL, "message": message, "schemaVersion": 1}
 
 
+def speed_badge_document(state: str, result: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+	"""Return the public timing badge derived only from trusted performance data."""
+	if state == "passed" and result is not None:
+		performance = result.get("performance")
+		if not isinstance(performance, Mapping):
+			raise BenchmarkValidationError("trusted result is missing performance evidence")
+		seconds_per_page = performance.get("seconds_per_page")
+		if (
+			isinstance(seconds_per_page, bool)
+			or not isinstance(seconds_per_page, (int, float))
+			or not math.isfinite(float(seconds_per_page))
+			or float(seconds_per_page) <= 0.0
+		):
+			raise BenchmarkValidationError("trusted result has invalid seconds_per_page")
+		message = "%.3f s/page" % float(seconds_per_page)
+		color = "blue"
+	else:
+		message = "unverified"
+		color = "critical"
+	return {
+		"cacheSeconds": 300,
+		"color": color,
+		"label": SPEED_BADGE_LABEL,
+		"message": message,
+		"schemaVersion": 1,
+	}
+
+
 def badge_provenance_document(
 	state: str,
 	run: Mapping[str, Any],
@@ -535,7 +575,8 @@ def badge_provenance_document(
 			if isinstance(artifact, dict)
 			else None
 		),
-		"schema": "cocoapdf.opendataloader-badge-provenance/v1",
+		"performance": result.get("performance") if result is not None else None,
+		"schema": "cocoapdf.opendataloader-badge-provenance/v2",
 		"scores": result["metrics"]["score"] if result is not None else None,
 		"state": state,
 		"tested_sha": run["head_sha"],
@@ -589,7 +630,155 @@ def _publish_fixed_document(
 	return True
 
 
-def publish_badge(api: GhApi, trusted_sha: str, document: Mapping[str, Any]) -> bool:
+def _response_sha(value: Any, context: str) -> str:
+	if not isinstance(value, dict):
+		raise GitHubApiError("%s response is malformed" % context)
+	sha = value.get("sha")
+	if not isinstance(sha, str) or COMMIT_SHA.fullmatch(sha) is None:
+		raise GitHubApiError("%s response has an invalid SHA" % context)
+	return sha
+
+
+def _badge_ref_sha(api: GhApi) -> Optional[str]:
+	value = api.get(
+		"/repos/%s/git/ref/heads/%s" % (api.repository, BADGE_BRANCH),
+		allow_not_found=True,
+	)
+	if value is None:
+		return None
+	if not isinstance(value, dict) or not isinstance(value.get("object"), dict):
+		raise GitHubApiError("badge ref response is malformed")
+	sha = value["object"].get("sha")
+	if not isinstance(sha, str) or COMMIT_SHA.fullmatch(sha) is None:
+		raise GitHubApiError("badge ref has an invalid SHA")
+	return sha
+
+
+def _commit_tree_sha(api: GhApi, commit_sha: str) -> str:
+	value = api.get("/repos/%s/git/commits/%s" % (api.repository, commit_sha))
+	if not isinstance(value, dict) or not isinstance(value.get("tree"), dict):
+		raise GitHubApiError("badge base commit response is malformed")
+	tree_sha = value["tree"].get("sha")
+	if not isinstance(tree_sha, str) or COMMIT_SHA.fullmatch(tree_sha) is None:
+		raise GitHubApiError("badge base tree has an invalid SHA")
+	return tree_sha
+
+
+def _document_blob(api: GhApi, document: Mapping[str, Any]) -> str:
+	try:
+		encoded = (
+			json.dumps(
+				document,
+				ensure_ascii=False,
+				sort_keys=True,
+				separators=(",", ":"),
+				allow_nan=False,
+			)
+			+ "\n"
+		).encode("utf-8")
+	except (TypeError, ValueError) as exc:
+		raise BenchmarkValidationError("badge document is not canonical JSON") from exc
+	value = api.post(
+		"/repos/%s/git/blobs" % api.repository,
+		{
+			"content": base64.b64encode(encoded).decode("ascii"),
+			"encoding": "base64",
+		},
+	)
+	return _response_sha(value, "badge blob")
+
+
+def _publish_badge_documents_atomically(
+	api: GhApi,
+	trusted_sha: str,
+	documents: Mapping[str, Mapping[str, Any]],
+) -> bool:
+	"""Publish all live badge documents in one compare-and-swap ref update."""
+	if COMMIT_SHA.fullmatch(trusted_sha) is None:
+		raise BenchmarkValidationError("invalid trusted main SHA")
+	if set(documents) != {BADGE_PATH, SPEED_BADGE_PATH, BADGE_PROVENANCE_PATH}:
+		raise BenchmarkValidationError("badge transaction must contain every fixed document")
+	if not _main_is_current(api, trusted_sha):
+		print("main advanced before badge transaction; stale publication skipped")
+		return False
+
+	base_ref_sha = _badge_ref_sha(api)
+	base_commit_sha = base_ref_sha or trusted_sha
+	base_tree_sha = _commit_tree_sha(api, base_commit_sha)
+	tree_entries = []
+	for path in (BADGE_PATH, SPEED_BADGE_PATH, BADGE_PROVENANCE_PATH):
+		tree_entries.append(
+			{
+				"mode": "100644",
+				"path": path,
+				"sha": _document_blob(api, documents[path]),
+				"type": "blob",
+			}
+		)
+	tree_sha = _response_sha(
+		api.post(
+			"/repos/%s/git/trees" % api.repository,
+			{"base_tree": base_tree_sha, "tree": tree_entries},
+		),
+		"badge tree",
+	)
+	commit_sha = _response_sha(
+		api.post(
+			"/repos/%s/git/commits" % api.repository,
+			{
+				"message": "Update verified OpenDataLoader benchmark badges",
+				"parents": [base_commit_sha],
+				"tree": tree_sha,
+			},
+		),
+		"badge commit",
+	)
+
+	# Objects created above are harmless until referenced. Recheck both mutable
+	# refs immediately before the single publication write.
+	if not _main_is_current(api, trusted_sha):
+		print("main advanced before badge ref update; stale publication skipped")
+		return False
+	if _badge_ref_sha(api) != base_ref_sha:
+		print("badge ref advanced concurrently; stale publication skipped")
+		return False
+	if base_ref_sha is None:
+		api.post(
+			"/repos/%s/git/refs" % api.repository,
+			{"ref": "refs/heads/%s" % BADGE_BRANCH, "sha": commit_sha},
+		)
+	else:
+		# force=false also makes a race after the explicit recheck fail closed:
+		# the new commit has exactly base_ref_sha as its parent.
+		api.patch(
+			"/repos/%s/git/refs/heads/%s" % (api.repository, BADGE_BRANCH),
+			{"force": False, "sha": commit_sha},
+		)
+	return True
+
+
+def publish_badge(
+	api: GhApi,
+	trusted_sha: str,
+	document: Mapping[str, Any],
+	*,
+	speed: Optional[Mapping[str, Any]] = None,
+	provenance: Optional[Mapping[str, Any]] = None,
+) -> bool:
+	# The optional bundle parameters preserve the original public helper while
+	# routing every production publication through one Git Data transaction.
+	if speed is not None or provenance is not None:
+		if speed is None or provenance is None:
+			raise BenchmarkValidationError("atomic badge publication requires speed and provenance")
+		return _publish_badge_documents_atomically(
+			api,
+			trusted_sha,
+			{
+				BADGE_PATH: document,
+				SPEED_BADGE_PATH: speed,
+				BADGE_PROVENANCE_PATH: provenance,
+			},
+		)
 	return _publish_fixed_document(
 		api,
 		trusted_sha,
@@ -615,21 +804,26 @@ def publish_badge_bundle(
 	badge: Mapping[str, Any],
 	provenance: Mapping[str, Any],
 	*,
+	speed: Mapping[str, Any],
 	fail_closed_first: bool,
 ) -> bool:
-	# Pending/failure transitions publish red first. Passing transitions publish
-	# provenance first and only turn green after that evidence is durable.
-	if fail_closed_first:
-		return publish_badge(api, trusted_sha, badge) and publish_badge_provenance(
-			api, trusted_sha, provenance
-		)
-	return publish_badge_provenance(api, trusted_sha, provenance) and publish_badge(
-		api, trusted_sha, badge
+	# Retain the argument for call-site compatibility. One ref update now makes
+	# ordering unnecessary: no observer can see a mixed score/speed/evidence set.
+	_ = fail_closed_first
+	return publish_badge(
+		api,
+		trusted_sha,
+		badge,
+		speed=speed,
+		provenance=provenance,
 	)
 
 
 def publish_main_badge(args: argparse.Namespace, api: GhApi) -> int:
 	run = _validate_workflow_run(_read_event(args.event_json), api.repository, "push")
+	if not _is_latest_run(api, run):
+		print("superseded main attempt; badge left unchanged")
+		return 0
 	if not _main_is_current(api, run["head_sha"]):
 		print("superseded main run; badge left unchanged")
 		return 0
@@ -652,6 +846,7 @@ def publish_main_badge(args: argparse.Namespace, api: GhApi) -> int:
 		run["head_sha"],
 		badge_document(str(state["state"]), badge_result),
 		provenance,
+		speed=speed_badge_document(str(state["state"]), badge_result),
 		fail_closed_first=state["state"] != "passed",
 	):
 		return 0
@@ -685,6 +880,7 @@ def mark_main_pending(args: argparse.Namespace, api: GhApi) -> int:
 		run["head_sha"],
 		badge_document("unverified"),
 		provenance,
+		speed=speed_badge_document("unverified"),
 		fail_closed_first=True,
 	)
 	return 0

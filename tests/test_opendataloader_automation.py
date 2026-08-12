@@ -21,6 +21,7 @@ from validation.benchmarks.opendataloader_bench.ci_runner import (
 	MAX_CANDIDATE_ARTIFACT_BYTES,
 	MAX_PREDICTION_FILE_BYTES,
 	PRIVILEGED_BOUNDARY_PATHS,
+	_timing_document,
 	candidate_artifact_name,
 	download_candidate_artifact,
 	evaluate_gate,
@@ -121,6 +122,7 @@ class BenchmarkPolicyTests(unittest.TestCase):
 			prediction = engine_root / "markdown" / "001.md"
 			prediction.parent.mkdir(parents=True)
 			prediction.write_text("prediction\n", encoding="utf-8")
+			(root / "timing.json").write_text("{}\n", encoding="utf-8")
 			args = argparse.Namespace(
 				adapter=root / "adapter.py",
 				artifact_root=root / "artifact",
@@ -151,6 +153,7 @@ class BenchmarkPolicyTests(unittest.TestCase):
 				"run": {"attempt": 1, "event": "push", "id": 1},
 				"trusted_harness_sha": TRUSTED_SHA,
 			}
+			timing = _timing_document(1_000_000_000, load_policy())
 			old_cwd = Path.cwd()
 			try:
 				os.chdir(root)
@@ -161,6 +164,10 @@ class BenchmarkPolicyTests(unittest.TestCase):
 					patch("validation.benchmarks.opendataloader_bench.ci_runner.load_run_context", return_value=context), \
 					patch("validation.benchmarks.opendataloader_bench.ci_runner.validate_candidate_output", return_value=([prediction], [])), \
 					patch("validation.benchmarks.opendataloader_bench.ci_runner._read_json", return_value={}), \
+					patch(
+						"validation.benchmarks.opendataloader_bench.ci_runner.validate_timing_document",
+						return_value=timing,
+					), \
 					patch("validation.benchmarks.opendataloader_bench.ci_runner.validate_evaluation", return_value=evaluation), \
 					patch("validation.benchmarks.opendataloader_bench.ci_runner.evaluate_gate", return_value={"passed": True}), \
 					patch("validation.benchmarks.opendataloader_bench.ci_runner._copy_lf"), \
@@ -210,7 +217,7 @@ class BenchmarkPolicyTests(unittest.TestCase):
 			"48879a0a5033e26a0f59a34ebcaf29dc322f4947e019955767f38adfdf0b63c1",
 		)
 		self.assertEqual(policy["baseline"]["scores"]["overall_mean"], 0.869665721357887)
-		self.assertEqual(policy["worker"]["commit"], "4a9a8f766da4b90f6f1f5f48c77d03456b9cd9b2")
+		self.assertEqual(policy["worker"]["commit"], "e0223382c52088631c2260f34840bb2b5a49bba6")
 		self.assertEqual(policy["gates"]["overall_floor"], 0.8)
 		self.assertEqual(
 			policy["gates"]["component_floors"],
@@ -436,6 +443,10 @@ class CandidateArtifactDownloadTests(unittest.TestCase):
 	def _archive(self, extra: Optional[zipfile.ZipInfo] = None, extra_data: bytes = b"") -> bytes:
 		stream = io.BytesIO()
 		with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_STORED) as archive:
+			archive.writestr(
+				"timing.json",
+				json.dumps(_timing_document(1_000_000_000, load_policy())),
+			)
 			archive.writestr("prediction/cocoapdf/failures.json", "[]\n")
 			for index in range(200):
 				archive.writestr(
@@ -587,7 +598,12 @@ class ReporterSecurityTests(unittest.TestCase):
 				json.dumps(workflow_event(event_name="push")),
 				encoding="utf-8",
 			)
-			api = FakeApi({"/git/ref/heads/main": {"object": {"sha": SHA}}})
+			api = FakeApi(
+				{
+					"/runs?": {"workflow_runs": [workflow_event(event_name="push")["workflow_run"]]},
+					"/git/ref/heads/main": {"object": {"sha": SHA}},
+				}
+			)
 			args = argparse.Namespace(
 				artifact_root=Path(directory),
 				download_outcome="success",
@@ -918,7 +934,7 @@ class WorkflowBoundaryTests(unittest.TestCase):
 		self.assertIn('BADGE_BRANCH = "odl-badge"', reporter)
 		self.assertIn('BADGE_PATH = "badges/opendataloader.json"', reporter)
 		self.assertIn('BADGE_PROVENANCE_PATH = "badges/opendataloader.provenance.json"', reporter)
-		self.assertIn("cocoapdf.opendataloader-badge-provenance/v1", reporter)
+		self.assertIn("cocoapdf.opendataloader-badge-provenance/v2", reporter)
 		self.assertIn("mark-pending", workflows)
 
 

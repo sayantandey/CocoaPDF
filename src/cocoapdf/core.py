@@ -20,6 +20,21 @@ from .html.sanitize import is_unsafe_href, safe_href
 PdfObj = Any
 
 
+_FONT_BOLD_NAME = re.compile(r"bold|black|heavy", re.I)
+_FONT_CMBX_NAME = re.compile(r"CMBX(?:SL|TI)?\d*", re.I)
+_FONT_NIMBUS_BOLD_NAME = re.compile(
+	r"Nimbus(?:RomNo9L|Roman)[-_]Medi(?:Ital)?",
+	re.I,
+)
+_FONT_DEMI_SEMIBOLD_NAME = re.compile(
+	r"(?:^|[-_])(?:demi(?:bold)?|semi[-_]?bold)(?:$|[-_])",
+	re.I,
+)
+_FONT_ITALIC_NAME = re.compile(r"italic|oblique", re.I)
+_FONT_MONO_NAME = re.compile(r"courier|mono|consolas|console|menlo|code", re.I)
+_TAGGED_HEADING_NAME = re.compile(r"H([1-6])")
+
+
 class PdfName(str):
 	pass
 
@@ -94,6 +109,12 @@ class Font:
 	vertical: bool = False
 	dw2: Tuple[float, float] = (880.0, -1000.0)
 	vertical_metrics: Dict[int, Tuple[float, float, float]] = field(default_factory=dict)
+	_trait_cache: Optional[Tuple[str, Tuple[bool, bool, bool]]] = field(
+		default=None,
+		init=False,
+		repr=False,
+		compare=False,
+	)
 
 	def decode(self, data: bytes) -> List[Tuple[bytes, str, float]]:
 		from .fonts.decoding import decode_font
@@ -114,39 +135,35 @@ class Font:
 		v1y, w1y = self.dw2
 		return (w1y, width / 2.0, v1y)
 
+	def _traits(self) -> Tuple[bool, bool, bool]:
+		"""Return immutable name traits while preserving mutable-Font behavior."""
+		cached = self._trait_cache
+		if cached is not None and cached[0] == self.base_font:
+			return cached[1]
+		name = strip_subset(self.base_font)
+		bold = bool(
+			_FONT_BOLD_NAME.search(name)
+			or _FONT_CMBX_NAME.fullmatch(name)
+			or _FONT_NIMBUS_BOLD_NAME.fullmatch(name)
+			or _FONT_DEMI_SEMIBOLD_NAME.search(name)
+		)
+		italic = _FONT_ITALIC_NAME.search(name) is not None
+		mono = _FONT_MONO_NAME.search(name) is not None
+		traits = (bold, italic, mono)
+		self._trait_cache = (self.base_font, traits)
+		return traits
+
 	@property
 	def bold(self) -> bool:
-		name = strip_subset(self.base_font)
-		if re.search(r"bold|black|heavy", name, re.I):
-			return True
-		# Computer Modern's canonical PostScript names encode weight in the
-		# family abbreviation rather than spelling out ``Bold``.  ``CMBX`` is
-		# the bold-extended text face used by TeX/LaTeX producers; treating the
-		# separate CMR/CMTI families as bold would be incorrect.
-		if re.fullmatch(r"CMBX(?:SL|TI)?\d*", name, re.I):
-			return True
-		# URW's Nimbus Roman family uses ``Medi`` for the Times-compatible
-		# bold face.  It is not the same signal as a generic ``Medium`` face
-		# (for example Inter-Medium), which remains ordinary weight here.
-		if re.fullmatch(r"Nimbus(?:RomNo9L|Roman)[-_]Medi(?:Ital)?", name, re.I):
-			return True
-		# Demi and semibold are unambiguous weight names used by several
-		# PostScript producers even when neither contains the word "Bold".
-		return bool(
-			re.search(
-				r"(?:^|[-_])(?:demi(?:bold)?|semi[-_]?bold)(?:$|[-_])",
-				name,
-				re.I,
-			)
-		)
+		return self._traits()[0]
 
 	@property
 	def italic(self) -> bool:
-		return bool(re.search(r"italic|oblique", strip_subset(self.base_font), re.I))
+		return self._traits()[1]
 
 	@property
 	def mono(self) -> bool:
-		return bool(re.search(r"courier|mono|consolas|console|menlo|code", strip_subset(self.base_font), re.I))
+		return self._traits()[2]
 
 
 @dataclass
@@ -305,6 +322,12 @@ class Line:
 	_size_cache: Optional[float] = field(default=None, init=False, repr=False, compare=False)
 	_bold_ratio_cache: Optional[float] = field(default=None, init=False, repr=False, compare=False)
 	_mono_ratio_cache: Optional[float] = field(default=None, init=False, repr=False, compare=False)
+	_bbox_cache: Optional[Tuple[float, float, float, float]] = field(
+		default=None,
+		init=False,
+		repr=False,
+		compare=False,
+	)
 
 	def invalidate_caches(self) -> None:
 		"""Discard values derived from ``chars`` after a line is mutated."""
@@ -312,22 +335,38 @@ class Line:
 		self._size_cache = None
 		self._bold_ratio_cache = None
 		self._mono_ratio_cache = None
+		self._bbox_cache = None
+
+	def _bbox(self) -> Tuple[float, float, float, float]:
+		if self._bbox_cache is None:
+			if not self.chars:
+				self._bbox_cache = (0.0, 0.0, 0.0, 0.0)
+			else:
+				first = self.chars[0]
+				x0, y0, x1, y1 = first.x0, first.y0, first.x1, first.y1
+				for char in self.chars[1:]:
+					x0 = min(x0, char.x0)
+					y0 = min(y0, char.y0)
+					x1 = max(x1, char.x1)
+					y1 = max(y1, char.y1)
+				self._bbox_cache = (x0, y0, x1, y1)
+		return self._bbox_cache
 
 	@property
 	def x0(self) -> float:
-		return min((c.x0 for c in self.chars), default=0.0)
+		return self._bbox()[0]
 
 	@property
 	def x1(self) -> float:
-		return max((c.x1 for c in self.chars), default=0.0)
+		return self._bbox()[2]
 
 	@property
 	def y0(self) -> float:
-		return min((c.y0 for c in self.chars), default=0.0)
+		return self._bbox()[1]
 
 	@property
 	def y1(self) -> float:
-		return max((c.y1 for c in self.chars), default=0.0)
+		return self._bbox()[3]
 
 	@property
 	def size(self) -> float:
@@ -3047,6 +3086,13 @@ class MarkdownRenderer:
 		self._code_border_boxes_cache: Dict[int, List[Tuple[float, float, float, float]]] = {}
 		self._quote_bars_cache: Dict[int, Tuple[Segment, ...]] = {}
 		self._visual_marker_cache: Dict[int, Optional[VisualListMarker]] = {}
+		self._line_index_by_id: Dict[int, Tuple[int, int]] = {}
+		self._tagged_heading_level_cache: Dict[int, Optional[int]] = {}
+		self._display_wrap_run_cache: Dict[
+			int,
+			Tuple[Tuple[Line, ...], int, int],
+		] = {}
+		self._line_analysis_frozen = False
 
 	def analyze(self) -> Dict[int, List[BlockEvent]]:
 		if self._analyzed:
@@ -3059,6 +3105,8 @@ class MarkdownRenderer:
 			self._materialize_artifact_boundary_continuation_tables()
 			self._materialize_formula_figures()
 			self._prepared = True
+		if not self._line_analysis_frozen:
+			self._freeze_line_analysis_caches()
 		self._body_size_cache.clear()
 		self._text_frame_cache.clear()
 		self._available_width_cache.clear()
@@ -3067,6 +3115,32 @@ class MarkdownRenderer:
 			self._render_page(page)
 		self._analyzed = True
 		return self.block_events_by_page
+
+	def _clear_line_analysis_caches(self) -> None:
+		self._line_index_by_id.clear()
+		self._tagged_heading_level_cache.clear()
+		self._display_wrap_run_cache.clear()
+		self._line_analysis_frozen = False
+
+	def _freeze_line_analysis_caches(self) -> None:
+		"""Index immutable prepared lines for renderer-local evidence caches."""
+		self._clear_line_analysis_caches()
+		for page, lines in self.lines_by_page.items():
+			for index, line in enumerate(lines):
+				self._line_index_by_id[id(line)] = (page, index)
+		self._line_analysis_frozen = True
+
+	def _frozen_line_position(self, line: Line) -> Optional[Tuple[int, int]]:
+		if not self._line_analysis_frozen:
+			return None
+		position = self._line_index_by_id.get(id(line))
+		if position is None:
+			return None
+		page, index = position
+		lines = self.lines_by_page.get(page, ())
+		if page != line.page or index < 0 or index >= len(lines) or lines[index] is not line:
+			return None
+		return position
 
 	def _body_font_size(self, lines: Sequence[Line]) -> float:
 		key = tuple(id(line) for line in lines)
@@ -3732,6 +3806,7 @@ class MarkdownRenderer:
 	def _build_lines(self) -> None:
 		# Column inference is scoped to the line geometry produced by this pass.
 		# Clear both positive and negative entries if a renderer is rebuilt.
+		self._clear_line_analysis_caches()
 		self._inferred_column_bands.clear()
 		self._compact_column_bands.clear()
 		self._filled_sidebar_bands.clear()
@@ -7963,14 +8038,21 @@ class MarkdownRenderer:
 	def _tagged_heading_level(self, line: Optional[Line]) -> Optional[int]:
 		if line is None:
 			return None
+		cacheable = self._frozen_line_position(line) is not None
+		line_id = id(line)
+		if cacheable and line_id in self._tagged_heading_level_cache:
+			return self._tagged_heading_level_cache[line_id]
 		levels: set[int] = set()
 		for char in line.chars:
 			for mark in char.mc:
 				tag = str(mark.get("tag") or "").lstrip("/")
-				match = re.fullmatch(r"H([1-6])", tag)
+				match = _TAGGED_HEADING_NAME.fullmatch(tag)
 				if match:
 					levels.add(int(match.group(1)))
-		return next(iter(levels)) if len(levels) == 1 else None
+		level = next(iter(levels)) if len(levels) == 1 else None
+		if cacheable:
+			self._tagged_heading_level_cache[line_id] = level
+		return level
 
 	def _tri_fold_band_and_panel(
 		self,
@@ -8367,10 +8449,18 @@ class MarkdownRenderer:
 
 	def _display_wrap_run(self, line: Line) -> Tuple[List[Line], int, int]:
 		page_lines = self.lines_by_page.get(line.page, [])
-		index = next(
-			(i for i, candidate in enumerate(page_lines) if candidate is line),
-			-1,
-		)
+		position = self._frozen_line_position(line)
+		if position is not None:
+			cached = self._display_wrap_run_cache.get(id(line))
+			if cached is not None:
+				run, start, end = cached
+				return list(run), start, end
+			index = position[1]
+		else:
+			index = next(
+				(i for i, candidate in enumerate(page_lines) if candidate is line),
+				-1,
+			)
 		if index < 0:
 			return [line], -1, -1
 		start = index
@@ -8379,7 +8469,13 @@ class MarkdownRenderer:
 		end = index + 1
 		while end < len(page_lines) and self._display_wrap_peer(page_lines[end - 1], page_lines[end]):
 			end += 1
-		return page_lines[start:end], start, end
+		run = tuple(page_lines[start:end])
+		if position is not None:
+			entry = (run, start, end)
+			for member in run:
+				if self._frozen_line_position(member) is not None:
+					self._display_wrap_run_cache[id(member)] = entry
+		return list(run), start, end
 
 	def _is_regular_display_heading(self, line: Line, body_size: float) -> bool:
 		"""Recognize an isolated regular-weight display title or section label.

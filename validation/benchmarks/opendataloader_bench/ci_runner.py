@@ -49,8 +49,23 @@ ARTIFACT_FILES = {
 	"prediction-hashes.json",
 	"provenance.json",
 	"result.json",
+	"timing.json",
 	"manifest.sha256",
 }
+TIMING_SCHEMA = "cocoapdf.opendataloader-worker-timing/v1"
+TIMING_SCOPE = "canonical_adapter_batch_conversion_container_wall_time"
+TIMING_RUNNER = {
+	"architecture": "linux/amd64",
+	"container_image": "python@sha256:dd86541a59b252667f4c12f8b2ee17216de37dd65ac773bf097bef996fa78860",
+	"cpu_limit": 2,
+	"memory_limit_bytes": 2 * 1024 * 1024 * 1024,
+	"network": "none",
+	"os": "ubuntu-24.04",
+	"pids_limit": 256,
+	"read_only_root": True,
+	"timer": "host_python_time.monotonic_ns",
+}
+MAX_CONVERSION_ELAPSED_NANOSECONDS = 20 * 60 * 1_000_000_000
 MAX_ARTIFACT_FILE_BYTES = 2 * 1024 * 1024
 MAX_ARTIFACT_TOTAL_BYTES = 5 * 1024 * 1024
 MAX_PREDICTION_FILE_BYTES = 256 * 1024
@@ -147,6 +162,17 @@ def load_policy(path: Path = DEFAULT_POLICY) -> Dict[str, Any]:
 	for name in ("document_count", "nid_count", "teds_count", "mhs_count"):
 		_positive_int(counts.get(name), "required_counts.%s" % name)
 	_require(counts.get("missing_predictions") == 0, "required missing_predictions must be zero")
+	corpus = benchmark.get("corpus")
+	_require(isinstance(corpus, dict), "policy benchmark corpus must be an object")
+	_require(
+		_positive_int(corpus.get("page_count"), "benchmark.corpus.page_count")
+		>= _positive_int(corpus.get("pdf_count"), "benchmark.corpus.pdf_count"),
+		"pinned corpus page count cannot be smaller than its PDF count",
+	)
+	_require(
+		corpus["pdf_count"] == counts["document_count"],
+		"pinned PDF count must match the required document count",
+	)
 	gates = policy.get("gates")
 	_require(isinstance(gates, dict), "gates must be an object")
 	_finite_number(gates.get("overall_floor"), "gates.overall_floor")
@@ -518,13 +544,14 @@ def _extract_candidate_archive(data: bytes, destination: Path, policy: Mapping[s
 	}
 	markdown_pattern = re.compile(r"prediction/cocoapdf/markdown/([0-9]{14})\.md")
 	allowed_metadata = "prediction/cocoapdf/failures.json"
+	trusted_timing = "timing.json"
 	seen: Set[str] = set()
 	markdown_ids: Set[str] = set()
 	total_bytes = 0
 	try:
 		with zipfile.ZipFile(io.BytesIO(data), "r") as archive:
 			infos = archive.infolist()
-			_require(len(infos) <= policy["required_counts"]["document_count"] + 4, "candidate archive has too many entries")
+			_require(len(infos) <= policy["required_counts"]["document_count"] + 5, "candidate archive has too many entries")
 			for info in infos:
 				name = info.filename
 				_require(
@@ -544,7 +571,10 @@ def _extract_candidate_archive(data: bytes, destination: Path, policy: Mapping[s
 					_require(name in allowed_directories, "candidate archive contains an unexpected directory")
 					continue
 				match = markdown_pattern.fullmatch(name)
-				_require(match is not None or name == allowed_metadata, "candidate archive contains an unexpected file")
+				_require(
+					match is not None or name in {allowed_metadata, trusted_timing},
+					"candidate archive contains an unexpected file",
+				)
 				limit = MAX_PREDICTION_FILE_BYTES if match is not None else MAX_ARTIFACT_FILE_BYTES
 				_require(0 <= info.file_size <= limit, "candidate archive entry exceeds its size limit")
 				total_bytes += info.file_size
@@ -563,11 +593,13 @@ def _extract_candidate_archive(data: bytes, destination: Path, policy: Mapping[s
 	except (zipfile.BadZipFile, RuntimeError, OSError) as exc:
 		raise BenchmarkValidationError("candidate prediction archive is invalid") from exc
 	_require(allowed_metadata in seen, "candidate archive metadata is missing")
+	_require(trusted_timing in seen, "trusted worker timing is missing")
 	_require(
 		len(markdown_ids) == policy["required_counts"]["document_count"],
 		"candidate archive must contain exactly 200 predictions",
 	)
 	validate_candidate_output(destination / "prediction" / "cocoapdf", markdown_ids)
+	validate_timing_document(_read_json(destination / trusted_timing), policy)
 
 
 def download_candidate_artifact(
@@ -758,6 +790,77 @@ def _copy_lf(source: Path, destination: Path) -> None:
 	destination.write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
 
 
+def _timing_document(elapsed_nanoseconds: int, policy: Mapping[str, Any]) -> Dict[str, Any]:
+	"""Build the immutable worker's externally measured conversion timing."""
+
+	_require(
+		isinstance(elapsed_nanoseconds, int) and not isinstance(elapsed_nanoseconds, bool),
+		"conversion elapsed nanoseconds must be an integer",
+	)
+	_require(
+		0 < elapsed_nanoseconds <= MAX_CONVERSION_ELAPSED_NANOSECONDS,
+		"conversion elapsed nanoseconds are outside the workflow bound",
+	)
+	document_count = _positive_int(
+		policy["benchmark"]["corpus"].get("pdf_count"),
+		"benchmark.corpus.pdf_count",
+	)
+	page_count = _positive_int(
+		policy["benchmark"]["corpus"].get("page_count"),
+		"benchmark.corpus.page_count",
+	)
+	total_seconds = elapsed_nanoseconds / 1_000_000_000.0
+	return {
+		"document_count": document_count,
+		"elapsed_nanoseconds": elapsed_nanoseconds,
+		"page_count": page_count,
+		"runner": dict(TIMING_RUNNER),
+		"schema": TIMING_SCHEMA,
+		"scope": TIMING_SCOPE,
+		"seconds_per_page": total_seconds / page_count,
+		"total_seconds": total_seconds,
+	}
+
+
+def validate_timing_document(value: Any, policy: Mapping[str, Any]) -> Dict[str, Any]:
+	"""Validate trusted worker timing and recompute every derived value."""
+
+	_require(isinstance(value, dict), "worker timing must be an object")
+	_require(
+		set(value) == {
+			"document_count",
+			"elapsed_nanoseconds",
+			"page_count",
+			"runner",
+			"schema",
+			"scope",
+			"seconds_per_page",
+			"total_seconds",
+		},
+		"unexpected worker timing fields",
+	)
+	_require(value.get("schema") == TIMING_SCHEMA, "unexpected worker timing schema")
+	_require(value.get("scope") == TIMING_SCOPE, "unexpected worker timing scope")
+	_require(value.get("runner") == TIMING_RUNNER, "unexpected worker timing runner")
+	elapsed_nanoseconds = value.get("elapsed_nanoseconds")
+	expected = _timing_document(elapsed_nanoseconds, policy)
+	_require(value.get("document_count") == expected["document_count"], "worker timing document count mismatch")
+	_require(value.get("page_count") == expected["page_count"], "worker timing page count mismatch")
+	total_seconds = value.get("total_seconds")
+	seconds_per_page = value.get("seconds_per_page")
+	_require(
+		isinstance(total_seconds, (int, float)) and not isinstance(total_seconds, bool),
+		"worker total seconds must be a number",
+	)
+	_require(
+		isinstance(seconds_per_page, (int, float)) and not isinstance(seconds_per_page, bool),
+		"worker seconds per page must be a number",
+	)
+	_require_close(float(total_seconds), expected["total_seconds"], "worker total seconds")
+	_require_close(float(seconds_per_page), expected["seconds_per_page"], "worker seconds per page")
+	return expected
+
+
 def _manifest(artifact_root: Path) -> None:
 	lines = []
 	for path in sorted(artifact_root.iterdir(), key=lambda item: item.name):
@@ -941,6 +1044,10 @@ def stage_candidate_output(args: argparse.Namespace) -> bool:
 	for source in markdown_paths:
 		(markdown_root / source.name).write_bytes(source.read_bytes())
 	_write_json(destination / "failures.json", failures)
+	_write_json(
+		args.artifact_root / "timing.json",
+		_timing_document(args.elapsed_nanoseconds, policy),
+	)
 	validate_candidate_output(destination, document_ids)
 	return True
 
@@ -956,6 +1063,9 @@ def score_predictions(args: argparse.Namespace) -> bool:
 	markdown_paths, failures = validate_candidate_output(engine_root, document_ids)
 	prediction_root = engine_root.parent
 	_require(engine_root.name == "cocoapdf" and prediction_root.name == "prediction", "candidate output layout mismatch")
+	timing_path = prediction_root.parent / "timing.json"
+	_require(timing_path.is_file() and not timing_path.is_symlink(), "trusted worker timing is missing")
+	performance = validate_timing_document(_read_json(timing_path), policy)
 	environment = {
 		"LANG": "C.UTF-8",
 		"LC_ALL": "C.UTF-8",
@@ -1010,7 +1120,8 @@ def score_predictions(args: argparse.Namespace) -> bool:
 		},
 		"gate": gate,
 		"metrics": evaluation["metrics"],
-		"schema": "cocoapdf.opendataloader-ci-result/v1",
+		"performance": performance,
+		"schema": "cocoapdf.opendataloader-ci-result/v2",
 	}
 	prediction_hashes = _prediction_hashes(markdown_paths)
 	provenance = {
@@ -1036,7 +1147,8 @@ def score_predictions(args: argparse.Namespace) -> bool:
 			"cache_hit": args.cache_hit,
 			"cache_key": args.cache_key,
 		},
-		"schema": "cocoapdf.opendataloader-ci-provenance/v1",
+		"performance": performance,
+		"schema": "cocoapdf.opendataloader-ci-provenance/v2",
 	}
 	_copy_lf(evaluation_path, args.artifact_root / "evaluation.json")
 	_copy_lf(evaluation_csv_path, args.artifact_root / "evaluation.csv")
@@ -1044,6 +1156,7 @@ def score_predictions(args: argparse.Namespace) -> bool:
 	_write_json(args.artifact_root / "prediction-hashes.json", prediction_hashes)
 	_write_json(args.artifact_root / "provenance.json", provenance)
 	_write_json(args.artifact_root / "result.json", result)
+	_write_json(args.artifact_root / "timing.json", performance)
 	_manifest(args.artifact_root)
 	print(json.dumps({"passed": gate["passed"], "scores": evaluation["metrics"]["score"]}, sort_keys=True))
 	return bool(gate["passed"])
@@ -1087,10 +1200,10 @@ def validate_artifact_directory(artifact_root: Path, policy: Mapping[str, Any]) 
 	result = _read_json(artifact_root / "result.json")
 	_require(isinstance(result, dict), "result must be an object")
 	_require(
-		set(result) == {"benchmark", "completeness", "engine", "gate", "metrics", "schema"},
+		set(result) == {"benchmark", "completeness", "engine", "gate", "metrics", "performance", "schema"},
 		"unexpected result fields",
 	)
-	_require(result.get("schema") == "cocoapdf.opendataloader-ci-result/v1", "unexpected result schema")
+	_require(result.get("schema") == "cocoapdf.opendataloader-ci-result/v2", "unexpected result schema")
 	_require(result.get("metrics") == evaluation["metrics"], "result/evaluation metrics differ")
 	_require(result.get("benchmark") == {
 		"commit": policy["benchmark"]["commit"],
@@ -1123,6 +1236,12 @@ def validate_artifact_directory(artifact_root: Path, policy: Mapping[str, Any]) 
 	)
 	recomputed_gate = evaluate_gate(evaluation["metrics"], completeness, policy)
 	_require(result.get("gate") == recomputed_gate, "result gate was not computed from trusted policy")
+	performance = validate_timing_document(result.get("performance"), policy)
+	_require(
+		validate_timing_document(_read_json(artifact_root / "timing.json"), policy)
+		== performance,
+		"timing artifact differs from result",
+	)
 	failures = _read_json(artifact_root / "failures.json")
 	_require(isinstance(failures, list), "failures artifact must be a list")
 	_require(len(failures) == completeness.get("conversion_failures"), "failure count mismatch")
@@ -1170,8 +1289,9 @@ def validate_artifact_directory(artifact_root: Path, policy: Mapping[str, Any]) 
 	_require({str(row.get("document_id", "")).removeprefix("'") for row in rows} == set(documents), "evaluation CSV IDs differ")
 	provenance = _read_json(artifact_root / "provenance.json")
 	_require(isinstance(provenance, dict), "provenance must be an object")
-	_require(provenance.get("schema") == "cocoapdf.opendataloader-ci-provenance/v1", "unexpected provenance schema")
+	_require(provenance.get("schema") == "cocoapdf.opendataloader-ci-provenance/v2", "unexpected provenance schema")
 	_require(provenance.get("engine") == engine, "provenance engine identity mismatch")
+	_require(provenance.get("performance") == performance, "provenance performance differs from result")
 	_require(provenance.get("artifact_excludes") == ["source PDFs", "ground truth", "predicted Markdown"], "artifact redistribution policy changed")
 	_require(provenance.get("benchmark") == {
 		"commit": policy["benchmark"]["commit"],
@@ -1238,6 +1358,7 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 	stage.add_argument("--corpus-root", type=Path, required=True)
 	stage.add_argument("--candidate-output", type=Path, required=True)
 	stage.add_argument("--artifact-root", type=Path, required=True)
+	stage.add_argument("--elapsed-nanoseconds", type=int, required=True)
 	stage.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
 
 	score = subparsers.add_parser("score")

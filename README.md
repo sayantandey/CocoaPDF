@@ -13,7 +13,8 @@ CocoaPDF recovers the text, layout, tables, links, notes, forms, and images alre
 [![Download for macOS](https://img.shields.io/badge/macOS-Download-8A4F32?style=for-the-badge\&logo=apple\&logoColor=white\&labelColor=111111)][download-macos]
 <br>
 
-[![Verified OpenDataLoader score](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fsayantandey%2FCocoaPDF%2Fodl-badge%2Fbadges%2Fopendataloader.json&style=for-the-badge)](examples/README.md#opendataloader-bench-results)
+[![Verified OpenDataLoader score](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fsayantandey%2FCocoaPDF%2Fodl-badge%2Fbadges%2Fopendataloader.json&style=for-the-badge)](https://raw.githubusercontent.com/sayantandey/CocoaPDF/odl-badge/badges/opendataloader.provenance.json)
+[![Verified OpenDataLoader conversion time](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fsayantandey%2FCocoaPDF%2Fodl-badge%2Fbadges%2Fopendataloader-speed.json&style=for-the-badge)](https://raw.githubusercontent.com/sayantandey/CocoaPDF/odl-badge/badges/opendataloader.provenance.json)
 [![ODL verification workflow](https://img.shields.io/github/actions/workflow/status/sayantandey/CocoaPDF/opendataloader-report.yml?branch=main&event=workflow_run&style=for-the-badge&label=ODL%20verification)](https://github.com/sayantandey/CocoaPDF/actions/workflows/opendataloader-report.yml)
 <br>
 
@@ -48,7 +49,7 @@ CocoaPDF recovers the text, layout, tables, links, notes, forms, and images alre
 
 ---
 
-CocoaPDF converts digitally born, structured text-layer PDFs into semantic Markdown, loss-aware HTML, and provenance-rich JSON. It parses PDF bytes directly with Python's standard library, reconciles geometry with Tagged-PDF structure, and preserves every accepted node's source pages, regions, glyphs, MCIDs, confidence, evidence, and warnings.
+CocoaPDF converts digitally born, structured text-layer PDFs into semantic Markdown, loss-aware HTML, and provenance-rich JSON. It parses PDF bytes directly with Python's standard library, reconciles geometry with Tagged-PDF structure, and carries available source-page, region, glyph, MCID, and PDF-object references alongside confidence, evidence, and warnings.
 
 It does not use OCR, AI, or runtime PDF frameworks. Raster images remain images, with their PDF placement, dimensions, alignment, links, captions, and alternative text preserved whenever available.
 
@@ -58,100 +59,44 @@ It does not use OCR, AI, or runtime PDF frameworks. Raster images remain images,
 <tr>
 <td width="33%" valign="top">
 
-<p><sub><strong>01  RECONSTRUCT</strong></sub></p>
+<p><sub><strong>01  RECOVER</strong></sub></p>
 
 <p><strong>Recover document structure</strong></p>
 
-<p>Headings, paragraphs, lists, tables, figures, captions, notes, references, forms, links, and reading order.</p>
+<p>Reading order, paragraphs, headings, lists, tables, figures, notes, forms, and links from PDF-native evidence.</p>
 
 </td>
 <td width="33%" valign="top">
 
 <p><sub><strong>02  PRESERVE</strong></sub></p>
 
-<p><strong>Keep source fidelity</strong></p>
+<p><strong>Preserve available evidence</strong></p>
 
-<p>Images, dimensions, placement, alignment, alternative text, destinations, page regions, and provenance remain traceable.</p>
+<p>Retain available source pages, regions, glyph and MCID references, PDF objects, confidence, evidence, and warnings.</p>
 
 </td>
 <td width="33%" valign="top">
 
 <p><sub><strong>03  EXPORT</strong></sub></p>
 
-<p><strong>Produce usable formats</strong></p>
+<p><strong>Export faithfully</strong></p>
 
-<p>Generate readable Markdown, structured HTML, semantic JSON, reports, and extracted image assets from one document graph.</p>
-
-</td>
-</tr>
-<tr>
-<td width="33%" valign="top">
-
-<p><sub><strong>04  EXPLAIN</strong></sub></p>
-
-<p><strong>Inspect every decision</strong></p>
-
-<p>Confidence, evidence, warnings, source references, glyph identifiers, MCIDs, PDF objects, and bounding boxes remain available.</p>
-
-</td>
-<td width="33%" valign="top">
-
-<p><sub><strong>05  RUN</strong></sub></p>
-
-<p><strong>Stay dependency-light</strong></p>
-
-<p>The runtime uses Python's standard library only. No external PDF framework, OCR engine, model download, or inference service is required.</p>
-
-</td>
-<td width="33%" valign="top">
-
-<p><sub><strong>06  TRUST</strong></sub></p>
-
-<p><strong>Prefer evidence over guesses</strong></p>
-
-<p>Unsupported or ambiguous structures produce conservative fallbacks and visible diagnostics instead of fabricated text or semantics.</p>
+<p>Drive Markdown, independent semantic HTML, JSON, reports, and extracted assets from one reconciled document graph.</p>
 
 </td>
 </tr>
 </table>
 
-<br>
+**Best fit:** digitally born reports, manuals, papers, office exports,
+accessible PDFs, forms, and multi-column documents with selectable text.
 
-<table>
-<tr>
-<td width="50%" valign="top">
-
-<p><sub><strong>BEST FIT</strong></sub></p>
-
-<p><strong>Documents with real, recoverable structure</strong></p>
-
-<p>Reports, manuals, academic papers, business documents, office exports, accessible PDFs, forms, tables, figures, and multi-column layouts.</p>
-
-</td>
-<td width="50%" valign="top">
-
-<p><sub><strong>OPERATING ENVELOPE</strong></sub></p>
-
-<p><strong>Explicit inputs and clear boundaries</strong></p>
-
-<p>Designed for digitally born PDFs with a usable selectable-text layer. Requires Python 3.9 or later and uses no OCR, AI, machine learning, or runtime PDF framework.</p>
-
-</td>
-</tr>
-</table>
-
-<br>
-
-## Why CocoaPDF?
-
-Most PDF text extractors copy characters in roughly visual order. CocoaPDF instead tries to recover the **meaning and structure** of the document.
-
-It distinguishes headings from paragraphs, lists from indented prose, tables from page columns, captions from body text, and page furniture from real content. When Markdown cannot represent a structure safely, CocoaPDF uses a controlled HTML fallback rather than flattening or inventing content.
-
-Every accepted semantic element can retain evidence linking it back to its source page, region, glyphs, marked-content identifiers, PDF objects, confidence, and warnings.
+Unlike positional text extraction, CocoaPDF reconciles PDF tags with page
+geometry and falls back conservatively when evidence is ambiguous.
 
 > [!IMPORTANT]
-> CocoaPDF is built for **digitally born PDFs with a usable text layer**. It does not read text from scans, screenshots, photographs, or raster images.
+> CocoaPDF does not transcribe text that exists only in raster pixels. It
+> preserves raster content as images, including placement, dimensions, links,
+> captions, and alternative text when encoded by the PDF.
 
 ---
 
@@ -201,7 +146,10 @@ mean of each document's available metrics, not the mean of the three aggregates.
 Overall, NID, TEDS, and MHS clear the enforced `0.80` floors, and the
 document-macro score clears `0.90`. Two full runs
 produced byte-identical Markdown for all 200 documents and identical aggregate
-and per-document scores; conversion timings were `172.0491 s` and `204.0853 s`.
+and per-document scores. The live speed badge is recomputed by trusted CI as
+total timed conversion seconds divided by the audited 200-page denominator
+bound to the hash-verified corpus; it is one page-weighted `s/page` observation,
+not a per-file range.
 See
 [`validation/benchmarks/opendataloader_bench/RESULTS.md`](validation/benchmarks/opendataloader_bench/RESULTS.md)
 for exact deltas, determinism evidence, and remaining no-OCR limitations.
@@ -912,7 +860,12 @@ Until platform signing and notarization are available, users should verify publi
 
 CocoaPDF is released under the [MIT License](LICENSE).
 
-Project attribution is available in [`NOTICE`](NOTICE). Incorporated data and
-standalone-runtime licenses are recorded in
-[`THIRD_PARTY_NOTICES.txt`](THIRD_PARTY_NOTICES.txt); release archives carry
-the pinned CPython and PyInstaller license texts verified by each native build.
+The installable package declares no runtime dependencies: conversion uses only
+Python's standard library and CocoaPDF code. Optional standalone builds use a
+pinned PyInstaller release; its Bootloader Exception allows bundling without
+requiring CocoaPDF source to be relicensed. Distributions remain multi-license
+artifacts and carry their notices. Project attribution is available in
+[`NOTICE`](NOTICE); incorporated data and standalone-runtime licenses are
+recorded in [`THIRD_PARTY_NOTICES.txt`](THIRD_PARTY_NOTICES.txt), and release
+archives carry the exact CPython and PyInstaller license texts verified by each
+native build.

@@ -68,6 +68,47 @@ class FoundationDiagnosticTests(unittest.TestCase):
 			with self.subTest(name=name):
 				self.assertFalse(Font("F1", name).bold)
 
+	def test_font_trait_cache_tracks_mutable_base_font(self):
+		font = Font("F1", "ABCDEF+CMBX12")
+		self.assertEqual((font.bold, font.italic, font.mono), (True, False, False))
+		cached = font._trait_cache
+		self.assertIsNotNone(cached)
+		self.assertEqual((font.bold, font.italic, font.mono), (True, False, False))
+		self.assertIs(font._trait_cache, cached)
+
+		font.base_font = "Courier-BoldOblique"
+		self.assertEqual((font.bold, font.italic, font.mono), (True, True, True))
+		self.assertIsNot(font._trait_cache, cached)
+		self.assertEqual(font._trait_cache[0], "Courier-BoldOblique")
+
+		font.base_font = "Inter-Medium"
+		self.assertEqual((font.bold, font.italic, font.mono), (False, False, False))
+
+	def test_line_invalidation_refreshes_complete_geometry_and_style_caches(self):
+		regular = Font("F1", "Helvetica")
+		line = Line(
+			[Char("A", 0.0, 0.0, 5.0, 10.0, 10.0, regular, 1, 1)],
+			1,
+			1,
+		)
+		self.assertEqual((line.x0, line.y0, line.x1, line.y1), (0.0, 0.0, 5.0, 10.0))
+		self.assertEqual(plain_text(line_text_tokens(line)), "A")
+		self.assertEqual((line.size, line.bold_ratio, line.mono_ratio), (10.0, 0.0, 0.0))
+		cached_bbox = line._bbox_cache
+		self.assertIsNotNone(cached_bbox)
+		self.assertEqual(line.x1, 5.0)
+		self.assertIs(line._bbox_cache, cached_bbox)
+
+		styled = Font("F2", "Courier-BoldOblique")
+		line.chars.append(
+			Char("B", 20.0, -2.0, 28.0, 22.0, 20.0, styled, 1, 2)
+		)
+		line.invalidate_caches()
+
+		self.assertEqual((line.x0, line.y0, line.x1, line.y1), (0.0, -2.0, 28.0, 22.0))
+		self.assertEqual(plain_text(line_text_tokens(line)), "A B")
+		self.assertEqual((line.size, line.bold_ratio, line.mono_ratio), (15.0, 0.5, 0.5))
+
 	def test_inline_cleanup_preserves_deliberately_spaced_punctuation_sequence(self):
 		self.assertEqual(cleanup_inline("normal word , next"), "normal word, next")
 		self.assertEqual(cleanup_inline("characters # + - . ! |."), "characters # + - . ! |.")
@@ -1939,6 +1980,68 @@ class FoundationDiagnosticTests(unittest.TestCase):
 				second = renderer._cached_inferred_column_separator_infos(1, lines)
 				self.assertEqual(second, inferred)
 				self.assertEqual(calls, [(1, lines)])
+
+	def test_frozen_line_analysis_caches_heading_and_display_wrap_evidence(self):
+		font = Font("F1", "Helvetica")
+
+		def display_line(text, y, seq):
+			return Line(
+				[Char(text, 72.0, y, 260.0, y + 18.0, 20.0, font, 1, seq)],
+				1,
+				seq,
+			)
+
+		lines = [
+			display_line("A coherent display title", 10.0, 1),
+			display_line("continues across this line", 25.0, 2),
+			display_line("and ends on this line", 40.0, 3),
+		]
+
+		class CountedMarks:
+			def __init__(self):
+				self.iterations = 0
+				self.tag = "/H2"
+
+			def __iter__(self):
+				self.iterations += 1
+				return iter(({"tag": self.tag},))
+
+		marks = CountedMarks()
+		tagged = Line(
+			[Char("Tagged", 72.0, 10.0, 140.0, 22.0, 12.0, font, 2, 4, mc=marks)],
+			2,
+			4,
+		)
+		renderer = MarkdownRenderer(SimpleNamespace())
+		renderer.lines_by_page = {1: lines, 2: [tagged]}
+		renderer._freeze_line_analysis_caches()
+
+		peer_calls = []
+		original_peer = renderer._display_wrap_peer
+
+		def counted_peer(upper, lower):
+			peer_calls.append((upper.seq, lower.seq))
+			return original_peer(upper, lower)
+
+		renderer._display_wrap_peer = counted_peer
+		first, start, end = renderer._display_wrap_run(lines[1])
+		self.assertEqual(([id(line) for line in first], start, end), ([id(line) for line in lines], 0, 3))
+		calls_after_first = list(peer_calls)
+		first.pop()
+		second, second_start, second_end = renderer._display_wrap_run(lines[0])
+		self.assertEqual(
+			([id(line) for line in second], second_start, second_end),
+			([id(line) for line in lines], 0, 3),
+		)
+		self.assertEqual(peer_calls, calls_after_first)
+
+		self.assertEqual(renderer._tagged_heading_level(tagged), 2)
+		self.assertEqual(renderer._tagged_heading_level(tagged), 2)
+		self.assertEqual(marks.iterations, 1)
+		marks.tag = "/H3"
+		renderer._freeze_line_analysis_caches()
+		self.assertEqual(renderer._tagged_heading_level(tagged), 3)
+		self.assertEqual(marks.iterations, 2)
 
 	def test_compact_two_column_rows_are_not_reordered_as_page_columns(self):
 		parts = []

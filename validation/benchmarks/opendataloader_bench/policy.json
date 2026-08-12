@@ -20,6 +20,7 @@
       "ground_truth_inventory_sha256": "aef65f4124de91020f35cab0943a5cdbad6923781c030e8f73b29315192da7e6",
       "pdf_bytes": 36873075,
       "pdf_count": 200,
+      "page_count": 200,
       "pdf_inventory_sha256": "23db64a86a6d103797d10e74c48d79a3c49fc42b7c44f5e1b07076eae0eec0b4"
     },
     "evaluator_files": {
@@ -56,7 +57,7 @@
   },
   "schema": "cocoapdf.opendataloader-ci-policy/v1",
   "worker": {
-    "commit": "4a9a8f766da4b90f6f1f5f48c77d03456b9cd9b2",
+    "commit": "e0223382c52088631c2260f34840bb2b5a49bba6",
     "path": ".github/workflows/opendataloader-worker.yml",
     "repository": "sayantandey/CocoaPDF"
   }
