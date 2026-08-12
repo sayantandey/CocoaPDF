@@ -217,7 +217,7 @@ class BenchmarkPolicyTests(unittest.TestCase):
 			"48879a0a5033e26a0f59a34ebcaf29dc322f4947e019955767f38adfdf0b63c1",
 		)
 		self.assertEqual(policy["baseline"]["scores"]["overall_mean"], 0.869665721357887)
-		self.assertEqual(policy["worker"]["commit"], "4a9a8f766da4b90f6f1f5f48c77d03456b9cd9b2")
+		self.assertEqual(policy["worker"]["commit"], "e0223382c52088631c2260f34840bb2b5a49bba6")
 		self.assertEqual(policy["gates"]["overall_floor"], 0.8)
 		self.assertEqual(
 			policy["gates"]["component_floors"],

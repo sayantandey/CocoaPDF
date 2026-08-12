@@ -22,10 +22,10 @@ jobs:
     name: Convert pinned 200-PDF corpus
     permissions:
       contents: read
-    # The full SHA is retained by the immutable odl-worker-v1.1 tag, including
+    # The full SHA is retained by the immutable odl-worker-v1.2 tag, including
     # after this caller is squash-merged.
-    uses: sayantandey/CocoaPDF/.github/workflows/opendataloader-worker.yml@4a9a8f766da4b90f6f1f5f48c77d03456b9cd9b2
+    uses: sayantandey/CocoaPDF/.github/workflows/opendataloader-worker.yml@e0223382c52088631c2260f34840bb2b5a49bba6
     with:
       candidate_repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
       candidate_sha: ${{ github.event.pull_request.head.sha || github.sha }}
-      worker_sha: 4a9a8f766da4b90f6f1f5f48c77d03456b9cd9b2
+      worker_sha: e0223382c52088631c2260f34840bb2b5a49bba6

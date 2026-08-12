@@ -57,7 +57,7 @@
   },
   "schema": "cocoapdf.opendataloader-ci-policy/v1",
   "worker": {
-    "commit": "4a9a8f766da4b90f6f1f5f48c77d03456b9cd9b2",
+    "commit": "e0223382c52088631c2260f34840bb2b5a49bba6",
     "path": ".github/workflows/opendataloader-worker.yml",
     "repository": "sayantandey/CocoaPDF"
   }
