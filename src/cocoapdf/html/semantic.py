@@ -166,7 +166,13 @@ def _render_node(node: SemanticNode) -> str:
         isinstance(lossless_html, str)
         and kind in {"section", "form", "callout", "equation", "table"}
         and is_safe_generated_html(lossless_html.strip())
-        and not (kind == "table" and _table_has_rotated_cells(node))
+        and not (
+            kind == "table"
+            and (
+                _table_has_rotated_cells(node)
+                or _layout_lacks_semantic_row_headers(node, lossless_html)
+            )
+        )
     ):
         if kind == "table":
             table = _enrich_lossless_table_headers(lossless_html.strip()).replace(
@@ -939,6 +945,47 @@ def _table_has_rotated_cells(node: SemanticNode) -> bool:
         )
         for candidate in node.walk()
     )
+
+
+def _layout_lacks_semantic_row_headers(
+    node: SemanticNode,
+    lossless_html: str,
+) -> bool:
+    """Reject a retained table fragment only when it loses row-header scope.
+
+    Reference-table recovery can already emit a faithful loss-aware fragment
+    with every inferred body header represented as ``th scope="row"``. Keep
+    that compact source projection when it agrees with the graph. If the
+    fragment predates semantic inference (or otherwise contains too few scoped
+    headers), fall back to typed graph rendering instead of laundering those
+    headers into ordinary data cells.
+    """
+    expected = 0
+    for section_kind, rows in _table_sections(node):
+        if section_kind == "head":
+            continue
+        for row in rows:
+            for cell in row.children:
+                if cell.kind != "table_cell":
+                    continue
+                scope = str(cell.attrs.get("scope") or "").strip().lower()
+                role = str(cell.attrs.get("role") or "").strip().lower()
+                if scope in {"row", "rowgroup"} or role == "th":
+                    expected += 1
+    if not expected:
+        return False
+    scoped_tags = re.findall(r"<th\b[^>]*>", lossless_html, flags=re.I)
+    actual = sum(
+        bool(
+            re.search(
+                r"\bscope\s*=\s*(?:[\"']row(?:group)?[\"']|row(?:group)?)(?=\s|>)",
+                tag,
+                flags=re.I,
+            )
+        )
+        for tag in scoped_tags
+    )
+    return actual < expected
 
 
 def _render_figure(node: SemanticNode, attrs: str) -> str:

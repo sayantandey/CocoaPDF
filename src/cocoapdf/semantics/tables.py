@@ -296,6 +296,21 @@ def _lattice_model(
             )
         except (TypeError, ValueError, OverflowError):
             return None
+    row_header_columns: set[int] = set()
+    if partial:
+        raw_row_headers = partial_grid.get("row_header_columns", ())
+        if not isinstance(raw_row_headers, (list, tuple, set)):
+            return None
+        try:
+            row_header_columns = {
+                int(value)
+                for value in raw_row_headers
+                if not isinstance(value, bool)
+            }
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if any(value < 0 or value >= cols_count for value in row_header_columns):
+            return None
     inferred_spans = 0
     for row_index in range(rows_count):
         cells: List[SemanticNode] = []
@@ -333,19 +348,123 @@ def _lattice_model(
                     occupied[rr][cc] = True
             cell_box = (xs[column_index], ys[row_index], xs[column_index + colspan], ys[row_index + rowspan])
             cell_lines = _lines_in_box(lines, cell_box)
-            role = "th" if row_index < header_rows else "td"
+            row_header = row_index >= header_rows and column_index in row_header_columns
+            role = "th" if row_index < header_rows or row_header else "td"
+            cell_sources = sources_from_lines(cell_lines, regions_by_line) or [
+                SourceRef(page=page, bbox=cell_box)
+            ]
+            cell_children = _cell_blocks(
+                factory, renderer, cell_lines, regions_by_line
+            )
+            if row_header and cell_lines:
+                cell_children = [
+                    factory.make(
+                        "paragraph",
+                        children=_inline_lines(
+                            factory, renderer, cell_lines, regions_by_line
+                        ),
+                        confidence=0.94,
+                        evidence=[
+                            Evidence(
+                                "partial_grid_row_header_content",
+                                0.94,
+                                page=page,
+                            )
+                        ],
+                        sources=cell_sources,
+                    )
+                ]
+            cell_evidence: List[Evidence] = [
+                Evidence(
+                    partial_kind + "_cell" if partial else "lattice_cell",
+                    0.94 if partial else 0.98,
+                    page=page,
+                    data={
+                        "bbox": cell_box,
+                        **({"geometry_only_empty": True} if not cell_lines else {}),
+                    },
+                ),
+                *(
+                    [
+                        Evidence(
+                            span_evidence[0],
+                            span_evidence[1],
+                            page=page,
+                            data={
+                                "bbox": cell_box,
+                                "rowspan": rowspan,
+                                "colspan": colspan,
+                            },
+                        )
+                    ]
+                    if explicit_span is not None
+                    else [
+                        Evidence(
+                            "missing_border_span",
+                            0.91,
+                            page=page,
+                            data={"bbox": cell_box},
+                        )
+                    ]
+                    if rowspan > 1 or colspan > 1
+                    else []
+                ),
+            ]
+            if row_header:
+                cell_evidence.append(
+                    Evidence(
+                        "partial_grid_row_header",
+                        0.94,
+                        page=page,
+                        data={"row": row_index, "col": column_index},
+                    )
+                )
+            if (
+                partial_kind == "reference_definition_table"
+                and column_index == 1
+                and len(cell_lines) >= 2
+            ):
+                from .graph import _paragraph_inlines
+
+                cell_children = [
+                    factory.make(
+                        "paragraph",
+                        children=_paragraph_inlines(factory, renderer, cell_lines),
+                        confidence=0.94,
+                        evidence=[
+                            Evidence(
+                                "reference_definition_wrapped_prose",
+                                0.94,
+                                page=page,
+                                data={"physical_lines": len(cell_lines)},
+                            )
+                        ],
+                        sources=cell_sources,
+                    )
+                ]
+                cell_evidence.append(
+                    Evidence(
+                        "reference_definition_wrapped_prose",
+                        0.94,
+                        page=page,
+                        data={"physical_lines": len(cell_lines)},
+                    )
+                )
+            cell_attrs = {
+                "row": row_index,
+                "col": column_index,
+                "rowspan": rowspan,
+                "colspan": colspan,
+                "role": role,
+                "bbox": cell_box,
+                "rotation": _dominant_rotation(cell_lines),
+            }
+            if row_header:
+                cell_attrs["scope"] = "row"
             cell = factory.make(
                 "table_cell",
-                children=_cell_blocks(factory, renderer, cell_lines, regions_by_line),
-                attrs={
-                    "row": row_index,
-                    "col": column_index,
-                    "rowspan": rowspan,
-                    "colspan": colspan,
-                    "role": role,
-                    "bbox": cell_box,
-                    "rotation": _dominant_rotation(cell_lines),
-                },
+                children=cell_children,
+                attrs=cell_attrs,
                 confidence=(
                     min(0.94, span_evidence[1])
                     if partial and explicit_span is not None
@@ -355,40 +474,8 @@ def _lattice_model(
                     if rowspan > 1 or colspan > 1
                     else 0.98
                 ),
-                evidence=[
-                    Evidence(
-                        partial_kind + "_cell" if partial else "lattice_cell",
-                        0.94 if partial else 0.98,
-                        page=page,
-                        data={
-                            "bbox": cell_box,
-                            **(
-                                {"geometry_only_empty": True}
-                                if not cell_lines
-                                else {}
-                            ),
-                        },
-                    ),
-                    *(
-                        [
-                            Evidence(
-                                span_evidence[0],
-                                span_evidence[1],
-                                page=page,
-                                data={
-                                    "bbox": cell_box,
-                                    "rowspan": rowspan,
-                                    "colspan": colspan,
-                                },
-                            )
-                        ]
-                        if explicit_span is not None
-                        else [Evidence("missing_border_span", 0.91, page=page, data={"bbox": cell_box})]
-                        if rowspan > 1 or colspan > 1
-                        else []
-                    ),
-                ],
-                sources=sources_from_lines(cell_lines, regions_by_line) or [SourceRef(page=page, bbox=cell_box)],
+                evidence=cell_evidence,
+                sources=cell_sources,
             )
             cells.append(cell)
         rows.append(
@@ -417,6 +504,8 @@ def _lattice_model(
         supplied_evidence = partial_grid.get("evidence")
         if isinstance(supplied_evidence, dict):
             evidence_data.update(supplied_evidence)
+    if row_header_columns:
+        evidence_data["row_header_columns"] = sorted(row_header_columns)
     evidence = [
         Evidence(
             partial_kind if partial else "lattice_table",
@@ -425,6 +514,15 @@ def _lattice_model(
             data=evidence_data,
         )
     ]
+    if row_header_columns:
+        evidence.append(
+            Evidence(
+                "partial_grid_row_headers",
+                0.94,
+                page=page,
+                data={"columns": sorted(row_header_columns)},
+            )
+        )
     return rows, header_rows, confidence, evidence
 
 
@@ -662,9 +760,21 @@ def _inline_lines(factory: NodeFactory, renderer: Any, lines: Sequence[Any], reg
 def _requires_html(rows: Sequence[SemanticNode], header_rows: int) -> bool:
     if header_rows not in {0, 1}:
         return True
-    for row in rows:
+    for row_index, row in enumerate(rows):
         for cell in row.children:
             if int(cell.attrs.get("rowspan", 1)) != 1 or int(cell.attrs.get("colspan", 1)) != 1:
+                return True
+            scope = str(cell.attrs.get("scope") or "").strip().lower()
+            if scope in {"row", "rowgroup"}:
+                # GFM tables have one implicit column-header row and cannot
+                # represent a body-cell header relationship. Preserve the
+                # semantic scope with the raw-HTML fallback instead of
+                # flattening this <th> into an indistinguishable data cell.
+                return True
+            if (
+                str(cell.attrs.get("role") or "").strip().lower() == "th"
+                and row_index >= header_rows
+            ):
                 return True
             if any(child.kind not in {"text", "strong", "emphasis", "code", "link", "paragraph"} for child in cell.children):
                 return True

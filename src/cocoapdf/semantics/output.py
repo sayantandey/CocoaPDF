@@ -74,7 +74,7 @@ def _overlay_changed_blocks(markdown: str, document: SemanticDocument) -> str:
         fragments = node.attrs.get("_merged_layout_markdown_fragments")
         if (
             node.kind == "table"
-            and _node_needs_overlay(node)
+            and _node_needs_overlay(node, document)
             and isinstance(fragments, list)
             and len(fragments) >= 2
             and all(isinstance(fragment, str) and fragment for fragment in fragments)
@@ -87,7 +87,11 @@ def _overlay_changed_blocks(markdown: str, document: SemanticDocument) -> str:
             )
             continue
         original = node.attrs.get("_layout_markdown")
-        if not isinstance(original, str) or not original or not _node_needs_overlay(node):
+        if (
+            not isinstance(original, str)
+            or not original
+            or not _node_needs_overlay(node, document)
+        ):
             continue
         replacement = _render_markdown_nodes([node], document).strip()
         if original in rendered:
@@ -141,7 +145,16 @@ def _remove_reconciled_footnote_anchors(markdown: str, document: SemanticDocumen
     return rendered
 
 
-def _node_needs_overlay(node: SemanticNode) -> bool:
+def _node_needs_overlay(
+    node: SemanticNode,
+    document: SemanticDocument,
+) -> bool:
+    if (
+        node.kind == "toc"
+        and node.attrs.get("source") == "visible_toc"
+        and isinstance(node.attrs.get("_layout_markdown"), str)
+    ):
+        return _visible_toc_targets_resolve(node, document)
     original_kind = str(node.attrs.get("_layout_kind", node.kind))
     if node.kind == "heading" and node.kind != original_kind:
         return True
@@ -158,6 +171,16 @@ def _node_needs_overlay(node: SemanticNode) -> bool:
         if candidate.kind == "table_cell"
     ):
         return True
+    if node.kind == "table" and any(
+        str(candidate.attrs.get("scope") or "").strip().lower()
+        in {"row", "rowgroup"}
+        for candidate in node.walk()
+        if candidate.kind == "table_cell"
+    ):
+        # The geometry renderer may have emitted a valid-looking GFM table,
+        # but pipe syntax cannot carry row-header semantics. Replace only this
+        # enriched block with the graph-native raw-HTML projection.
+        return True
     if node.kind not in {"paragraph", "heading", "item"}:
         return False
     descendants = [candidate for candidate in node.walk() if candidate is not node]
@@ -168,6 +191,44 @@ def _node_needs_overlay(node: SemanticNode) -> bool:
         candidate.attrs.get("reference_kind") == "reference"
         for candidate in cross_references
     )
+
+
+def _visible_toc_targets_resolve(
+    toc: SemanticNode,
+    document: SemanticDocument,
+) -> bool:
+    """Whether semantic TOC Markdown can improve on its source projection.
+
+    HTML always renders the typed TOC graph. Markdown replaces the lossless
+    source block only when every recursively reconstructed item links to a real
+    non-TOC node. Standalone TOC excerpts otherwise lose dot leaders, inline
+    style, and other source fidelity without gaining functional navigation.
+    """
+    items = [candidate for candidate in toc.walk() if candidate.kind == "toc_item"]
+    if not items:
+        return False
+    targets = [
+        candidate
+        for candidate in document.walk()
+        if candidate.kind not in {"toc", "toc_item"}
+    ]
+    node_ids = {str(candidate.id) for candidate in targets if candidate.id}
+    anchors = {
+        str(candidate.attrs.get("anchor"))
+        for candidate in targets
+        if candidate.attrs.get("anchor")
+    }
+    for item in items:
+        # Mirror the Markdown renderer: target_anchor takes precedence.
+        anchor = str(item.attrs.get("target_anchor") or "").strip()
+        if anchor:
+            if anchor not in anchors:
+                return False
+            continue
+        target_id = str(item.attrs.get("target_id") or "").strip()
+        if not target_id or target_id not in node_ids:
+            return False
+    return True
 
 
 def _outline_toc_nodes(document: SemanticDocument, layout_markdown: str) -> List[SemanticNode]:

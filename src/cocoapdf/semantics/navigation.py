@@ -1,14 +1,27 @@
 from __future__ import annotations
 
+import math
 import re
+from dataclasses import replace
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..ir.evidence import Evidence
-from ..ir.semantic import NodeFactory, SemanticDocument, SemanticNode, SourceRef
+from ..ir.semantic import (
+    NodeFactory,
+    SemanticDocument,
+    SemanticNode,
+    SourceRef,
+    merge_sources,
+)
 
 
 _TOC_HEADING = re.compile(r"^(?:table\s+of\s+contents|contents|目次|sommaire|inhalt|índice)$", re.I)
 _TOC_ENTRY = re.compile(r"^(.*?)\s*(?:\.{2,}|·{2,}|…+)\s*(\d+|[ivxlcdm]+)\s*$", re.I)
+_TOC_ENTRY_SCAN = re.compile(
+    r"(.*?)\s*(?:(?:\.\s*){2,}|(?:·\s*){2,}|…+)\s*"
+    r"(\d+|[ivxlcdm]+)(?=\s|$)",
+    re.I,
+)
 
 
 def extract_outline(
@@ -45,15 +58,90 @@ def extract_outline(
     )
 
 
+def _entry_sources(node: SemanticNode, start: int, end: int) -> List[SourceRef]:
+    selected: List[SourceRef] = []
+    offset = 0
+    for child in node.children:
+        text = _node_text(child)
+        child_start, child_end = offset, offset + len(text)
+        if child_end > start and child_start < end:
+            selected.extend(child.sources)
+        offset = child_end
+    merged = merge_sources(selected)
+    if not merged:
+        return list(node.sources)
+    regions_by_page: Dict[int, Tuple[str, ...]] = {}
+    for source in node.sources:
+        regions_by_page[source.page] = tuple(
+            sorted(
+                set(regions_by_page.get(source.page, ()))
+                | set(source.region_ids)
+            )
+        )
+    return [
+        replace(
+            source,
+            region_ids=tuple(
+                sorted(
+                    set(source.region_ids)
+                    | set(regions_by_page.get(source.page, ()))
+                )
+            ),
+        )
+        for source in merged
+    ]
+
+
+def _toc_matches(
+    node: SemanticNode,
+) -> List[Tuple[str, str, List[SourceRef], float]]:
+    text = _node_text(node)
+    matches = list(_TOC_ENTRY_SCAN.finditer(text))
+    if not matches:
+        match = _TOC_ENTRY.fullmatch(text.strip())
+        if match is None:
+            return []
+        sources = list(node.sources)
+        bbox = sources[0].bbox if sources else None
+        return [
+            (
+                match.group(1).strip(),
+                match.group(2),
+                sources,
+                float(bbox[0]) if bbox else 0.0,
+            )
+        ]
+    if _TOC_ENTRY_SCAN.sub("", text).strip():
+        return []
+    entries: List[Tuple[str, str, List[SourceRef], float]] = []
+    for match in matches:
+        title, page_label = match.group(1).strip(), match.group(2)
+        if not title:
+            return []
+        sources = _entry_sources(node, match.start(), match.end())
+        boxes = [source.bbox for source in sources if source.bbox is not None]
+        indent = min(box[0] for box in boxes) if boxes else 0.0
+        entries.append((title, page_label, sources, float(indent)))
+    return entries
+
+
 def reconstruct_visible_toc(document: SemanticDocument, factory: NodeFactory) -> None:
     nodes = document.children
-    heading_index = next((index for index, node in enumerate(nodes) if node.kind == "heading" and _TOC_HEADING.match(_node_text(node).strip())), None)
+    heading_index = next(
+        (
+            index
+            for index, node in enumerate(nodes)
+            if node.kind == "heading"
+            and _TOC_HEADING.match(_node_text(node).strip())
+        ),
+        None,
+    )
     if heading_index is None:
         return
     entries: List[SemanticNode] = []
     consumed: List[int] = []
-    previous_indent = 0.0
     levels: List[float] = []
+    layout_fragments: List[str] = []
     for index in range(heading_index + 1, min(len(nodes), heading_index + 80)):
         node = nodes[index]
         if node.kind == "heading":
@@ -62,43 +150,72 @@ def reconstruct_visible_toc(document: SemanticDocument, factory: NodeFactory) ->
             if entries:
                 break
             continue
-        text = _node_text(node).strip()
-        match = _TOC_ENTRY.match(text)
-        if not match:
+        parsed = _toc_matches(node)
+        if not parsed:
             if entries:
                 break
             continue
-        title, page_label = match.group(1).strip(), match.group(2)
-        bbox = node.attrs.get("bbox") or (0, 0, 0, 0)
-        indent = float(bbox[0]) if isinstance(bbox, (list, tuple)) and bbox else 0.0
-        if not levels or indent > levels[-1] + 6:
-            levels.append(indent)
-        while len(levels) > 1 and indent < levels[-1] - 4:
-            levels.pop()
-        level = len(levels)
-        entries.append(factory.make(
-            "toc_item",
-            text=title,
-            attrs=_toc_target_attrs(level, page_label, _best_heading_target(nodes, title, _page_label_number(page_label), level)) ,
-            confidence=0.94,
-            evidence=[Evidence("visible_toc_dot_leader", 0.94, page=node.source_pages()[0] if node.source_pages() else None)],
-            sources=list(node.sources),
-        ))
-        previous_indent = indent
+        fragment = node.attrs.get("_layout_markdown")
+        if isinstance(fragment, str) and fragment:
+            layout_fragments.append(fragment)
+        for title, page_label, sources, indent in parsed:
+            if not levels or indent > levels[-1] + 6:
+                levels.append(indent)
+            while len(levels) > 1 and indent < levels[-1] - 4:
+                levels.pop()
+            level = len(levels)
+            confidence = 0.96 if len(parsed) > 1 else 0.94
+            entries.append(
+                factory.make(
+                    "toc_item",
+                    text=title,
+                    attrs=_toc_target_attrs(
+                        level,
+                        page_label,
+                        _best_heading_target(
+                            nodes,
+                            title,
+                            _page_label_number(page_label),
+                            level,
+                        ),
+                    ),
+                    confidence=confidence,
+                    evidence=[
+                        Evidence(
+                            "visible_toc_dot_leader",
+                            confidence,
+                            page=sources[0].page if sources else None,
+                            data={
+                                "split_from_compound_paragraph": len(parsed) > 1
+                            },
+                        )
+                    ],
+                    sources=sources,
+                )
+            )
         consumed.append(index)
     if not entries:
         return
+    attrs: Dict[str, Any] = {"source": "visible_toc"}
+    if layout_fragments:
+        attrs.update(
+            {
+                "_layout_markdown": "\n\n".join(layout_fragments),
+                "_layout_kind": "paragraph",
+            }
+        )
+    confidence = min(entry.confidence for entry in entries)
     toc = factory.make(
         "toc",
         children=entries,
-        attrs={"source": "visible_toc"},
-        confidence=min(entry.confidence for entry in entries),
-        evidence=[Evidence("visible_toc", 0.94)],
-        sources=[source for entry in entries for source in entry.sources],
+        attrs=attrs,
+        confidence=confidence,
+        evidence=[Evidence("visible_toc", confidence)],
+        sources=merge_sources(
+            source for entry in entries for source in entry.sources
+        ),
     )
-    first = min(consumed)
-    last = max(consumed)
-    nodes[first : last + 1] = [toc]
+    nodes[min(consumed) : max(consumed) + 1] = [toc]
 
 
 def outline_to_toc(outline: SemanticNode, factory: NodeFactory) -> SemanticNode:
@@ -154,6 +271,11 @@ def _walk_siblings(
                 target[0],
                 level,
                 destination=target[1],
+                destination_y=_normalized_destination_y(
+                    document,
+                    target[0],
+                    target[1],
+                ),
             )
             if semantic_document is not None
             else None
@@ -211,60 +333,247 @@ def _best_heading_target(
     page: Optional[int] = None,
     outline_level: int = 1,
     destination: Any = None,
+    destination_y: Optional[float] = None,
 ) -> Optional[Tuple[str, str]]:
     normalized = _normalize(title)
     title_words = set(normalized.split())
     best: Tuple[float, Optional[SemanticNode]] = (0.0, None)
     candidates = list(_walk(nodes))
+    exact_paragraphs: List[SemanticNode] = []
+    prefix_headings: List[SemanticNode] = []
     for node in candidates:
         if page and node.source_pages() and page not in node.source_pages():
             continue
         candidate = _normalize(_node_text(node))
-        if candidate == normalized and node.kind in {"heading", "paragraph"}:
-            if node.kind == "paragraph":
-                node.kind = "heading"
-                node.attrs.setdefault("level", min(6, max(1, outline_level)))
-                node.confidence = min(node.confidence, 0.97)
-                node.evidence.append(Evidence("pdf_outline_heading_match", 0.97, page=page))
-            anchor = _ensure_anchor(candidates, node, title)
-            return node.id, anchor
+        if candidate == normalized and node.kind == "heading":
+            return node.id, _ensure_anchor(candidates, node, title)
+        if candidate == normalized and node.kind == "paragraph":
+            exact_paragraphs.append(node)
+            continue
         if node.kind != "heading":
             continue
         words = set(candidate.split())
         score = len(words & title_words) / max(len(words | title_words), 1)
+        if normalized and candidate.startswith(normalized + " "):
+            score = max(score, 0.95)
+            prefix_headings.append(node)
         if score > best[0]:
             best = (score, node)
-    if best[0] < 0.72 or best[1] is None:
-        # A page-only outline destination cannot identify a precise vertical
-        # coordinate.  When that page has exactly one recovered heading, the
-        # PDF destination plus unique page structure is stronger evidence than
-        # title wording alone (for example "First Page" targeting "Page Scope
-        # Review").  Do not guess when multiple headings compete.
-        if not _page_only_destination(destination):
-            return None
-        page_headings = [
-            node
-            for node in candidates
-            if page
-            and node.kind == "heading"
-            and node.source_pages()
-            and page in node.source_pages()
-        ]
-        if len(page_headings) != 1:
-            return None
-        node = page_headings[0]
-        node.evidence.append(
-            Evidence(
-                "pdf_outline_unique_page_heading",
-                0.90,
-                page=page,
-                detail=title,
+    destination_target = _destination_disambiguated_target(
+        prefix_headings,
+        exact_paragraphs,
+        destination_y,
+    )
+    if destination_target is not None:
+        if destination_target.kind == "heading":
+            return destination_target.id, _ensure_anchor(
+                candidates,
+                destination_target,
+                _node_text(destination_target),
             )
+        return _promote_outline_paragraph(
+            candidates,
+            destination_target,
+            title,
+            page,
+            outline_level,
         )
-        node.confidence = min(node.confidence, 0.90)
+    if best[0] >= 0.72 and best[1] is not None:
+        node = best[1]
         return node.id, _ensure_anchor(candidates, node, _node_text(node))
-    node = best[1]
+    if exact_paragraphs:
+        return _promote_outline_paragraph(
+            candidates,
+            exact_paragraphs[0],
+            title,
+            page,
+            outline_level,
+        )
+    # A page-only outline destination cannot identify a precise vertical
+    # coordinate. When that page has exactly one recovered heading, the PDF
+    # destination plus unique page structure is stronger than title wording.
+    if not _page_only_destination(destination):
+        return None
+    page_headings = [
+        node
+        for node in candidates
+        if page
+        and node.kind == "heading"
+        and node.source_pages()
+        and page in node.source_pages()
+    ]
+    if len(page_headings) != 1:
+        return None
+    node = page_headings[0]
+    node.evidence.append(
+        Evidence(
+            "pdf_outline_unique_page_heading",
+            0.90,
+            page=page,
+            detail=title,
+        )
+    )
+    node.confidence = min(node.confidence, 0.90)
     return node.id, _ensure_anchor(candidates, node, _node_text(node))
+
+
+def _destination_disambiguated_target(
+    prefix_headings: Sequence[SemanticNode],
+    exact_paragraphs: Sequence[SemanticNode],
+    destination_y: Optional[float],
+) -> Optional[SemanticNode]:
+    """Resolve a prefix-heading/exact-paragraph conflict using PDF geometry.
+
+    An outline title such as ``search`` can legitimately target a composite
+    heading such as ``search Main entry point``.  The same short text may also
+    occur as a cross-reference paragraph elsewhere on the destination page.
+    Textual prefix scoring alone cannot distinguish those cases.  When the PDF
+    supplies a vertical destination, compare it with both source regions and
+    choose the nearest target.  If either side lacks geometry, retain the
+    established text-only behavior rather than pretending the coordinate is
+    decisive.
+    """
+    if destination_y is None or not math.isfinite(destination_y):
+        return None
+    headings = [
+        (distance, node)
+        for node in prefix_headings
+        if (distance := _node_vertical_distance(node, destination_y)) is not None
+    ]
+    paragraphs = [
+        (distance, node)
+        for node in exact_paragraphs
+        if (distance := _node_vertical_distance(node, destination_y)) is not None
+    ]
+    if not headings or not paragraphs:
+        return None
+    heading_distance, heading = min(headings, key=lambda item: item[0])
+    paragraph_distance, paragraph = min(paragraphs, key=lambda item: item[0])
+    # An explicit ordinate is corroborating evidence only near an actual text
+    # region.  If both candidates are far away, the destination may describe a
+    # viewport rather than the target baseline; retain text-only behavior.
+    if min(heading_distance, paragraph_distance) > 72.0:
+        return None
+    # A heading remains the structural prior only for a true geometric tie.
+    # Otherwise the explicit destination decides which text occurrence owns
+    # the outline target.
+    if heading_distance <= paragraph_distance + 1.0:
+        return heading
+    return paragraph
+
+
+def _node_vertical_distance(
+    node: SemanticNode,
+    destination_y: float,
+) -> Optional[float]:
+    boxes = [source.bbox for source in node.sources if source.bbox is not None]
+    if not boxes:
+        raw_bbox = node.attrs.get("bbox")
+        if isinstance(raw_bbox, (list, tuple)) and len(raw_bbox) == 4:
+            try:
+                parsed_bbox = tuple(float(value) for value in raw_bbox)
+            except (TypeError, ValueError, OverflowError):
+                parsed_bbox = ()
+            if len(parsed_bbox) == 4 and all(math.isfinite(value) for value in parsed_bbox):
+                boxes = [parsed_bbox]
+    if not boxes:
+        return None
+    distances = []
+    for box in boxes:
+        top, bottom = sorted((float(box[1]), float(box[3])))
+        if top <= destination_y <= bottom:
+            distances.append(0.0)
+        else:
+            distances.append(min(abs(destination_y - top), abs(destination_y - bottom)))
+    return min(distances)
+
+
+def _promote_outline_paragraph(
+    candidates: Sequence[SemanticNode],
+    node: SemanticNode,
+    title: str,
+    page: Optional[int],
+    outline_level: int,
+) -> Tuple[str, str]:
+    node.kind = "heading"
+    node.attrs.setdefault("level", min(6, max(1, outline_level)))
+    node.confidence = min(node.confidence, 0.97)
+    node.evidence.append(Evidence("pdf_outline_heading_match", 0.97, page=page))
+    return node.id, _ensure_anchor(candidates, node, title)
+
+
+def _normalized_destination_y(
+    document: Any,
+    page: int,
+    destination: Any,
+) -> Optional[float]:
+    """Map an explicit PDF destination ordinate into CocoaPDF page geometry."""
+    if not page or not isinstance(destination, list) or not destination:
+        return None
+    mode = str(destination[0] or "").lstrip("/")
+    raw_x = 0.0
+    raw_y: Optional[float] = None
+    if mode == "XYZ":
+        raw_x = _finite_number(destination[1] if len(destination) > 1 else None, 0.0)
+        raw_y = _finite_number(destination[2] if len(destination) > 2 else None)
+    elif mode in {"FitH", "FitBH"}:
+        raw_y = _finite_number(destination[1] if len(destination) > 1 else None)
+    elif mode == "FitR":
+        raw_x = _finite_number(destination[1] if len(destination) > 1 else None, 0.0)
+        raw_y = _finite_number(destination[4] if len(destination) > 4 else None)
+    if raw_y is None:
+        return None
+    try:
+        pages = document.pages()
+        page_dict = pages[page - 1]
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return None
+    if not isinstance(page_dict, dict):
+        return None
+    try:
+        media = document.resolve_array(page_dict.get("CropBox")) or document.resolve_array(
+            page_dict.get("MediaBox")
+        )
+    except Exception:
+        return None
+    if not isinstance(media, (list, tuple)):
+        return None
+    values = [_finite_number(_resolve(document, value)) for value in media[:4]]
+    if len(values) < 4 or any(value is None for value in values):
+        return None
+    x0, x1 = sorted((float(values[0]), float(values[2])))
+    y0, y1 = sorted((float(values[1]), float(values[3])))
+    width, height = x1 - x0, y1 - y0
+    if width <= 1.0 or height <= 1.0:
+        return None
+    rotate_value = _finite_number(_resolve(document, page_dict.get("Rotate")), 0.0)
+    rotate = int(rotate_value) % 360
+    if rotate not in {0, 90, 180, 270}:
+        rotate = 0
+    user_unit = _finite_number(_resolve(document, page_dict.get("UserUnit")), 1.0)
+    if user_unit is None or user_unit <= 0:
+        user_unit = 1.0
+    # Reuse the same transform as text extraction so crop offsets, rotation,
+    # and UserUnit cannot make outline and glyph coordinates disagree.
+    from ..core import apply_mat, page_normalization_transform
+
+    matrix, _display_width, display_height = page_normalization_transform(
+        x0,
+        y0,
+        width,
+        height,
+        rotate,
+        user_unit,
+    )
+    _point_x, point_y = apply_mat(matrix, raw_x, raw_y)
+    return max(0.0, min(display_height, display_height - point_y))
+
+
+def _finite_number(value: Any, default: Optional[float] = None) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    parsed = float(value)
+    return parsed if math.isfinite(parsed) else default
 
 
 def _page_only_destination(destination: Any) -> bool:

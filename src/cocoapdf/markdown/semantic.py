@@ -236,12 +236,22 @@ def _render_table(node: SemanticNode) -> str:
     notes = [child for child in node.children if child.kind == "table_note"]
     if not rows:
         return ""
-    complex_table = node.attrs.get("output_mode") == "html" or header_rows not in {0, 1} or any(
-        int(cell.attrs.get("rowspan", 1)) != 1
-        or int(cell.attrs.get("colspan", 1)) != 1
-        or int(cell.attrs.get("rotation", 0)) % 360
-        or any(not _simple_table_cell_child(child) for child in cell.children)
-        for row in rows for cell in row.children if cell.kind == "table_cell"
+    complex_table = (
+        node.attrs.get("output_mode") == "html"
+        or header_rows not in {0, 1}
+        or any(
+            int(cell.attrs.get("rowspan", 1)) != 1
+            or int(cell.attrs.get("colspan", 1)) != 1
+            or int(cell.attrs.get("rotation", 0)) % 360
+            or _non_gfm_header_cell(cell, row_index, header_rows)
+            or any(
+                not _simple_table_cell_child(child)
+                for child in cell.children
+            )
+            for row_index, row in enumerate(rows)
+            for cell in row.children
+            if cell.kind == "table_cell"
+        )
     )
     if complex_table:
         return _render_table_html(node)
@@ -268,10 +278,55 @@ def _simple_table_cell_child(node: SemanticNode) -> bool:
     return False
 
 
+def _non_gfm_header_cell(
+    cell: SemanticNode,
+    row_index: int,
+    header_rows: int,
+) -> bool:
+    """Return whether a typed header relation needs raw table HTML.
+
+    GFM can imply column headers through its one separator row, but it has no
+    syntax for row or row-group headers. A body ``th`` therefore must not be
+    projected as an ordinary pipe-table cell even when every other cell is
+    text-only and unspanned.
+    """
+    scope = str(cell.attrs.get("scope") or "").strip().lower()
+    if scope in {"row", "rowgroup"}:
+        return True
+    return (
+        str(cell.attrs.get("role") or "").strip().lower() == "th"
+        and row_index >= header_rows
+    )
+
+
+def _table_header_scope(
+    cell: SemanticNode,
+    column_header: bool,
+    rowspan: int,
+    colspan: int,
+) -> str:
+    explicit = str(cell.attrs.get("scope") or "").strip().lower()
+    if explicit in {"column", "col"}:
+        return "col"
+    if explicit == "row":
+        return "row"
+    if explicit in {"colgroup", "rowgroup"}:
+        return explicit
+    if column_header:
+        return "colgroup" if colspan > 1 else "col"
+    return "rowgroup" if rowspan > 1 else "row"
+
+
 def _render_table_html(node: SemanticNode) -> str:
     rows, header_rows = _semantic_table_rows(node)
     caption = next((child for child in node.children if child.kind == "caption"), None)
     notes = [child for child in node.children if child.kind == "table_note"]
+    compact_scoped_rows = any(
+        _non_gfm_header_cell(cell, row_index, header_rows)
+        for row_index, row in enumerate(rows)
+        for cell in row.children
+        if cell.kind == "table_cell"
+    )
     out = ["<table>"]
     if caption:
         out.append("<caption>%s</caption>" % _render_html_inlines(caption))
@@ -280,7 +335,7 @@ def _render_table_html(node: SemanticNode) -> str:
     for row_index, row in enumerate(rows):
         if header_rows and row_index == header_rows:
             out.extend(["</thead>", "<tbody>"])
-        out.append("<tr>")
+        row_markup = ["<tr>"]
         for cell in row.children:
             if cell.kind != "table_cell":
                 continue
@@ -293,11 +348,27 @@ def _render_table_html(node: SemanticNode) -> str:
                 attrs.append('rowspan="%d"' % rowspan)
             if colspan > 1:
                 attrs.append('colspan="%d"' % colspan)
+            if tag == "th":
+                scope = _table_header_scope(
+                    cell,
+                    row_index < header_rows,
+                    rowspan,
+                    colspan,
+                )
+                if scope:
+                    attrs.append('scope="%s"' % scope)
             if rotation:
                 attrs.append('style="writing-mode: vertical-rl; text-orientation: mixed;"')
             body = _render_html_cell_content(cell)
-            out.append("<%s%s>%s</%s>" % (tag, (" " + " ".join(attrs)) if attrs else "", body, tag))
-        out.append("</tr>")
+            row_markup.append("<%s%s>%s</%s>" % (tag, (" " + " ".join(attrs)) if attrs else "", body, tag))
+        row_markup.append("</tr>")
+        if compact_scoped_rows:
+            # Match the established loss-aware row-header table shape. This
+            # keeps semantic reconciliation byte-stable for existing outputs
+            # while retaining explicit <th scope="row"> relationships.
+            out.append("".join(row_markup))
+        else:
+            out.extend(row_markup)
     if header_rows:
         out.append("</tbody>" if len(rows) > header_rows else "</thead>")
     out.append("</table>")
