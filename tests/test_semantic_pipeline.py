@@ -261,6 +261,108 @@ class AuthoritativeGraphTests(unittest.TestCase):
         self.assertIn('class="cocoapdf-toc"', rendered)
         self.assertIn('href="#introduction"', rendered)
 
+    def test_unresolved_visible_toc_preserves_lossless_markdown(self) -> None:
+        source = [SourceRef(page=1)]
+        fragment = "**Alpha** . . . . 3 **Beta** . . . . 5"
+        toc = SemanticNode(
+            "visible-toc",
+            "toc",
+            children=[
+                SemanticNode(
+                    "toc-alpha",
+                    "toc_item",
+                    text="Alpha",
+                    attrs={"level": 1, "page_label": "3"},
+                    sources=source,
+                ),
+                SemanticNode(
+                    "toc-beta",
+                    "toc_item",
+                    text="Beta",
+                    attrs={"level": 1, "page_label": "5"},
+                    sources=source,
+                ),
+            ],
+            attrs={
+                "source": "visible_toc",
+                "_layout_markdown": fragment,
+                "_layout_kind": "paragraph",
+            },
+            sources=source,
+        )
+        markdown, rendered = render_reconciled_outputs(
+            "## Contents\n\n%s\n" % fragment,
+            SemanticDocument([toc]),
+            {},
+        )
+        self.assertEqual(markdown, "## Contents\n\n%s\n" % fragment)
+        self.assertNotIn(" — 3", markdown)
+        self.assertIn('class="cocoapdf-toc"', rendered)
+        self.assertEqual(rendered.count("<li"), 2)
+
+    def test_visible_toc_overlay_requires_every_recursive_target(self) -> None:
+        source = [SourceRef(page=1)]
+        fragment = "Alpha . . . 1 Beta . . . 2"
+
+        def document_with_beta_target(target: str) -> SemanticDocument:
+            alpha = SemanticNode(
+                "alpha",
+                "heading",
+                text="Alpha",
+                attrs={"level": 2, "anchor": "alpha"},
+                sources=source,
+            )
+            beta = SemanticNode(
+                "beta",
+                "heading",
+                text="Beta",
+                attrs={"level": 2, "anchor": "beta"},
+                sources=source,
+            )
+            child = SemanticNode(
+                "toc-beta",
+                "toc_item",
+                text="Beta",
+                attrs={"level": 2, "page_label": "2", "target_anchor": target},
+                sources=source,
+            )
+            parent = SemanticNode(
+                "toc-alpha",
+                "toc_item",
+                text="Alpha",
+                children=[child],
+                attrs={"level": 1, "page_label": "1", "target_anchor": "alpha"},
+                sources=source,
+            )
+            toc = SemanticNode(
+                "visible-toc",
+                "toc",
+                children=[parent],
+                attrs={
+                    "source": "visible_toc",
+                    "_layout_markdown": fragment,
+                    "_layout_kind": "paragraph",
+                },
+                sources=source,
+            )
+            return SemanticDocument([toc, alpha, beta])
+
+        unresolved, _html = render_reconciled_outputs(
+            fragment + "\n",
+            document_with_beta_target("missing"),
+            {},
+        )
+        self.assertEqual(unresolved, fragment + "\n")
+
+        resolved, _html = render_reconciled_outputs(
+            fragment + "\n",
+            document_with_beta_target("beta"),
+            {},
+        )
+        self.assertIn("- [Alpha](#alpha) — 1", resolved)
+        self.assertIn("  - [Beta](#beta) — 2", resolved)
+        self.assertNotIn(fragment, resolved)
+
     def test_encrypted_refusal_still_uses_authoritative_graph_contract(self) -> None:
         content = b"BT /F1 12 Tf 1 0 0 1 72 720 Tm (Ciphertext) Tj ET"
         objects = [

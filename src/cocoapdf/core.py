@@ -3106,6 +3106,7 @@ class MarkdownRenderer:
 			int,
 			Tuple[Tuple[Line, ...], int, int],
 		] = {}
+		self._reference_manual_signature_cache: Optional[bool] = None
 		self._line_analysis_frozen = False
 
 	def analyze(self) -> Dict[int, List[BlockEvent]]:
@@ -3134,6 +3135,7 @@ class MarkdownRenderer:
 		self._line_index_by_id.clear()
 		self._tagged_heading_level_cache.clear()
 		self._display_wrap_run_cache.clear()
+		self._reference_manual_signature_cache = None
 		self._line_analysis_frozen = False
 
 	def _freeze_line_analysis_caches(self) -> None:
@@ -18302,6 +18304,24 @@ def _has_preceding_reference_heading(
 	return False
 
 
+def _has_rule_bracketed_reference_manual(self: MarkdownRenderer) -> bool:
+	"""Whether the document contains an independently verified entry heading."""
+	cached = self._reference_manual_signature_cache
+	if cached is not None:
+		return cached
+	for page in sorted(self.lines_by_page):
+		lines = self.lines_by_page[page]
+		body_size = self._body_font_size(lines)
+		if any(
+			_rule_bracketed_reference_heading(self, candidate, body_size)
+			for candidate in lines
+		):
+			self._reference_manual_signature_cache = True
+			return True
+	self._reference_manual_signature_cache = False
+	return False
+
+
 def _reference_manual_subheading(
 	self: MarkdownRenderer,
 	line: Line,
@@ -18342,15 +18362,25 @@ def _styled_field_row(line: Line) -> Optional[Tuple[str, str]]:
 	key_parts: List[str] = []
 	value_parts: List[str] = []
 	seen_value = False
+	pending_whitespace = ""
 	for token in tokens:
 		text = str(token.get("text", ""))
 		style = tuple(token.get("style", (False,) * 8))
+		if not text.strip():
+			# Synthetic word-space tokens carry a neutral style. They separate
+			# source runs, but do not prove that a bold label has transitioned
+			# into a regular value. Defer them until the next visible token.
+			if key_parts or value_parts:
+				pending_whitespace += text
+			continue
 		if not seen_value and len(style) >= 3 and style[0] and not style[2]:
-			key_parts.append(text)
+			key_parts.append(pending_whitespace + text)
+			pending_whitespace = ""
 			continue
 		if key_parts:
 			seen_value = True
-			value_parts.append(text)
+			value_parts.append(pending_whitespace + text)
+			pending_whitespace = ""
 	key = cleanup_spaces("".join(key_parts)).strip()
 	value = cleanup_spaces("".join(value_parts)).strip()
 	if (
@@ -18371,7 +18401,19 @@ def _dense_styled_field_row(
 ) -> bool:
 	if body_size <= 0 or line.size > body_size * 1.08:
 		return False
-	if _styled_field_row(line) is None:
+	parsed = _styled_field_row(line)
+	if parsed is None:
+		return False
+	key, _value = parsed
+	if re.fullmatch(r"(?:\d+(?:\.\d+)*|[A-Z](?:\.\d+)*)\.?", key):
+		# A styled numeric/appendix prefix followed by a title is section
+		# structure, even when nearby metadata fields share its left edge.
+		return False
+	# This dense inline-field projection repairs metadata only in a document
+	# containing a separately verified, rule-bounded reference entry. Without
+	# that document-level signature, repeated academic lead-ins are an
+	# indistinguishable near-miss and stay in the ordinary heading/prose path.
+	if not _has_rule_bracketed_reference_manual(self):
 		return False
 	page_lines = self.lines_by_page.get(line.page, [])
 	aligned = 0

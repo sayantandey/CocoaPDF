@@ -34,6 +34,7 @@ class ReferenceManualAccuracyTests(unittest.TestCase):
 		self.assertTrue(Font("FI", "ABCDEF+NimbusRomNo9L-ReguItal").italic)
 		self.assertTrue(Font("FI", "ABCDEF+NimbusRomNo9L-MediItal").italic)
 		self.assertFalse(Font("FR", "ABCDEF+NimbusRomNo9L-Regu").italic)
+		self.assertTrue(Font("FP", "ABCDEF+URWPalladioL-Ital").italic)
 
 	def test_materially_contracted_repeated_word_spaces_are_recovered(self):
 		font = Font("F1", "NimbusRomNo9L-Regu")
@@ -187,6 +188,10 @@ class ReferenceManualAccuracyTests(unittest.TestCase):
 
 		toc = next(node for node in nodes if node.kind == "toc")
 		self.assertEqual([child.text for child in toc.children], ["alpha_fn", "beta_fn", "gamma_fn"])
+		# Two entries are excerpts without matching headings in this synthetic
+		# page, so Markdown keeps the source dot-leader block. The independent
+		# semantic graph still exposes all three TOC items.
+		self.assertNotIn(" — 1", markdown)
 		self.assertEqual(sum(node.kind == "table" for node in nodes), 2)
 		row_headers = [
 			node for node in nodes
@@ -275,6 +280,51 @@ class ReferenceManualAccuracyTests(unittest.TestCase):
 		self.assertEqual(hyphen_join_mode("pro-", "viding"), "delete")
 		self.assertEqual(hyphen_join_mode("pro-", "active"), "keep")
 		self.assertEqual(hyphen_join_mode("well-", "known"), "keep")
+
+	def test_reference_signature_preserves_front_matter_and_bold_heading(self):
+		operations = [
+			text_op(72, 750, "Opening prose establishes the ordinary size.", "F1", 10),
+			text_op(72, 724, "Title", "F2", 10),
+			text_op(120, 724, "Reference package", "F1", 10),
+			text_op(72, 706, "Version", "F2", 10),
+			text_op(130, 706, "2.0", "F1", 10),
+			text_op(72, 688, "Author", "F2", 10),
+			text_op(124, 688, "Example Maintainer", "F1", 10),
+			# Separate same-baseline bold operations create neutral synthetic
+			# spaces. They are typography boundaries only if the following visible
+			# token actually changes style.
+			text_op(72, 640, "Ablation", "F2", 10),
+			text_op(140, 640, "Studies", "F2", 10),
+			text_op(72, 610, "This section explains the measured ablation results.", "F1", 10),
+			line_op(72, 565, 540, 565, 0.4),
+			text_op(84, 545, "catalog_lookup", "FM", 10),
+			text_op(220, 545, "The primary lookup function", "FI", 10),
+			line_op(72, 528, 540, 528, 0.4),
+			text_op(72, 500, "Description", "F2", 10),
+			text_op(90, 482, "Returns a deterministic record.", "F1", 10),
+		]
+		result = convert(
+			make_pdf([b"\n".join(operations)], extra_fonts=EXTRA_FONTS),
+			ConvertOptions(output_format="both"),
+		)
+		self.assertIn(
+			"**Title** Reference package  \n**Version** 2.0  \n"
+			"**Author** Example Maintainer",
+			result.markdown,
+		)
+		self.assertRegex(result.markdown, r"(?m)^#+ Ablation Studies$")
+		headings = [node for node in result.semantic.walk() if node.kind == "heading"]
+		self.assertTrue(
+			any(
+				"".join(
+					child.text
+					for child in node.walk()
+					if child.kind == "text"
+				) == "Ablation Studies"
+				for node in headings
+			)
+		)
+		self.assertIn('id="ablation-studies"', result.html)
 
 
 if __name__ == "__main__":
