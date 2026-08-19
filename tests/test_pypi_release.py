@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import tempfile
 import unittest
@@ -36,14 +37,36 @@ class PyPIWorkflowTests(unittest.TestCase):
 		self.assertEqual(workflow.count("id-token: write"), 1)
 		self.assertNotIn("secrets.", workflow)
 		self.assertNotIn("PYPI_TOKEN", workflow)
+		self.assertNotIn("UV_PUBLISH_TOKEN", workflow)
+		self.assertNotIn("TWINE_PASSWORD", workflow)
+		self.assertNotIn("ACTIONS_ID_TOKEN_REQUEST_TOKEN", workflow)
 		self.assertNotIn("password:", workflow)
+		self.assertNotIn("pypa/gh-action-pypi-publish", workflow)
+		self.assertIn("uv==0.12.0", workflow)
 		self.assertIn(
-			"pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33",
+			"sha256:cbff74f884846d794713670faf8abe10db3bd70c43b01e63223f74eb7d958689",
 			workflow,
 		)
-		self.assertIn("verify-metadata: true", workflow)
-		self.assertIn("skip-existing: true", workflow)
-		self.assertIn("attestations: true", workflow)
+		self.assertIn("--only-binary=:all:", workflow)
+		self.assertIn("--require-hashes", workflow)
+		self.assertIn("--trusted-publishing always", workflow)
+		self.assertIn("--publish-url https://upload.pypi.org/legacy/", workflow)
+		self.assertIn("--check-url https://pypi.org/simple/", workflow)
+		self.assertIn("--no-config", workflow)
+
+		actions = re.findall(r"^\s*uses:\s*([^#\s]+)", workflow, flags=re.MULTILINE)
+		self.assertTrue(actions)
+		for action in actions:
+			self.assertTrue(
+				action.startswith("actions/"),
+				"publisher workflow uses an action forbidden by repository policy: %s" % action,
+			)
+			self.assertRegex(
+				action,
+				r"^actions/[A-Za-z0-9_.-]+@[0-9a-f]{40}$",
+				"every publisher action must be GitHub-owned and pinned to a full SHA",
+			)
+
 		self.assertIn("scripts/verify_pypi_artifacts.py local", workflow)
 		self.assertIn("scripts/verify_pypi_artifacts.py remote", workflow)
 		self.assertIn('"cocoapdf==${VERSION}"', workflow)
