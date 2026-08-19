@@ -221,14 +221,37 @@ jobs:
           --dist dist
           --version "${VERSION}"
 
+      - name: Install the hash-pinned uv publisher
+        shell: bash
+        run: |
+          set -euo pipefail
+          requirements="${RUNNER_TEMP}/uv-publisher-requirements.txt"
+          cat > "${requirements}" <<'EOF'
+          uv==0.12.0 \
+              --hash=sha256:cbff74f884846d794713670faf8abe10db3bd70c43b01e63223f74eb7d958689
+          EOF
+          python -m pip install \
+            --disable-pip-version-check \
+            --only-binary=:all: \
+            --require-hashes \
+            --no-deps \
+            --no-cache-dir \
+            --requirement "${requirements}"
+          [[ "$(uv --version)" == "uv 0.12.0" ]]
+
       - name: Publish with PyPI Trusted Publishing
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1, 2026-07-28
-        with:
-          packages-dir: dist/
-          verify-metadata: true
-          skip-existing: true
-          print-hash: true
-          attestations: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv publish \
+            --trusted-publishing always \
+            --publish-url https://upload.pypi.org/legacy/ \
+            --check-url https://pypi.org/simple/ \
+            --no-attestations \
+            --no-cache \
+            --no-config \
+            --no-progress \
+            dist/*
 
       - name: Verify published files by SHA-256
         env:
