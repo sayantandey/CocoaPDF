@@ -221,7 +221,7 @@ jobs:
           --dist dist
           --version "${VERSION}"
 
-      - name: Install the hash-pinned uv publisher
+      - name: Install and verify the hash-pinned uv publisher
         shell: bash
         run: |
           set -euo pipefail
@@ -237,23 +237,48 @@ jobs:
             --no-deps \
             --no-cache-dir \
             --requirement "${requirements}"
-          uv_version="$(uv -V)"
-          printf 'Installed publisher: %s\n' "${uv_version}"
-          [[ "${uv_version}" == "uv 0.12.0" ]]
 
-      - name: Publish with PyPI Trusted Publishing
+          python - <<'PY'
+          import importlib.metadata
+
+          expected = "0.12.0"
+          actual = importlib.metadata.version("uv")
+          if actual != expected:
+              raise SystemExit(
+                  "installed uv distribution version mismatch: expected %s, got %s"
+                  % (expected, actual)
+              )
+          print("Verified uv distribution version:", actual)
+          PY
+
+          publisher="$(python - <<'PY'
+          import sysconfig
+          from pathlib import Path
+
+          print(Path(sysconfig.get_path("scripts")) / "uv")
+          PY
+          )"
+          [[ -x "${publisher}" ]]
+          printf 'Publisher executable: %s\n' "${publisher}"
+          printf 'Publisher banner: %s\n' "$("${publisher}" --version)"
+          "${publisher}" publish --help >/dev/null
+          printf 'UV_PUBLISHER=%s\n' "${publisher}" >> "${GITHUB_ENV}"
+
+      - name: Preflight and publish with PyPI Trusted Publishing
         shell: bash
         run: |
           set -euo pipefail
-          uv publish \
-            --trusted-publishing always \
-            --publish-url https://upload.pypi.org/legacy/ \
-            --check-url https://pypi.org/simple/ \
-            --no-attestations \
-            --no-cache \
-            --no-config \
-            --no-progress \
-            dist/*
+          publish_args=(
+            --trusted-publishing always
+            --publish-url https://upload.pypi.org/legacy/
+            --check-url https://pypi.org/simple/
+            --no-attestations
+            --no-cache
+            --no-config
+            --no-progress
+          )
+          "${UV_PUBLISHER}" publish --dry-run "${publish_args[@]}" dist/*
+          "${UV_PUBLISHER}" publish "${publish_args[@]}" dist/*
 
       - name: Verify published files by SHA-256
         env:
@@ -275,11 +300,13 @@ jobs:
           python -m venv "${venv}"
           mkdir -p "${work}"
           installed=false
-          for attempt in {1..12}; do
+          for attempt in {1..24}; do
             if "${venv}/bin/python" -m pip install \
               --disable-pip-version-check \
               --no-cache-dir \
+              --no-deps \
               --only-binary=:all: \
+              --index-url https://pypi.org/simple \
               "cocoapdf==${VERSION}"; then
               installed=true
               break
