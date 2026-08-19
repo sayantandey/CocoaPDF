@@ -158,37 +158,52 @@ def verify_remote(
 	local_hashes = {path.name: _sha256(path) for path in expected.values()}
 	url = "https://pypi.org/pypi/%s/%s/json" % (PROJECT_NAME, version)
 	last_error: Optional[BaseException] = None
-	payload = None
+
 	for attempt in range(1, attempts + 1):
 		try:
-			request = urllib.request.Request(url, headers={"User-Agent": "CocoaPDF-release-verifier/1"})
+			request = urllib.request.Request(
+				url,
+				headers={"User-Agent": "CocoaPDF-release-verifier/1"},
+			)
 			with urllib.request.urlopen(request, timeout=20) as response:
 				payload = json.load(response)
-			break
-		except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+			_require(
+				payload["info"]["name"].casefold() == PROJECT_NAME,
+				"unexpected PyPI project identity",
+			)
+			_require(payload["info"]["version"] == version, "unexpected PyPI release version")
+			remote_hashes = {
+				entry["filename"]: entry["digests"]["sha256"]
+				for entry in payload.get("urls", [])
+				if entry.get("packagetype") in {"bdist_wheel", "sdist"}
+			}
+			_require(
+				remote_hashes == local_hashes,
+				"PyPI artifacts differ from the locally verified distributions: local=%s remote=%s"
+				% (local_hashes, remote_hashes),
+			)
+			return {
+				"project": PROJECT_NAME,
+				"version": version,
+				"url": url,
+				"files": remote_hashes,
+			}
+		except (
+			KeyError,
+			TypeError,
+			ValueError,
+			urllib.error.HTTPError,
+			urllib.error.URLError,
+			TimeoutError,
+		) as exc:
 			last_error = exc
-			if attempt == attempts:
-				break
-			time.sleep(delay_seconds)
-	_require(payload is not None, "PyPI release did not become visible: %s" % last_error)
-	_require(payload["info"]["name"].casefold() == PROJECT_NAME, "unexpected PyPI project identity")
-	_require(payload["info"]["version"] == version, "unexpected PyPI release version")
-	remote_hashes = {
-		entry["filename"]: entry["digests"]["sha256"]
-		for entry in payload.get("urls", [])
-		if entry.get("packagetype") in {"bdist_wheel", "sdist"}
-	}
-	_require(
-		remote_hashes == local_hashes,
-		"PyPI artifacts differ from the locally verified distributions: local=%s remote=%s"
-		% (local_hashes, remote_hashes),
+			if attempt < attempts:
+				time.sleep(delay_seconds)
+
+	raise ValueError(
+		"PyPI release did not become byte-exact after %d attempts: %s"
+		% (attempts, last_error)
 	)
-	return {
-		"project": PROJECT_NAME,
-		"version": version,
-		"url": url,
-		"files": remote_hashes,
-	}
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
