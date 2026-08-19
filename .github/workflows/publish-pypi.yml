@@ -237,7 +237,9 @@ jobs:
             --no-deps \
             --no-cache-dir \
             --requirement "${requirements}"
-          [[ "$(uv --version)" == "uv 0.12.0" ]]
+          uv_version="$(uv -V)"
+          printf 'Installed publisher: %s\n' "${uv_version}"
+          [[ "${uv_version}" == "uv 0.12.0" ]]
 
       - name: Publish with PyPI Trusted Publishing
         shell: bash
