@@ -161,6 +161,15 @@ by a full audit and gate rerun. Keep CODEOWNERS review and admin-enforced branch
 protection enabled for these paths; otherwise a passing change could weaken the
 workflow that evaluates the next pull request.
 
+The hash-locked `evaluator-requirements.txt` is part of that privileged
+boundary. A pull request that changes it is expected to fail the pre-merge
+trusted gate before dependency installation; this prevents candidate-controlled
+code from changing its own scorer. Apply security updates as an audited
+owner/admin bootstrap: review upstream advisories and compatibility, verify the
+exact distribution hashes, run the pinned evaluator tests, and require the new
+default branch to complete a trusted gate run before treating the update as
+verified.
+
 ## Metric notes worth knowing before optimising
 
 Established by reading the evaluator at benchmark commit `7af1d8f`:
