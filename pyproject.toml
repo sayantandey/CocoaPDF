@@ -57,7 +57,7 @@ Changelog = "https://github.com/sayantandey/CocoaPDF/releases"
 cocoapdf = "cocoapdf.cli:main"
 
 [project.optional-dependencies]
-build = ["pyinstaller==6.21.0"]
+build = ["pyinstaller==6.22.2"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
